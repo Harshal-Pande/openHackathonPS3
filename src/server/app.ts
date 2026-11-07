@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { AppConfig } from './config.js';
+import { AppConfig, ensureAppConfig } from './config.js';
 import { Database } from './db/database.js';
 import { ChainstackProvider } from './providers/chainstack.js';
 import { CencoriProvider } from './providers/cencori.js';
@@ -38,7 +38,8 @@ const KillSwitchBodySchema = z.object({
   enabled: z.boolean()
 });
 
-export function buildApp(appConfig: AppConfig, deps: AppDependencies = {}): FastifyInstance {
+export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: AppDependencies = {}): FastifyInstance {
+  const appConfig = ensureAppConfig(rawConfig);
   const server = fastify({
     logger: false,
     genReqId: () => randomUUID()

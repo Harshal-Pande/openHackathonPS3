@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadConfig } from '../src/server/config.js';
+import { loadConfig, createTestConfig, ensureAppConfig } from '../src/server/config.js';
 
 describe('Environment Config Validation', () => {
   it('loads valid default configurations safely', () => {
@@ -58,6 +58,33 @@ describe('Environment Config Validation', () => {
       'chainstack.celo',
       'cencori.v1.chat.completions'
     ]);
+  });
+
+  it('handles array inputs directly and falls back gracefully with ensureAppConfig', () => {
+    const rawConfig = {
+      NODE_ENV: 'test' as const,
+      BUY_ALLOWED_CAPABILITY_IDS: ['cencori.v1.chat.completions'],
+      BUY_ALLOWED_TOKEN_CONTRACTS: ['0xcebA9300f2b948710d2653dD7B07f33A8B32118C'],
+      BUY_ALLOWED_RECIPIENTS: ['0x20fAACA5f980E29639A0Fcc6dca6988E18ed333B']
+    };
+
+    const config = loadConfig(rawConfig as any);
+    expect(config.BUY_ALLOWED_CAPABILITY_IDS).toEqual(['cencori.v1.chat.completions']);
+    expect(config.BUY_ALLOWED_TOKEN_CONTRACTS).toEqual(['0xceba9300f2b948710d2653dd7b07f33a8b32118c']);
+    expect(config.BUY_ALLOWED_RECIPIENTS).toEqual(['0x20faaca5f980e29639a0fcc6dca6988e18ed333b']);
+  });
+
+  it('createTestConfig provides safe defaults with required array fields present', () => {
+    const testCfg = createTestConfig({ BUY_ENABLED: true });
+    expect(Array.isArray(testCfg.BUY_ALLOWED_CAPABILITY_IDS)).toBe(true);
+    expect(Array.isArray(testCfg.BUY_ALLOWED_TOKEN_CONTRACTS)).toBe(true);
+    expect(Array.isArray(testCfg.BUY_ALLOWED_RECIPIENTS)).toBe(true);
+    expect(testCfg.BUY_ENABLED).toBe(true);
+
+    const ensured = ensureAppConfig({});
+    expect(Array.isArray(ensured.BUY_ALLOWED_CAPABILITY_IDS)).toBe(true);
+    expect(Array.isArray(ensured.BUY_ALLOWED_TOKEN_CONTRACTS)).toBe(true);
+    expect(Array.isArray(ensured.BUY_ALLOWED_RECIPIENTS)).toBe(true);
   });
 });
 

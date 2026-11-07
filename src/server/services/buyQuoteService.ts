@@ -36,13 +36,24 @@ export class BuyQuoteServiceError extends Error {
   }
 }
 
-const DEFAULT_ALLOWED_CAPABILITIES = ['cencori.v1.chat.completions', 'chainstack.celo'];
-const DEFAULT_ALLOWED_RECIPIENTS = ['0x20faaca5f980e29639a0fcc6dca6988e18ed333b'];
-const DEFAULT_ALLOWED_TOKENS = [
+export const DEFAULT_ALLOWED_CAPABILITIES = ['cencori.v1.chat.completions', 'chainstack.celo'];
+export const DEFAULT_ALLOWED_RECIPIENTS = ['0x20faaca5f980e29639a0fcc6dca6988e18ed333b'];
+export const DEFAULT_ALLOWED_TOKENS = [
   '0xceba9300f2b948710d2653dd7b07f33a8b32118c', // USDC
   '0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e', // USDT
   '0xd2ab3c9a02dbbab236bfec45d1d755df4267f771'  // USAT (Tether America USD)
 ];
+
+/**
+ * Resolves allowlists: if configured list is empty or omitted, returns authoritative defaults.
+ * If explicitly configured with values, returns configured list.
+ */
+export function resolveAllowlist(configured: string[] | undefined | null, defaults: string[]): string[] {
+  if (!configured || configured.length === 0) {
+    return defaults;
+  }
+  return configured.map(s => (typeof s === 'string' ? s.trim() : s)).filter(Boolean);
+}
 
 export class BuyQuoteService {
   constructor(
@@ -87,10 +98,7 @@ export class BuyQuoteService {
     }
 
     // 2. Validate Capability ID Allowlist
-    const allowedCaps =
-      this.config.BUY_ALLOWED_CAPABILITY_IDS && this.config.BUY_ALLOWED_CAPABILITY_IDS.length > 0
-        ? this.config.BUY_ALLOWED_CAPABILITY_IDS
-        : DEFAULT_ALLOWED_CAPABILITIES;
+    const allowedCaps = resolveAllowlist(this.config.BUY_ALLOWED_CAPABILITY_IDS, DEFAULT_ALLOWED_CAPABILITIES);
     if (!allowedCaps.includes(params.capabilityId)) {
       throw new BuyQuoteServiceError(
         `Capability "${params.capabilityId}" is not in the approved Buy capability allowlist.`,
@@ -100,10 +108,7 @@ export class BuyQuoteService {
     }
 
     // 3. Validate Token Contract Allowlist
-    const allowedTokens =
-      this.config.BUY_ALLOWED_TOKEN_CONTRACTS && this.config.BUY_ALLOWED_TOKEN_CONTRACTS.length > 0
-        ? this.config.BUY_ALLOWED_TOKEN_CONTRACTS
-        : DEFAULT_ALLOWED_TOKENS;
+    const allowedTokens = resolveAllowlist(this.config.BUY_ALLOWED_TOKEN_CONTRACTS, DEFAULT_ALLOWED_TOKENS);
     const cleanToken = params.tokenContract.toLowerCase();
     if (!allowedTokens.includes(cleanToken)) {
       throw new BuyQuoteServiceError(
@@ -114,10 +119,7 @@ export class BuyQuoteService {
     }
 
     // 4. Validate Recipient / Payee Allowlist
-    const allowedRecipients =
-      this.config.BUY_ALLOWED_RECIPIENTS && this.config.BUY_ALLOWED_RECIPIENTS.length > 0
-        ? this.config.BUY_ALLOWED_RECIPIENTS
-        : DEFAULT_ALLOWED_RECIPIENTS;
+    const allowedRecipients = resolveAllowlist(this.config.BUY_ALLOWED_RECIPIENTS, DEFAULT_ALLOWED_RECIPIENTS);
     const cleanRecipient = params.recipient.toLowerCase();
     if (!allowedRecipients.includes(cleanRecipient)) {
       throw new BuyQuoteServiceError(

@@ -24,11 +24,11 @@ The project was audited across 18 technical domains and reconciled against fresh
 
 | Gate | Domain | Evaluation | Key Evidence |
 |:---:|:---|:---:|:---|
-| **GATE A** | **Core Application Functionality** | **`PASS`** | Mined tx, receipt, and OP Geth trace retrieval live from Celo Mainnet; 5-tier causality classifier; 11/11 golden cases pass; SQLite round-trip persistence verified. |
-| **GATE B** | **Technical Release Readiness** | **`PASS`** | 93/93 tests pass (13 suites, 1.72s); 0 TypeScript errors; clean production build; real Headless Chrome CDP browser E2E verified with 5 PNG screenshots. |
+| **GATE A** | **Core Application Functionality** | **`PASS`** | Mined tx, receipt, and OP Geth trace retrieval live from Celo Mainnet; 5-tier causality classifier; 11/11 golden cases pass; SQLite round-trip persistence verified with child OS process isolation. |
+| **GATE B** | **Technical Release Readiness** | **`PASS`** | 99/99 tests pass (13 suites, < 2.0s); 0 TypeScript errors; clean production build; real Headless Chrome CDP browser E2E verified with hard assertions and 5 PNG screenshots; DEF-13 configuration contract resolved. |
 | **GATE C** | **Public Deployment Readiness** | **`CONDITIONAL_PASS`** | Multi-stage Dockerfile and deployment guides pass static audit. Local Docker runtime untested due to lack of local host daemon; cloud deployment pending operator setup. |
-| **GATE D** | **Hackathon Submission Eligibility** | **`CONDITIONAL`** | Core product is complete and track-compliant; external operator actions pending (demo video recording, cloud hosting, optional ERC-8004 identity registration). |
-| **GATE E** | **Buy Payment Evidence** | **`VERIFIED ($0.00 SPENT)`** | Buy CLI architecture and quote lifecycle verified; read-only HTTP 402 challenge verified; $0.00 personal funds expended. |
+| **GATE D** | **Hackathon Submission Eligibility** | **`CONDITIONAL`** | Core product is complete, tested, and track-compliant; ready for deployment, pending operator credentials, cloud hosting, and demo video recording. |
+| **GATE E** | **Buy Payment Evidence** | **`NOT_MET — NO VERIFIED PAID SETTLEMENT`** | Buy CLI architecture and quote lifecycle verified; read-only HTTP 402 challenge verified; $0.00 personal funds expended; live on-chain settlement not executed. |
 
 ---
 

@@ -16,7 +16,8 @@
 
 - **Visual:** Switch to RevertLens web dashboard at `http://localhost:3000`. Paste candidate hash:
   `0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445`
-  Click **Investigate Failure**.
+  (or click **Load Verified Sample Failed Tx (Swap Reverted)**).
+  Click **Inspect Transaction**.
 - **Voiceover:**
   > "RevertLens connects directly to our high-performance Chainstack Celo Mainnet archive node running OP Geth. We query the transaction, fetch the receipt, and execute a full debug_traceTransaction call using callTracer in real time."
 - **Visual:** Investigation results load. Highlight the red status badge: `REVERTED`, Gas used: `54,232`.
@@ -34,10 +35,10 @@
 
 ## Act 4: AI Layer & Buy Marketplace Architecture (2:00 - 2:35)
 
-- **Visual:** Scroll to the **Cencori AI Explanation** card and the **Buy Payment Ledger** panel.
+- **Visual:** Scroll to the **Cencori AI Explanation** card (showing "AI enhancement is currently disabled. Deterministic chain evidence is authoritative" in zero-spend mode) and the **Buy Payment Ledger** panel showing transparent $0.01 quotes and zero spend incurred.
 - **Voiceover:**
   > "For human readability, RevertLens integrates Cencori's LLM through the official Celo Buy marketplace. To prevent AI hallucinations, we enforce a strict 10-rule Zod validator: the AI cannot invent phantom pools or fake balances—it must cite verified evidence items.
-  > Under the hood, our Buy payment state machine handles quotes, budget caps, and cryptographic body-hash binding. In this demonstration, we operate under a strict zero-spend mode with transparent quotes, showing exactly how paid inference seamlessly activates when funded."
+  > Under the hood, our Buy payment state machine handles quotes, budget caps, and cryptographic body-hash binding. In this demonstration, we operate under a strict zero-spend mode (`CENCORI_ENABLED=false`) with transparent quotes, showing exactly how paid inference seamlessly activates when funded."
 
 ---
 

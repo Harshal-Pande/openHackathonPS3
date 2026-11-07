@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Database } from '../src/server/db/database.js';
-import { loadConfig } from '../src/server/config.js';
-import { BuyQuoteService } from '../src/server/services/buyQuoteService.js';
+import { loadConfig, createTestConfig } from '../src/server/config.js';
+import {
+  BuyQuoteService,
+  resolveAllowlist,
+  DEFAULT_ALLOWED_CAPABILITIES,
+  DEFAULT_ALLOWED_RECIPIENTS,
+  DEFAULT_ALLOWED_TOKENS
+} from '../src/server/services/buyQuoteService.js';
 
 describe('Buy Quote Service & Operator Approval Lifecycle', () => {
   let db: Database;
@@ -159,5 +165,49 @@ describe('Buy Quote Service & Operator Approval Lifecycle', () => {
         isOperatorAuthenticated: true
       })
     ).rejects.toThrow('expired');
+  });
+
+  describe('Allowlist Resolution and DEF-13 Robustness', () => {
+    it('resolveAllowlist uses defaults when configured list is undefined, null, or empty', () => {
+      const defaults = ['alpha', 'beta'];
+      expect(resolveAllowlist(undefined, defaults)).toEqual(['alpha', 'beta']);
+      expect(resolveAllowlist(null, defaults)).toEqual(['alpha', 'beta']);
+      expect(resolveAllowlist([], defaults)).toEqual(['alpha', 'beta']);
+    });
+
+    it('resolveAllowlist lowercases and trims entries when provided', () => {
+      const defaults = ['alpha'];
+      expect(resolveAllowlist(['  FooBar  ', '  BAZ  '], defaults)).toEqual(['FooBar', 'BAZ']);
+    });
+
+    it('works when BuyQuoteService is initialized with missing or empty allowlists', async () => {
+      const minimalConfig = createTestConfig({
+        BUY_ENABLED: true,
+        BUY_ALLOWED_CAPABILITY_IDS: [],
+        BUY_ALLOWED_TOKEN_CONTRACTS: [],
+        BUY_ALLOWED_RECIPIENTS: []
+      });
+      const robustService = new BuyQuoteService(db, minimalConfig);
+
+      // Should succeed using default allowlists
+      const quote = await robustService.createQuote(validQuoteParams);
+      expect(quote.quoteId).toBeDefined();
+      expect(quote.status).toBe('AWAITING_OPERATOR_APPROVAL');
+    });
+
+    it('strictly enforces custom allowlists when explicitly configured', async () => {
+      const customConfig = createTestConfig({
+        BUY_ENABLED: true,
+        BUY_ALLOWED_CAPABILITY_IDS: ['custom.capability'],
+        BUY_ALLOWED_TOKEN_CONTRACTS: ['0x1111111111111111111111111111111111111111'],
+        BUY_ALLOWED_RECIPIENTS: ['0x2222222222222222222222222222222222222222']
+      });
+      const customService = new BuyQuoteService(db, customConfig);
+
+      // Should reject standard params because capability is not custom.capability
+      await expect(
+        customService.createQuote(validQuoteParams)
+      ).rejects.toThrow('not in the approved Buy capability allowlist');
+    });
   });
 });

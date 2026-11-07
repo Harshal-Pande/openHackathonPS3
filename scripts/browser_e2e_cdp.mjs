@@ -70,6 +70,7 @@ class CdpClient {
   async captureScreenshot(filepath) {
     const res = await this.send('Page.captureScreenshot', { format: 'png' });
     const buffer = Buffer.from(res.data, 'base64');
+    fs.mkdirSync(path.dirname(filepath), { recursive: true });
     fs.writeFileSync(filepath, buffer);
   }
 
@@ -78,9 +79,26 @@ class CdpClient {
   }
 }
 
+async function assertScreenshot(cdp, filepath) {
+  await cdp.captureScreenshot(filepath);
+  if (!fs.existsSync(filepath)) {
+    throw new Error(`Assertion failed: Screenshot not created at ${filepath}`);
+  }
+  const stat = fs.statSync(filepath);
+  if (stat.size === 0) {
+    throw new Error(`Assertion failed: Screenshot file ${filepath} is empty`);
+  }
+  console.log(`  ✓ Screenshot verified: ${filepath} (${stat.size} bytes)`);
+}
+
 async function runBrowserE2E() {
-  console.log('=== REVERTLENS FULL BROWSER E2E INTERACTION & SCREENSHOT TEST ===');
-  console.log(`Port: ${PORT} | CDP: ${CDP_PORT}`);
+  console.log('=================================================================');
+  console.log(' REVERTLENS RIGOROUS BROWSER E2E INTERACTION & AUDIT TEST');
+  console.log(` Timestamp:       ${new Date().toISOString()}`);
+  console.log(` Port:            ${PORT}`);
+  console.log(` CDP Debug Port:  ${CDP_PORT}`);
+  console.log(` Chrome Binary:   ${CHROME_PATH}`);
+  console.log('=================================================================\n');
 
   // 1. Start Server
   const config = {
@@ -162,10 +180,9 @@ async function runBrowserE2E() {
     console.log(`  ✓ Brand Title: "${title}"`);
     console.log(`  ✓ Subtitle: "${subtitle}"`);
     if (title !== 'RevertLens') throw new Error(`Unexpected title: ${title}`);
+    if (!subtitle || subtitle.length === 0) throw new Error('Missing subtitle');
 
-    // Capture Home Screenshot
-    await cdp.captureScreenshot('screenshots/e2e_desktop_home.png');
-    console.log('  ✓ Screenshot captured: screenshots/e2e_desktop_home.png');
+    await assertScreenshot(cdp, 'screenshots/e2e_desktop_home.png');
 
     // A.2 Test Invalid Transaction Input
     console.log('\n  [A.2] Testing Invalid Transaction Input & Validation Error...');
@@ -179,11 +196,10 @@ async function runBrowserE2E() {
 
     const validationMsg = await cdp.eval(`document.querySelector("p[style*='color: rgb(248, 113, 113)']")?.innerText`);
     console.log(`  ✓ Validation Error Rendered: "${validationMsg}"`);
-    if (!validationMsg?.includes('0x-prefixed 64-character hexadecimal')) {
+    if (!validationMsg || !validationMsg.includes('0x-prefixed 64-character hexadecimal')) {
       throw new Error(`Validation message missing or incorrect: ${validationMsg}`);
     }
-    await cdp.captureScreenshot('screenshots/e2e_desktop_invalid_input.png');
-    console.log('  ✓ Screenshot captured: screenshots/e2e_desktop_invalid_input.png');
+    await assertScreenshot(cdp, 'screenshots/e2e_desktop_invalid_input.png');
 
     // A.3 Test Loading Verified Sample Transaction
     console.log('\n  [A.3] Testing "Load Verified Sample Failed Tx" button...');
@@ -204,6 +220,9 @@ async function runBrowserE2E() {
 
     const loadingText = await cdp.eval('document.querySelector("h3")?.innerText');
     console.log(`  ✓ Loading State Headline: "${loadingText}"`);
+    if (!loadingText) {
+      throw new Error('Loading state failed to display');
+    }
 
     // A.5 Wait for Live Response and Report Render
     console.log('\n  [A.5] Waiting for Live Report Generation...');
@@ -222,27 +241,75 @@ async function runBrowserE2E() {
 
     // A.6 Inspect Resulting Diagnosis
     const diagnosisHeadline = await cdp.eval('document.querySelector("h2[style*=\'color: rgb(248, 250, 252)\']")?.innerText');
-    const statusBadge = await cdp.eval('document.querySelector("span[style*=\'font-weight: 800\']")?.innerText');
+    const badges = await cdp.eval(`Array.from(document.querySelectorAll("span[style*='font-weight: 800']")).map(s => s.innerText)`);
     console.log(`  ✓ Diagnosis Headline: "${diagnosisHeadline}"`);
-    console.log(`  ✓ Diagnosis Status: "${statusBadge}"`);
+    console.log(`  ✓ Status Badges: [${badges.join(', ')}]`);
+    if (!diagnosisHeadline || !diagnosisHeadline.includes('execution reverted')) {
+      throw new Error(`Unexpected diagnosis headline: ${diagnosisHeadline}`);
+    }
+    if (!badges.includes('REVERTED')) {
+      throw new Error(`Expected REVERTED badge in [${badges.join(', ')}]`);
+    }
+    if (!badges.includes('DETERMINISTIC ANALYSIS')) {
+      throw new Error(`Expected DETERMINISTIC ANALYSIS badge in [${badges.join(', ')}]`);
+    }
 
     // A.7 Verify Call Tree and Failure Propagation
     const treeText = await cdp.eval('document.body.innerText');
     const hasSwapReverted = treeText.includes('Swap reverted') || treeText.includes('execution reverted');
-    const hasPropSupported = treeText.includes('PROPAGATION_SUPPORTED') || treeText.includes('PROPAGATED_CHILD_REVERT');
-    console.log(`  ✓ Call Tree contains revert error: ${hasSwapReverted}`);
-    console.log(`  ✓ Causality propagation displayed: ${hasPropSupported}`);
+    const hasPropSupported = treeText.includes('Propagated') || treeText.includes('PROPAGATED_CHILD_REVERT') || treeText.includes('FAILURE_PROPAGATION');
+    if (!hasSwapReverted) throw new Error('Call tree missing expected revert error text');
+    if (!hasPropSupported) throw new Error('Call tree missing expected causality propagation status');
+    console.log(`  ✓ Call Tree contains revert error (ASSERTION PASSED)`);
+    console.log(`  ✓ Causality propagation displayed (ASSERTION PASSED)`);
 
     // A.8 Verify Evidence Items
     const hasEvidence = treeText.includes('E-01') && treeText.includes('E-02');
-    console.log(`  ✓ Evidence Ledger [E-01, E-02] displayed: ${hasEvidence}`);
+    if (!hasEvidence) throw new Error('Evidence ledger missing E-01/E-02 citations');
+    console.log(`  ✓ Evidence Ledger [E-01, E-02] displayed (ASSERTION PASSED)`);
 
-    // Capture Full Investigation Screenshot
-    await cdp.captureScreenshot('screenshots/e2e_desktop_investigation_result.png');
-    console.log('  ✓ Screenshot captured: screenshots/e2e_desktop_investigation_result.png');
+    await assertScreenshot(cdp, 'screenshots/e2e_desktop_investigation_result.png');
 
-    // A.9 Test Page Reload & SQLite Recovery
-    console.log('\n  [A.9] Testing Page Reload & SQLite History Recovery...');
+    // A.9 Test JSON Export Functionality
+    console.log('\n  [A.9] Testing JSON Export Functionality...');
+    await cdp.eval(`
+      window.__downloadBlob = null;
+      const origCreate = URL.createObjectURL;
+      URL.createObjectURL = function(blob) {
+        const reader = new FileReader();
+        reader.onload = () => { window.__downloadBlob = reader.result; };
+        reader.readAsText(blob);
+        return origCreate.apply(this, arguments);
+      };
+    `);
+
+    await cdp.eval(`
+      const btn = Array.from(document.querySelectorAll("button")).find(b => b.innerText.includes("Download JSON Report"));
+      if (!btn) throw new Error("Download JSON Report button not found");
+      btn.click();
+    `);
+
+    let exportedJson = null;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      exportedJson = await cdp.eval('window.__downloadBlob');
+      if (exportedJson) break;
+    }
+    if (!exportedJson) {
+      throw new Error('Assertion failed: Download JSON Report button did not generate blob payload');
+    }
+
+    const parsedExport = JSON.parse(exportedJson);
+    if (!parsedExport.txHash || parsedExport.txHash.toLowerCase() !== CANDIDATE_TX.toLowerCase()) {
+      throw new Error(`Exported JSON txHash mismatch: ${parsedExport.txHash}`);
+    }
+    if (!parsedExport.evidenceLedger || parsedExport.evidenceLedger.length === 0) {
+      throw new Error('Exported JSON missing evidence ledger');
+    }
+    console.log(`  ✓ JSON Export verified: contains ${parsedExport.evidenceLedger.length} evidence items and matches candidate tx`);
+
+    // A.10 Test Page Reload & SQLite Recovery
+    console.log('\n  [A.10] Testing Page Reload & SQLite History Recovery...');
     await cdp.send('Page.reload');
     await new Promise((r) => setTimeout(r, 1000));
 
@@ -257,7 +324,9 @@ async function runBrowserE2E() {
     await new Promise((r) => setTimeout(r, 500));
     const reloadedHeadline = await cdp.eval('document.querySelector("h2[style*=\'color: rgb(248, 250, 252)\']")?.innerText');
     console.log(`  ✓ Re-hydrated Report Headline from SQLite: "${reloadedHeadline}"`);
-    if (!reloadedHeadline) throw new Error('Failed to reload report from history drawer');
+    if (!reloadedHeadline || !reloadedHeadline.includes('execution reverted')) {
+      throw new Error(`Failed to reload report from history drawer: ${reloadedHeadline}`);
+    }
 
     // ==========================================================
     // PHASE B: MOBILE VIEWPORT TESTING (iPhone X / 375x812)
@@ -273,23 +342,24 @@ async function runBrowserE2E() {
     await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}` });
     await new Promise((r) => setTimeout(r, 1000));
 
-    // Capture Mobile Home Screenshot
-    await cdp.captureScreenshot('screenshots/e2e_mobile_home.png');
-    console.log('  ✓ Screenshot captured: screenshots/e2e_mobile_home.png');
+    await assertScreenshot(cdp, 'screenshots/e2e_mobile_home.png');
 
     // Verify mobile layout
     const mobileInput = await cdp.eval('Boolean(document.getElementById("txHash"))');
     const mobileBtn = await cdp.eval('Boolean(document.querySelector("button[type=\'submit\']"))');
-    console.log(`  ✓ Mobile Input rendered: ${mobileInput}`);
-    console.log(`  ✓ Mobile Button rendered: ${mobileBtn}`);
+    if (!mobileInput) throw new Error('Mobile viewport missing txHash input element');
+    if (!mobileBtn) throw new Error('Mobile viewport missing submit button');
+    console.log(`  ✓ Mobile Input and Button verified (ASSERTION PASSED)`);
 
     // Click recent item in mobile view
     await cdp.eval('document.querySelector("div[style*=\'cursor: pointer\'][style*=\'justify-content: space-between\']").click()');
     await new Promise((r) => setTimeout(r, 500));
-    await cdp.captureScreenshot('screenshots/e2e_mobile_investigation_result.png');
-    console.log('  ✓ Screenshot captured: screenshots/e2e_mobile_investigation_result.png');
+    await assertScreenshot(cdp, 'screenshots/e2e_mobile_investigation_result.png');
 
-    console.log('\n=== REAL BROWSER E2E TEST VERIFICATION COMPLETED (ALL PASSED) ===');
+    console.log('\n=================================================================');
+    console.log(' ALL BROWSER E2E ASSERTIONS & SCREENSHOTS PASSED (EXIT CODE 0)');
+    console.log(' Desktop & Mobile Viewports Fully Validated with Hard Assertions');
+    console.log('=================================================================\n');
   } finally {
     cdp.close();
     chromeProcess.kill();

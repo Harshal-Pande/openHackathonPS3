@@ -7,6 +7,34 @@ dotenv.config();
 const PLACEHOLDER_SESSION_SECRET = 'REPLACE_WITH_RANDOM_32_BYTE_OR_LONGER_SECRET';
 const PLACEHOLDER_OPERATOR_HASH = 'REPLACE_WITH_ARGON2ID_HASH';
 
+const booleanField = z
+  .union([
+    z.boolean(),
+    z.string().transform((val) => val.toLowerCase() === 'true')
+  ])
+  .default(false);
+
+const tokenContractsField = z
+  .union([
+    z.array(z.string()).transform((arr) => arr.map((s) => s.trim().toLowerCase())),
+    z.string().transform((val) => (val ? val.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) : []))
+  ])
+  .default([]);
+
+const recipientsField = z
+  .union([
+    z.array(z.string()).transform((arr) => arr.map((s) => s.trim().toLowerCase())),
+    z.string().transform((val) => (val ? val.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) : []))
+  ])
+  .default([]);
+
+const capabilityIdsField = z
+  .union([
+    z.array(z.string()).transform((arr) => arr.map((s) => s.trim())),
+    z.string().transform((val) => (val ? val.split(',').map((s) => s.trim()).filter(Boolean) : []))
+  ])
+  .default([]);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3000),
@@ -27,36 +55,18 @@ const envSchema = z.object({
   // No private keys or seed phrases are accepted or stored by this application.
   BUY_CLI_EXECUTABLE: z.string().default('npx'),
   BUY_CLI_ARGS_PREFIX: z.string().default('@celo/buy@latest'),
-  BUY_ENABLED: z
-    .string()
-    .default('false')
-    .transform((val) => val === 'true'),
+  BUY_ENABLED: booleanField,
   BUY_DAILY_BUDGET_ATOMIC: z.string().regex(/^\d+$/).default('0'),
   BUY_PER_INVESTIGATION_BUDGET_ATOMIC: z.string().regex(/^\d+$/).default('0'),
   BUY_PER_CALL_CAP_ATOMIC: z.string().regex(/^\d+$/).default('0'),
-  BUY_ALLOWED_TOKEN_CONTRACTS: z
-    .string()
-    .default('')
-    .transform((val) => (val ? val.split(',').map((s) => s.trim().toLowerCase()) : [])),
-  BUY_ALLOWED_RECIPIENTS: z
-    .string()
-    .default('')
-    .transform((val) => (val ? val.split(',').map((s) => s.trim().toLowerCase()) : [])),
-  BUY_ALLOWED_CAPABILITY_IDS: z
-    .string()
-    .default('')
-    .transform((val) => (val ? val.split(',').map((s) => s.trim()) : [])),
+  BUY_ALLOWED_TOKEN_CONTRACTS: tokenContractsField,
+  BUY_ALLOWED_RECIPIENTS: recipientsField,
+  BUY_ALLOWED_CAPABILITY_IDS: capabilityIdsField,
 
-  CENCORI_ENABLED: z
-    .string()
-    .default('false')
-    .transform((val) => val === 'true'),
+  CENCORI_ENABLED: booleanField,
 
   REPORT_TTL_DAYS: z.coerce.number().int().positive().default(14),
-  REPORTS_PUBLIC_BY_DEFAULT: z
-    .string()
-    .default('false')
-    .transform((val) => val === 'true')
+  REPORTS_PUBLIC_BY_DEFAULT: booleanField
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
@@ -97,7 +107,7 @@ function enforceProductionInvariants(config: AppConfig): void {
   }
 }
 
-export function loadConfig(rawEnv: Record<string, string | undefined> = process.env): AppConfig {
+export function loadConfig(rawEnv: Record<string, unknown> = process.env): AppConfig {
   const result = envSchema.safeParse(rawEnv);
   if (!result.success) {
     const errorDetails = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
@@ -106,6 +116,44 @@ export function loadConfig(rawEnv: Record<string, string | undefined> = process.
   const config = result.data;
   enforceProductionInvariants(config);
   return config;
+}
+
+/**
+ * Normalizes and validates any configuration input ensuring complete, authoritative AppConfig.
+ */
+export function ensureAppConfig(input: unknown): AppConfig {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('Application configuration must be an object.');
+  }
+  return loadConfig(input as Record<string, unknown>);
+}
+
+/**
+ * Reusable test configuration factory providing guaranteed complete AppConfig fields.
+ */
+export function createTestConfig(overrides: Record<string, unknown> = {}): AppConfig {
+  const base: Record<string, unknown> = {
+    NODE_ENV: 'test',
+    PORT: 3000,
+    HOST: '127.0.0.1',
+    DATABASE_PATH: ':memory:',
+    PUBLIC_BASE_URL: 'http://localhost:3000',
+    SESSION_SECRET: 'test_session_secret_32_characters_minimum_length',
+    OPERATOR_PASSWORD_HASH: 'test_operator_hash_for_unit_tests',
+    CORS_ORIGIN: 'http://localhost:5173',
+    BUY_ENABLED: false,
+    CENCORI_ENABLED: false,
+    BUY_DAILY_BUDGET_ATOMIC: '0',
+    BUY_PER_INVESTIGATION_BUDGET_ATOMIC: '0',
+    BUY_PER_CALL_CAP_ATOMIC: '0',
+    BUY_ALLOWED_TOKEN_CONTRACTS: [],
+    BUY_ALLOWED_RECIPIENTS: [],
+    BUY_ALLOWED_CAPABILITY_IDS: [],
+    REPORT_TTL_DAYS: 14,
+    REPORTS_PUBLIC_BY_DEFAULT: false,
+    ...overrides
+  };
+  return loadConfig(base);
 }
 
 export const config = loadConfig();

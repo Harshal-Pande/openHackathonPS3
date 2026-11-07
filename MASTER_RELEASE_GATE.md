@@ -16,8 +16,8 @@ Rather than a single monolithic assessment that conflates local software enginee
 GATE A: Core Application Functionality           ===>  PASS
 GATE B: Technical Release Readiness              ===>  PASS
 GATE C: Public Deployment Readiness              ===>  CONDITIONAL_PASS (Hosting Pending)
-GATE D: Hackathon Submission Eligibility         ===>  CONDITIONAL (Operator Actions Pending)
-GATE E: Actual Build with Buy Payment Evidence   ===>  VERIFIED ($0.00 SPENT / PRE-FLIGHT READY)
+GATE D: Hackathon Submission Eligibility         ===>  CONDITIONAL (Ready for deployment, pending operator credentials & video)
+GATE E: Actual Build with Buy Payment Evidence   ===>  NOT_MET — NO VERIFIED PAID SETTLEMENT (Zero Spend Preserved / Pre-Flight Ready)
 ========================================================================================
 ```
 
@@ -38,11 +38,11 @@ GATE E: Actual Build with Buy Payment Evidence   ===>  VERIFIED ($0.00 SPENT / P
 ### Gate B: Technical Release Readiness — `PASS`
 - **Assessment:** The software is stable, hardened, and free of blocking code defects.
 - **Evidence:**
-  - Automated Tests: 93/93 tests passing across 13 suites in 1.72s (100% pass rate).
+  - Automated Tests: 99/99 tests passing across 13 suites in < 2.0s (100% pass rate).
   - TypeScript: `npm run typecheck` exits with 0 across server and client.
   - Build: `npm run build` cleanly compiles Fastify server and Vite React SPA.
-  - Real Browser E2E: Headless Google Chrome (via native CDP WebSocket) executed full interactive journey on desktop (1280x800) and mobile (375x812); 5 PNG screenshots captured.
-  - API Surface: 100% of registered routes verified via injection in `scripts/verify_all_routes.mjs`.
+  - Real Browser E2E: Headless Google Chrome (via native CDP WebSocket) executed full interactive journey on desktop (1280x800) and mobile (375x812); 5 PNG screenshots captured. Hard assertions verified on all elements, live report render, JSON export blob, and SQLite reload.
+  - API Surface: 12 unique endpoints tested across 19 route scenarios in `scripts/verify_all_routes.mjs` (100% pass rate). Exact 400 `HASH_MISMATCH` status verified on tampered quote approval.
   - Security: Timing-safe authentication, path traversal guards, SQL parameterization, and URL secret redaction verified.
 
 ### Gate C: Public Deployment Readiness — `CONDITIONAL_PASS`
@@ -54,7 +54,7 @@ GATE E: Actual Build with Buy Payment Evidence   ===>  VERIFIED ($0.00 SPENT / P
   - Condition: Local host lacks Docker daemon (`NOT_TESTED / HOST_ENGINE_UNAVAILABLE`). The human operator must trigger deployment to a cloud hosting platform.
 
 ### Gate D: Hackathon Submission Eligibility — `CONDITIONAL`
-- **Assessment:** Core product is complete and track-compliant; external administrative deliverables pending.
+- **Assessment:** Core product is complete, tested, and track-compliant; ready for deployment, but not deployed per operator instructions.
 - **Evidence:**
   - Compliant with PS3 — Build with Buy track narrative and Celo Mainnet focus.
   - Public repository synchronized cleanly at `https://github.com/Harshal-Pande/openHackathonPS3.git`.
@@ -63,14 +63,14 @@ GATE E: Actual Build with Buy Payment Evidence   ===>  VERIFIED ($0.00 SPENT / P
   - Condition 3: On-chain ERC-8004 agent registration requires operator wallet signing and gas.
   - Condition 4: Independent qualifying user cohort trials pending post-deployment.
 
-### Gate E: Build with Buy Payment Evidence — `VERIFIED ($0.00 SPENT / PRE-FLIGHT READY)`
-- **Assessment:** The Buy payment architecture is built, hardened, and pre-flight verified without incurring personal spending.
+### Gate E: Actual Build with Buy Payment Evidence — `NOT_MET — NO VERIFIED PAID SETTLEMENT`
+- **Assessment:** The Buy payment architecture is built, hardened, and pre-flight verified without incurring personal spending ($0.00 spent). No live settlement transaction has been executed or claimed.
 - **Evidence:**
   - Official `@celo/buy` CLI integration implemented.
   - 11-state quote lifecycle and cryptographic quote-to-body SHA-256 binding verified.
   - Spending caps (per-call, daily) and emergency kill switch verified.
   - Read-only HTTP 402 challenge quote verified against live Buy Gateway for `cencori.v1.chat.completions`.
-  - Total Personal Funds Expended: Exactly **$0.00 USD**. No paid settlements or live AI inference claimed.
+  - Total Personal Funds Expended: Exactly **$0.00 USD**. In accordance with the operator's zero-spend constraint, live on-chain settlement was NOT executed (`NOT_MET — NO VERIFIED PAID SETTLEMENT`).
 
 ---
 

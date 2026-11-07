@@ -13,7 +13,7 @@ RevertLens is an evidence-based forensic application for Celo Mainnet (`eip155:4
 - **Forensics Pipeline:** Revert decoder (Solidity `Error(string)` & `Panic(uint256)`), EVM call trace tree parser with causality classification (`NO_FAILURE`, `OBSERVED_FAILURE`, `CAUGHT_CHILD_REVERT`, `PROPAGATION_SUPPORTED`, `CAUSALITY_UNCERTAIN`), atomic evidence ledger builder (`[E-01]`, `[E-02]`), and deterministic classifier.
 - **Persistence:** Native Node 22 SQLite (`node:sqlite`) with schema migrations.
 - **Frontend Dashboard:** React 19 + Vite dark blockchain forensics dashboard with interactive call trace viewer, root failure badges, honest stage progression, and JSON report export.
-- **Testing:** 93 unit and integration tests passing in Vitest across 13 suites (100% pass rate), plus custom headless Google Chrome browser automation.
+- **Testing:** 99 unit and integration tests passing in Vitest across 13 suites (100% pass rate), plus custom headless Google Chrome browser automation.
 
 ## Quick Start
 
@@ -61,7 +61,7 @@ Never commit wallet secrets, seed phrases, bearer tokens, private payment author
 - Architecture and contracts: fully specified in `docs/`.
 - Workspace rules and instructions: active in `AGENTS.md` and `.agents/rules/`.
 - Technical foundation: complete (Node 22, Fastify, React 19, TypeScript strict mode, Vitest, native SQLite `node:sqlite`).
-- Automated tests: 93 passed across 13 test suites (100% pass rate).
+- Automated tests: 99 passed across 13 test suites (100% pass rate).
 - Production build: clean (`tsc` server compile + Vite client bundle).
 - Direct Chainstack Elastic Global Node: integrated (`src/server/providers/chainstack.ts`) for zero-cost high-throughput Celo Mainnet RPC with OP Geth client, native `debug`/`trace` namespaces, backoff, and URL redaction.
 - Live RPC execution: verified against live Celo Mainnet 42220 (`eth_chainId`, block number, candidate transaction `0xb90bcca5...`, receipt, and 4-frame execution trace).

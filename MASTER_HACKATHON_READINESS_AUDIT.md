@@ -33,7 +33,7 @@
 | **6** | **Service-Provider Growth** | **READY** | Ready to consume Cencori (`cencori.v1.chat.completions`) upon operator authorization. |
 | **7** | **ERC-8004 Agent Identity** | **PENDING SIGNING** | Contract interfaces verified; awaiting operator wallet signing to register on-chain identity. |
 | **8** | **Independent Users** | **TEMPLATES READY** | `USER_TESTING_GUIDE.md` and `USER_TEST_LOG.csv` provide evidentiary tracking for independent wallets. |
-| **9** | **Public GitHub Repo** | **SYNCHRONIZED** | Commit `271fabb` pushed cleanly to `https://github.com/Harshal-Pande/openHackathonPS3.git`. |
+| **9** | **Public GitHub Repo** | **SYNCHRONIZED** | Remote `origin/main` synchronized cleanly at `https://github.com/Harshal-Pande/openHackathonPS3.git` (commit `ade69d6`). |
 | **10**| **Public Deployment** | **READY FOR HOSTING** | Dockerfile and cloud deployment guides ready for Render/Railway/Fly.io. |
 | **11**| **Sponsored Gas Disclosure**| **DISCLOSED** | Subsidized model disclosed in UI: public users do not pay; operator wallet subsidizes services. |
 | **12**| **Demo Video** | **SCRIPT READY** | Comprehensive 2–3 minute demonstration script authored in `DEMO_SCRIPT.md`. |

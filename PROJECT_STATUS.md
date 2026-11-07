@@ -1,15 +1,15 @@
 # RevertLens — Project Status
 
-**Last Updated:** 2026-11-07 (Phase 8 — Release Engineering, Browser E2E, Docker Validation & Git Release Preparation Complete)
+**Last Updated:** 2026-11-07 (Phase 10 — Root-Cause Stabilization, Final Verification & Hackathon Submission Readiness Complete)
 **Track:** PS3 — Build with Buy (Agents on Open Rails — Loops House × Celo)
 **Chain / Network:** Celo Mainnet (`eip155:42220`)
-**Current Phase:** **Phase 8 Complete — 93/93 Tests Passing across 13 Suites, Browser E2E Verified in Headless Chrome, Production Runtime Validated, Git Release Package Prepared, Zero Spend Maintained**
+**Current Phase:** **Phase 10 Complete — 99/99 Tests Passing across 13 Suites, Browser E2E Verified via CDP with Hard Assertions, DEF-13 Root Cause Resolved, Production Runtime Validated, Git Release Package Prepared, Zero Spend Maintained ($0.00)**
 
 ---
 
 ## 1. Overall Completion Estimate
 
-**Estimated Completion:** **98%**
+**Estimated Completion:** **99%**
 **Estimation Method:** Milestone-weighted progress across the defined lifecycle phases:
 - **Phase 0 — Product Definition & Architecture:** 100% complete.
 - **Phase 1 — Workspace & Foundation:** 100% complete.
@@ -21,8 +21,9 @@
 - **Phase 5.6 — Forensic Accuracy & Persistence Integrity:** 100% complete (EVM causality taxonomy: `NO_FAILURE`, `OBSERVED_FAILURE`, `CAUGHT_CHILD_REVERT`, `PROPAGATION_SUPPORTED`, `CAUSALITY_UNCERTAIN`; dual root/nested revert reason preservation; round-trip SQLite raw trace & decoded revert persistence; UUID & limit boundary validations; honest frontend progress stages).
 - **Phase 6 — Cencori AI Integration & Buy Payment Architecture:** 100% complete (`CencoriProvider` abstraction, strict anti-hallucination validation with Zod enforcing evidence citations and rejecting invented addresses, 11-state Buy quote lifecycle in SQLite, cryptographic quote-to-approval binding via SHA-256, operator-only auth, emergency kill-switch, zero-cost USA₮ faucet research documented; zero spend incurred).
 - **Phase 7 — Release Candidate, E2E Validation & Hardening:** 100% complete (10 user journey E2E scenarios passing in `tests/userJourneyE2E.test.ts`, 11 golden cases verified in `FORENSIC_GOLDEN_CASES.md`, production invariants hardened for DB path and CORS, constant-time SHA-256 operator auth, trace recursion depth and frame capping, Dockerfile containerization, testing guides, demo script, and deployment readiness guides).
-- **Phase 8 — Release Engineering, Browser E2E & Production Validation:** 100% complete (Browser E2E tested in headless Chrome for desktop and mobile, static SPA serving integrated into Fastify, production runtime verified on port 3009, restart durability verified, 93/93 tests passing, Git release review and proposed commit prepared).
-- **Phase 9 — Deployment & Submission:** 50% (Docker container and `DEPLOYMENT_READINESS.md` ready; cloud hosting setup pending operator selection).
+- **Phase 8 — Release Engineering, Browser E2E & Production Validation:** 100% complete (Browser E2E tested in headless Chrome for desktop and mobile, static SPA serving integrated into Fastify, production runtime verified on port 3009, restart durability verified, 93/93 tests passing).
+- **Phase 9 — Master Project Audit & Evidence Reconciliation:** 100% complete (19 comprehensive audit documents created, live mainnet investigation reconciled, 12 unique endpoints tested across 19 scenarios).
+- **Phase 10 — Root-Cause Stabilization & Final Verification:** 100% complete (DEF-13 configuration contract resolved at root cause, 6 new regression tests added bringing total to 99/99 passing tests, `verify_live_investigation.mjs` strengthened with genuine child OS process boundary assertions, `browser_e2e_cdp.mjs` strengthened with hard assertions on Desktop & Mobile viewports, JSON export verified, exact HTTP 400 `HASH_MISMATCH` verified, documentation fully reconciled).
 
 ---
 
@@ -55,24 +56,21 @@
 - [x] **Frontend Three-Tier Visibility:** Implemented distinct UI visual badges and cards for `DETERMINISTIC ANALYSIS`, `AI ENHANCED EXPLANATION`, and `BUY PAYMENT STATUS`.
 - [x] **Zero-Cost Funding Research:** Conducted comprehensive research on the Google Cloud Web3 Celo USA₮ Mainnet Faucet and confirmed Buy gateway accepts USA₮ (`0xD2ab3C9A...`) at 10,000 atomic units ($0.01).
 - [x] **Zero Personal Spend:** Incurred $0.00 personal spend. All tests executed with zero paid transactions.
-- [x] **Added 25 automated tests:** Total suite expanded to 78 passing tests across 12 files (100% pass rate).
+- [x] **Resolved DEF-13 Configuration Contract:** Fixed `buildApp` and `BuyQuoteService` allowlist resolution, supporting direct array inputs and defensive defaults.
+- [x] **Added 6 unit regression tests:** Total suite expanded to 99 passing tests across 13 files (100% pass rate).
 - [x] Verified full production build succeeds cleanly (server and Vite client).
 
 ---
 
-## 3. In-Progress Tasks
-
-- Preparing Phase 9 submission documentation, hackathon compliance check, and demo video script.
-
----
-
-## 4. Blocked Tasks
+## 3. Blocked / Pending Operator Actions
 
 - **Live Paid Cencori Inference:** Blocked on operator wallet funding and explicit operator spend authorization. (Google Cloud Web3 USA₮ faucet documented in `ZERO_COST_FUNDING_RESEARCH.md` as verified no-cost route; wallet is currently unfunded).
+- **Public Cloud Deployment:** Host application and Dockerfile are ready. Public deployment requires human operator credentials and host environment selection.
+- **Git Push / Remote Sync:** Commit and push require explicit human authorization.
 
 ---
 
-## 5. Security & Invariant Checklist
+## 4. Security & Invariant Checklist
 
 - [x] No private keys or seed phrases in repository or config.
 - [x] `.env` strictly git-ignored (`.gitignore:4`).
@@ -83,31 +81,7 @@
 - [x] AI cannot elevate confidence or invent on-chain addresses.
 - [x] Public users cannot approve quotes or spend wallet funds.
 - [x] Zero personal spend incurred ($0.00 spent).
-- [x] **Honest frontend progress tracking:** Replaced fake timer interval with verified reactive state `investigationStage` (`IDLE`, `SUBMITTED`, `RUNNING`, `COMPLETED`, `FAILED`).
-- [x] Upgraded frontend to full dark forensic dashboard with trace visualization, status indicators, evidence inspector, and report export.
-- [x] **Added 18 comprehensive tests:** Total test count expanded to 53 passing automated tests across 8 suites (100% pass rate).
-- [x] Verified full production build succeeds cleanly (server and Vite client).
-
----
-
-## 3. In-Progress Tasks
-
-- Preparing submission documentation, demo script, and verification artifacts for hackathon evaluation.
-
----
-
-## 4. Blocked Tasks
-
-- **Paid Cencori Inference:** Blocked on operator wallet funding and operator spend authorization. (Google Cloud Web3 USA₮ faucet is documented as an unverified potential source; wallet is currently unfunded).
-
----
-
-## 5. Security & Invariant Checklist
-
-- [x] No private keys or seed phrases in repository or config.
-- [x] `.env` strictly git-ignored (`.gitignore:4`).
-- [x] No Chainstack RPC secrets in Git, logs, or client-accessible responses.
-- [x] Production startup invariant in `src/server/config.ts` prevents execution with default/mock credentials.
-- [x] Chain ID strictly verified as 42220 before processing.
-- [x] Revert propagation strictly checked (caught child reverts not falsely labeled as top-level causes).
-- [x] Zero personal spend incurred ($0.00 spent).
+- [x] Honest frontend progress tracking: reactive state `investigationStage` without artificial delays.
+- [x] Full dark forensic dashboard with trace visualization, status indicators, evidence inspector, and report export.
+- [x] 99 passing automated tests across 13 suites (100% pass rate).
+- [x] Clean production build and typecheck.

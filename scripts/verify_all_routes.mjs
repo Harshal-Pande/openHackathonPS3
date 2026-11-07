@@ -16,7 +16,10 @@ const env = dotenv.parse(fs.readFileSync('.env'));
 const rpcUrl = env.CHAINSTACK_CELO_MAINNET_RPC_URL;
 const sessionSecret = 'test_operator_secret_session_key_32_bytes_long';
 
-console.log('=== REVERTLENS MASTER API SURFACE AUDIT & ROUTE INJECTION ===\n');
+console.log('=================================================================');
+console.log(' REVERTLENS MASTER API SURFACE AUDIT & ROUTE INJECTION');
+console.log(` Timestamp:       ${new Date().toISOString()}`);
+console.log('=================================================================\n');
 
 async function testAllRoutes() {
   const config = {
@@ -43,8 +46,10 @@ async function testAllRoutes() {
   let quoteId = '';
 
   const routeResults = [];
+  const uniqueEndpointsTested = new Set();
 
-  async function testRoute(name, req, expectedStatuses, validator) {
+  async function testRoute(name, req, endpointPattern, expectedStatuses, validator) {
+    uniqueEndpointsTested.add(`${req.method} ${endpointPattern}`);
     const res = await app.inject(req);
     const pass = expectedStatuses.includes(res.statusCode);
     let body = null;
@@ -57,19 +62,26 @@ async function testAllRoutes() {
 
     routeResults.push({
       name,
-      method: req.method,
+      endpoint: `${req.method} ${endpointPattern}`,
       url: req.url,
       statusCode: res.statusCode,
       expected: expectedStatuses,
       pass: valid
     });
 
-    console.log(`[${valid ? 'PASS' : 'FAIL'}] ${req.method} ${req.url} -> Status ${res.statusCode} (${name})`);
+    if (!valid) {
+      console.error(`[FAIL] ${req.method} ${req.url} -> Status ${res.statusCode} (expected ${expectedStatuses.join('/')}) (${name})`);
+      console.error('       Response Body:', JSON.stringify(body));
+      throw new Error(`Route assertion failed for scenario: ${name}`);
+    } else {
+      console.log(`[PASS] ${req.method} ${req.url} -> Status ${res.statusCode} (${name})`);
+    }
+
     return { res, body };
   }
 
   // 1. GET /api/health
-  await testRoute('Public Health Check', { method: 'GET', url: '/api/health' }, [200], (res, body) => {
+  await testRoute('Public Health Check', { method: 'GET', url: '/api/health' }, '/api/health', [200], (res, body) => {
     return body.data?.status === 'ok' && body.data?.chainId === 42220;
   });
 
@@ -78,14 +90,14 @@ async function testAllRoutes() {
     method: 'POST',
     url: '/api/investigations',
     payload: { txHash: '0xinvalid' }
-  }, [400], (res, body) => body.error?.code === 'INVALID_INPUT');
+  }, '/api/investigations', [400], (res, body) => body.error?.code === 'INVALID_INPUT');
 
   // 3. POST /api/investigations (Valid candidate tx -> 200)
-  const invRes = await testRoute('Execute Investigation (Live Mainnet)', {
+  await testRoute('Execute Investigation (Live Mainnet)', {
     method: 'POST',
     url: '/api/investigations',
     payload: { txHash: CANDIDATE_TX }
-  }, [200], (res, body) => {
+  }, '/api/investigations', [200], (res, body) => {
     investigationId = body.data?.investigationId;
     return Boolean(investigationId && body.data?.status === 'REVERTED');
   });
@@ -94,37 +106,37 @@ async function testAllRoutes() {
   await testRoute('Get Investigation Invalid UUID', {
     method: 'GET',
     url: '/api/investigations/not-a-uuid'
-  }, [400], (res, body) => body.error?.code === 'INVALID_INPUT');
+  }, '/api/investigations/:id', [400], (res, body) => body.error?.code === 'INVALID_INPUT');
 
   // 5. GET /api/investigations/:id (Non-existent valid v4 UUID -> 404)
   await testRoute('Get Investigation Not Found', {
     method: 'GET',
     url: '/api/investigations/ffffffff-ffff-4fff-bfff-ffffffffffff'
-  }, [404], (res, body) => body.error?.code === 'NOT_FOUND');
+  }, '/api/investigations/:id', [404], (res, body) => body.error?.code === 'NOT_FOUND');
 
   // 6. GET /api/investigations/:id (Valid ID -> 200)
   await testRoute('Get Investigation by ID', {
     method: 'GET',
     url: `/api/investigations/${investigationId}`
-  }, [200], (res, body) => body.data?.investigationId === investigationId);
+  }, '/api/investigations/:id', [200], (res, body) => body.data?.investigationId === investigationId);
 
   // 7. GET /api/investigations (List recent investigations -> 200)
   await testRoute('List Recent Investigations', {
     method: 'GET',
     url: '/api/investigations?limit=5'
-  }, [200], (res, body) => Array.isArray(body.data) && body.data.length >= 1);
+  }, '/api/investigations', [200], (res, body) => Array.isArray(body.data) && body.data.length >= 1);
 
   // 8. GET /api/investigations (Invalid limit query param -> 400)
   await testRoute('List Investigations Invalid Limit', {
     method: 'GET',
     url: '/api/investigations?limit=invalid'
-  }, [400], (res, body) => body.error?.code === 'INVALID_INPUT');
+  }, '/api/investigations', [400], (res, body) => body.error?.code === 'INVALID_INPUT');
 
   // 9. POST /api/investigations/:id/quote (Generate Buy quote -> 200)
   await testRoute('Generate Cencori Quote', {
     method: 'POST',
     url: `/api/investigations/${investigationId}/quote`
-  }, [200], (res, body) => {
+  }, '/api/investigations/:id/quote', [200], (res, body) => {
     quoteId = body.data?.quoteId;
     return Boolean(quoteId && body.data?.amountAtomic === '10000');
   });
@@ -134,14 +146,14 @@ async function testAllRoutes() {
     method: 'POST',
     url: '/api/operator/login',
     payload: { password: 'wrong-password' }
-  }, [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+  }, '/api/operator/login', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
 
   // 11. POST /api/operator/login (Valid password -> 200)
-  const loginRes = await testRoute('Operator Login Success', {
+  await testRoute('Operator Login Success', {
     method: 'POST',
     url: '/api/operator/login',
     payload: { password: sessionSecret }
-  }, [200], (res, body) => {
+  }, '/api/operator/login', [200], (res, body) => {
     operatorToken = body.data?.token;
     return Boolean(operatorToken);
   });
@@ -150,22 +162,24 @@ async function testAllRoutes() {
   await testRoute('Operator Quotes Unauthenticated', {
     method: 'GET',
     url: '/api/operator/quotes'
-  }, [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+  }, '/api/operator/quotes', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
 
   // 13. GET /api/operator/quotes (Authenticated operator -> 200)
   await testRoute('Operator Quotes Authenticated', {
     method: 'GET',
     url: '/api/operator/quotes',
     headers: { authorization: `Bearer ${operatorToken}` }
-  }, [200], (res, body) => Array.isArray(body.data) && body.data.length >= 1);
+  }, '/api/operator/quotes', [200], (res, body) => Array.isArray(body.data) && body.data.length >= 1);
 
-  // 14. POST /api/operator/quotes/:id/approve (Tampered SHA-256 -> 500/400)
+  // 14. POST /api/operator/quotes/:id/approve (Tampered SHA-256 -> exact 400 HASH_MISMATCH)
   await testRoute('Approve Quote Tampered Hash', {
     method: 'POST',
     url: `/api/operator/quotes/${quoteId}/approve`,
     headers: { authorization: `Bearer ${operatorToken}` },
     payload: { expectedBodySha256: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' }
-  }, [500, 400], (res, body) => body.error?.message?.includes('Cryptographic body hash mismatch'));
+  }, '/api/operator/quotes/:id/approve', [400], (res, body) => {
+    return body.error?.code === 'HASH_MISMATCH' && body.error?.message?.includes('Cryptographic body hash mismatch');
+  });
 
   // 15. POST /api/operator/kill-switch (Engage Kill Switch -> 200)
   await testRoute('Engage Emergency Kill Switch', {
@@ -173,20 +187,20 @@ async function testAllRoutes() {
     url: '/api/operator/kill-switch',
     headers: { authorization: `Bearer ${operatorToken}` },
     payload: { enabled: true }
-  }, [200], (res, body) => body.data?.killSwitchActive === true);
+  }, '/api/operator/kill-switch', [200], (res, body) => body.data?.killSwitchActive === true);
 
   // 16. POST /api/operator/logout (Logout session -> 200)
   await testRoute('Operator Logout', {
     method: 'POST',
     url: '/api/operator/logout',
     headers: { authorization: `Bearer ${operatorToken}` }
-  }, [200], (res, body) => body.data?.success === true);
+  }, '/api/operator/logout', [200], (res, body) => body.data?.success === true);
 
   // 17. GET / (Static SPA HTML -> 200)
   await testRoute('Serve SPA Index HTML', {
     method: 'GET',
     url: '/'
-  }, [200], (res, body) => typeof body === 'string' && body.includes('RevertLens'));
+  }, '/', [200], (res, body) => typeof body === 'string' && body.includes('RevertLens'));
 
   // 18. GET /assets/* (Static Asset delivery -> 200)
   const distDir = path.resolve('./dist/client/assets');
@@ -196,14 +210,14 @@ async function testAllRoutes() {
     await testRoute('Serve Static JS Asset', {
       method: 'GET',
       url: `/assets/${jsAsset}`
-    }, [200], (res, body) => res.headers['content-type']?.includes('application/javascript'));
+    }, '/assets/*', [200], (res, body) => res.headers['content-type']?.includes('application/javascript'));
   }
 
   // 19. GET /assets/../package.json (Path traversal attempt -> 403/404)
   await testRoute('Path Traversal Guard on Assets', {
     method: 'GET',
     url: '/assets/../package.json'
-  }, [403, 404], (res, body) => res.statusCode === 403 || res.statusCode === 404);
+  }, '/assets/*', [403, 404], (res, body) => res.statusCode === 403 || res.statusCode === 404);
 
   // Clean up
   db.close();
@@ -211,9 +225,12 @@ async function testAllRoutes() {
     try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch (_) {}
   }
 
-  const allPassed = routeResults.every(r => r.pass);
-  console.log(`\n=== API SURFACE AUDIT FINISHED: ${routeResults.length} ROUTE SCENARIOS TESTED (${allPassed ? '100% PASS' : 'FAILURES DETECTED'}) ===`);
-  if (!allPassed) process.exit(1);
+  console.log('\n=================================================================');
+  console.log(` UNIQUE ENDPOINTS TESTED: ${uniqueEndpointsTested.size}`);
+  Array.from(uniqueEndpointsTested).forEach(e => console.log(`   - ${e}`));
+  console.log(` TOTAL SCENARIOS RUN:     ${routeResults.length} (100% Passed)`);
+  console.log(' ALL API SURFACE AND TAMPER-DETECTION ASSERTIONS VERIFIED');
+  console.log('=================================================================\n');
 }
 
 testAllRoutes().catch(err => {
