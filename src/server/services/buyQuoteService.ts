@@ -88,7 +88,7 @@ export class BuyQuoteService {
 
     // 2. Validate Capability ID Allowlist
     const allowedCaps =
-      this.config.BUY_ALLOWED_CAPABILITY_IDS.length > 0
+      this.config.BUY_ALLOWED_CAPABILITY_IDS && this.config.BUY_ALLOWED_CAPABILITY_IDS.length > 0
         ? this.config.BUY_ALLOWED_CAPABILITY_IDS
         : DEFAULT_ALLOWED_CAPABILITIES;
     if (!allowedCaps.includes(params.capabilityId)) {
@@ -101,7 +101,7 @@ export class BuyQuoteService {
 
     // 3. Validate Token Contract Allowlist
     const allowedTokens =
-      this.config.BUY_ALLOWED_TOKEN_CONTRACTS.length > 0
+      this.config.BUY_ALLOWED_TOKEN_CONTRACTS && this.config.BUY_ALLOWED_TOKEN_CONTRACTS.length > 0
         ? this.config.BUY_ALLOWED_TOKEN_CONTRACTS
         : DEFAULT_ALLOWED_TOKENS;
     const cleanToken = params.tokenContract.toLowerCase();
@@ -115,7 +115,7 @@ export class BuyQuoteService {
 
     // 4. Validate Recipient / Payee Allowlist
     const allowedRecipients =
-      this.config.BUY_ALLOWED_RECIPIENTS.length > 0
+      this.config.BUY_ALLOWED_RECIPIENTS && this.config.BUY_ALLOWED_RECIPIENTS.length > 0
         ? this.config.BUY_ALLOWED_RECIPIENTS
         : DEFAULT_ALLOWED_RECIPIENTS;
     const cleanRecipient = params.recipient.toLowerCase();
