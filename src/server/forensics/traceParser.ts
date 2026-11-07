@@ -2,17 +2,22 @@ import { RawCallFrame } from '../providers/chainstack.js';
 import { FlattenedCallFrame } from './types.js';
 import { decodeRevertData } from './revertDecoder.js';
 
+export const MAX_TRACE_DEPTH = 100;
+export const MAX_TRACE_FRAMES = 1000;
+
 export interface ParsedTraceResult {
   rawTree: RawCallFrame;
   flattenedFrames: FlattenedCallFrame[];
   totalFrames: number;
   maxDepth: number;
   deepestFailingFrame: FlattenedCallFrame | null;
+  isTruncated?: boolean;
 }
 
 export function parseCallTrace(rawTree: RawCallFrame): ParsedTraceResult {
   const flattened: FlattenedCallFrame[] = [];
   let maxDepth = 0;
+  let isTruncated = false;
 
   function traverse(
     frame: RawCallFrame,
@@ -59,10 +64,18 @@ export function parseCallTrace(rawTree: RawCallFrame): ParsedTraceResult {
     flattened.push(currentFrame);
 
     if (Array.isArray(frame.calls)) {
-      const childCount = frame.calls.length;
-      frame.calls.forEach((child, idx) => {
-        traverse(child, depth + 1, frameId, idx, childCount);
-      });
+      if (depth >= MAX_TRACE_DEPTH || flattened.length >= MAX_TRACE_FRAMES) {
+        isTruncated = true;
+      } else {
+        const childCount = frame.calls.length;
+        for (let idx = 0; idx < childCount; idx++) {
+          if (flattened.length >= MAX_TRACE_FRAMES) {
+            isTruncated = true;
+            break;
+          }
+          traverse(frame.calls[idx], depth + 1, frameId, idx, childCount);
+        }
+      }
     }
 
     return frameId;
@@ -185,6 +198,7 @@ export function parseCallTrace(rawTree: RawCallFrame): ParsedTraceResult {
     flattenedFrames: flattened,
     totalFrames: flattened.length,
     maxDepth,
-    deepestFailingFrame: deepestFailing
+    deepestFailingFrame: deepestFailing,
+    isTruncated
   };
 }

@@ -163,6 +163,10 @@ export class InvestigationService {
       }
     }
 
+    if (parsedTrace?.isTruncated) {
+      explanation.limitations.push('Execution call trace exceeded maximum frame limit (1,000 frames) or depth limit (100) and was truncated.');
+    }
+
     const investigationId = randomUUID();
     let status: InvestigationReport['status'] = 'UNKNOWN';
     if (tx.isPending) {

@@ -79,6 +79,12 @@ function enforceProductionInvariants(config: AppConfig): void {
   if (config.OPERATOR_PASSWORD_HASH === PLACEHOLDER_OPERATOR_HASH) {
     errors.push('OPERATOR_PASSWORD_HASH must be set to a real Argon2id hash in production.');
   }
+  if (!config.DATABASE_PATH || config.DATABASE_PATH === ':memory:' || config.DATABASE_PATH.trim() === '') {
+    errors.push('DATABASE_PATH must be set to a persistent file path in production (cannot be :memory: or empty).');
+  }
+  if (!config.CORS_ORIGIN || config.CORS_ORIGIN === '*' || config.CORS_ORIGIN.trim() === '') {
+    errors.push('CORS_ORIGIN must be set to an explicit origin allowlist in production (cannot be wildcard * or empty).');
+  }
   if (config.BUY_ENABLED && config.BUY_DAILY_BUDGET_ATOMIC === '0') {
     errors.push('BUY_ENABLED is true but BUY_DAILY_BUDGET_ATOMIC is 0 — spending is impossible; disable Buy or set a budget.');
   }

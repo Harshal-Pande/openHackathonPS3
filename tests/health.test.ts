@@ -50,4 +50,25 @@ describe('Health Check Endpoint GET /api/health', () => {
 
     expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5173');
   });
+
+  it('serves static HTML index on GET /', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/'
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toContain('text/html');
+    expect(response.body).toContain('RevertLens');
+    expect(response.body).toContain('<div id="root"></div>');
+  });
+
+  it('blocks directory traversal attempts on static assets with HTTP 403 or 404', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/assets/../../src/server/config.ts'
+    });
+
+    expect([403, 404]).toContain(response.statusCode);
+  });
 });

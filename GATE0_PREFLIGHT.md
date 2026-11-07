@@ -1,8 +1,11 @@
 # GATE 0 — Preflight Readiness & Wallet Verification Report
 
-**Preflight Execution Timestamp:** 2026-11-07 06:26:00 UTC  
-**Evaluation Phase:** Phase 3 — Gate 0 Live Trace Verification Preflight  
-**Operator Action Status:** Awaiting Manual `buy setup` and Account Funding  
+> **HISTORICAL NOTICE (Architecture Decision AD-008):**
+> This preflight check was captured prior to the adoption of direct Chainstack Growth node integration (`AD-008`). It is preserved as historical evidence of initial discovery and quote capture. Live RPC execution now uses the direct Growth node, and Buy payment architecture is preserved for Cencori LLM inference.
+
+**Preflight Execution Timestamp:** 2026-11-07 06:26:00 UTC
+**Evaluation Phase:** Phase 3 — Gate 0 Live Trace Verification Preflight (HISTORICAL)
+**Operator Action Status:** Superseded for RPC by Direct Node; Preserved for Cencori AI Inference
 
 ---
 

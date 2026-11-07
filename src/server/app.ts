@@ -1,5 +1,7 @@
 import fastify, { FastifyInstance, FastifyError } from 'fastify';
 import cors from '@fastify/cors';
+import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AppConfig } from './config.js';
@@ -332,6 +334,57 @@ export function buildApp(appConfig: AppConfig, deps: AppDependencies = {}): Fast
       message: parseResult.data.enabled ? 'Kill switch ENGAGED. All quotes and spending halted.' : 'Kill switch DISENGAGED.'
     };
   });
+
+  // ==========================================
+  // STATIC FRONTEND SERVING (PRODUCTION BUILD)
+  // ==========================================
+  const clientDistDir = path.resolve(process.cwd(), 'dist/client');
+  if (fs.existsSync(clientDistDir)) {
+    const mimeTypes: Record<string, string> = {
+      '.html': 'text/html; charset=utf-8',
+      '.js': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon'
+    };
+
+    server.get('/', async (req, reply) => {
+      const htmlPath = path.join(clientDistDir, 'index.html');
+      if (fs.existsSync(htmlPath)) {
+        reply.type('text/html; charset=utf-8').send(fs.readFileSync(htmlPath, 'utf8'));
+        return;
+      }
+      reply.status(404).send('Not Found');
+    });
+
+    server.get('/favicon.ico', async (req, reply) => {
+      const iconPath = path.join(clientDistDir, 'favicon.ico');
+      if (fs.existsSync(iconPath)) {
+        reply.type('image/x-icon').send(fs.readFileSync(iconPath));
+        return;
+      }
+      reply.status(204).send();
+    });
+
+    server.get('/assets/*', async (req, reply) => {
+      const sanitizedUrl = req.url.split('?')[0];
+      const filePath = path.join(clientDistDir, sanitizedUrl);
+      if (!filePath.startsWith(clientDistDir)) {
+        reply.status(403).send('Forbidden');
+        return;
+      }
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const ext = path.extname(filePath).toLowerCase();
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+        reply.type(contentType).send(fs.readFileSync(filePath));
+        return;
+      }
+      reply.status(404).send('Asset Not Found');
+    });
+  }
 
   return server;
 }

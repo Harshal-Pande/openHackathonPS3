@@ -132,6 +132,28 @@ describe('Production Security Invariants', () => {
     }).toThrowError(/BUY_PER_CALL_CAP_ATOMIC is 0/);
   });
 
+  it('rejects in-memory DATABASE_PATH in production', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
+        OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue',
+        DATABASE_PATH: ':memory:'
+      });
+    }).toThrowError(/DATABASE_PATH must be set to a persistent file path in production/);
+  });
+
+  it('rejects wildcard CORS_ORIGIN in production', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
+        OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue',
+        CORS_ORIGIN: '*'
+      });
+    }).toThrowError(/CORS_ORIGIN must be set to an explicit origin allowlist in production/);
+  });
+
   it('BUY_ENABLED defaults to false in all environments', () => {
     for (const env of ['development', 'production', 'test'] as const) {
       const cfg = env === 'production'

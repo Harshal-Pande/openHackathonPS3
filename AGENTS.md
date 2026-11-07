@@ -27,7 +27,7 @@ You are the implementation agent for RevertLens. Assume the operator expects pre
 
 ## Fixed product
 
-RevertLens accepts one Celo mainnet transaction hash and returns an evidence-led explanation of the transaction outcome. The strongest version uses a paid Chainstack RPC request through Buy to fetch transaction, receipt and a usable `debug_traceTransaction` call tree, then uses a paid Cencori inference request through Buy to explain only normalized evidence. It records verified service payment evidence.
+RevertLens accepts one Celo mainnet transaction hash and returns an evidence-led explanation of the transaction outcome. Under Architecture Decision AD-008, the active implementation utilizes direct high-throughput RPC requests to a dedicated Chainstack Celo Mainnet Elastic Global Node (OP Geth, chain ID 42220) for free transaction, receipt, and `debug_traceTransaction` call tree retrieval, while retaining the official Buy marketplace integration (`@celo/buy`) for paid Cencori LLM inference (`cencori.v1.chat.completions`). It records verified forensic evidence and transparent service-payment quote ledgers.
 
 This project is NOT a general-purpose chatbot, wallet, trading tool, smart-contract auditor, transaction simulator, transaction sender, or security scanner.
 

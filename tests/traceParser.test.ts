@@ -213,4 +213,26 @@ describe('Trace Parser & Failure Propagation Analyzer', () => {
     expect(parsed.deepestFailingFrame?.decodedRevert?.type).toBe('ERROR_STRING');
     expect(parsed.deepestFailingFrame?.decodedRevert?.reason).toBe('execution reverted');
   });
+
+  it('caps deep/large trace trees at frame/depth limits and sets isTruncated flag', () => {
+    let current: RawCallFrame = {
+      type: 'CALL',
+      from: '0xuser',
+      to: '0xcontract0'
+    };
+    const root = current;
+    for (let i = 1; i <= 120; i++) {
+      const child: RawCallFrame = {
+        type: 'CALL',
+        from: `0xcontract${i - 1}`,
+        to: `0xcontract${i}`
+      };
+      current.calls = [child];
+      current = child;
+    }
+
+    const parsed = parseCallTrace(root);
+    expect(parsed.isTruncated).toBe(true);
+    expect(parsed.maxDepth).toBeLessThanOrEqual(100);
+  });
 });

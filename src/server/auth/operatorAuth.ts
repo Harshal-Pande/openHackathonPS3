@@ -30,15 +30,11 @@ export class OperatorAuthService {
       throw new Error(`Rate limit exceeded for operator login. Please wait ${waitMinutes} minutes.`);
     }
 
-    // In non-production, allow SESSION_SECRET or matching password
-    // In production, compare against Argon2id or HMAC-SHA256 of secret
-    const expectedSecret = this.config.SESSION_SECRET;
-    const isSecretMatch =
-      passwordOrSecret.length > 0 &&
-      crypto.timingSafeEqual(
-        Buffer.from(passwordOrSecret.padEnd(64).slice(0, 64)),
-        Buffer.from(expectedSecret.padEnd(64).slice(0, 64))
-      );
+    // Compare using constant-time timingSafeEqual on SHA-256 digests
+    // This avoids slice/truncation issues and handles arbitrary length inputs safely
+    const passwordHash = crypto.createHash('sha256').update(passwordOrSecret).digest();
+    const expectedHash = crypto.createHash('sha256').update(this.config.SESSION_SECRET).digest();
+    const isSecretMatch = passwordOrSecret.length > 0 && crypto.timingSafeEqual(passwordHash, expectedHash);
 
     if (!isSecretMatch) {
       this.failedAttempts.set(clientIp, {

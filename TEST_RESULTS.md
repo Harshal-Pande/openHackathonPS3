@@ -1,21 +1,35 @@
 # Test Results
 
-**Date/time:** 2026-11-07 07:28:00 UTC  
-**Commit:** Phase 6 Cencori AI integration & Buy payment architecture  
-**Node:** v22.17.0  
-**npm:** 11.6.1  
+**Date/time:** 2026-11-07 08:15:00 UTC
+**Commit:** Phase 8 Release Engineering & Production Runtime Validation
+**Node:** v22.17.0
+**npm:** 11.6.1
 
 | Command | Exit code | Result | Notes |
 |---|---:|---|---|
 | `npm run typecheck` | 0 | PASS | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict; 0 errors |
-| `npm test` | 0 | PASS | **12 test files, 78/78 tests passed** in 1.83s |
+| `npm test` | 0 | PASS | **13 test files, 93/93 tests passed** in 1.70s |
 | `npm run build` | 0 | PASS | Server: `dist/server/`; Client: `dist/client/assets/index-BXaFsXBa.js` (472.36 kB) via Vite 6.4.5 |
 
 ---
 
 ## Test breakdown by file
 
-### `tests/config.test.ts` — 14 tests PASS (LOCAL)
+### `tests/userJourneyE2E.test.ts` — 10 tests PASS (LOCAL_INTEGRATION)
+| Test | Class | Result |
+|---|---|---|
+| Scenario A: processes known reverted transaction and returns complete diagnosis & evidence | LOCAL_INTEGRATION | PASS |
+| Scenario B: rejects invalid format transaction hash with HTTP 400 and no provider calls | LOCAL_INTEGRATION | PASS |
+| Scenario C: returns HTTP 404 for valid format but non-existent transaction | LOCAL_INTEGRATION | PASS |
+| Scenario D: clearly identifies pending transaction without falsely labelling it reverted | LOCAL_INTEGRATION | PASS |
+| Scenario E: reports traceStatus UNSUPPORTED with clear limitations when node lacks callTracer | LOCAL_INTEGRATION | PASS |
+| Scenario F: handles provider timeout during trace retrieval gracefully | LOCAL_INTEGRATION | PASS |
+| Scenario G: operates deterministically with full utility when Cencori is disabled | LOCAL_INTEGRATION | PASS |
+| Scenario H: rejects invalid AI response and safely falls back to deterministic explanation | LOCAL_INTEGRATION | PASS |
+| Scenario I: recovers past investigation with full fidelity from database across restart | LOCAL_INTEGRATION | PASS |
+| Scenario J: handles deep and large call traces safely without process crashes | LOCAL_INTEGRATION | PASS |
+
+### `tests/config.test.ts` — 16 tests PASS (LOCAL)
 | Test | Class | Result |
 |---|---|---|
 | Loads valid default config | LOCAL | PASS |
@@ -33,11 +47,13 @@
 | CENCORI_ENABLED defaults to false in all environments | LOCAL | PASS |
 | All spending limits default to zero | LOCAL | PASS |
 
-### `tests/health.test.ts` — 2 tests PASS (LOCAL)
+### `tests/health.test.ts` — 4 tests PASS (LOCAL)
 | Test | Class | Result |
 |---|---|---|
 | GET /api/health returns 200 with API envelope & chainstackConfigured flag | LOCAL | PASS |
 | CORS headers set correctly for configured origin | LOCAL | PASS |
+| serves static HTML index on GET / | LOCAL | PASS |
+| blocks directory traversal attempts on static assets with HTTP 403 or 404 | LOCAL | PASS |
 
 ### `tests/chainstackProvider.test.ts` — 6 tests PASS (MOCKED)
 | Test | Class | Result |

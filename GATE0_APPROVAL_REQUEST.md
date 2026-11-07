@@ -1,10 +1,13 @@
 # GATE 0 — Formal Spend Approval Request
 ## Operation: Chainstack Celo Live Trace Verification (`debug_traceTransaction`)
 
-**Document Status:** PENDING OPERATOR REVIEW & EXPLICIT SIGN-OFF  
-**Generated At:** 2026-11-07 06:26:00 UTC (Preflight Verified)  
-**Target Environment:** Celo Mainnet (`eip155:42220`)  
-**Proposed Spend:** Exactly 10,000 atomic units ($0.01) in USDC or USDT  
+> **HISTORICAL NOTICE (Architecture Decision AD-008):**
+> This approval request was prepared during Phase 3 before the operator provisioned a direct Chainstack Celo Mainnet Elastic Global Node (`ND-801-666-498`) with OP Geth and native debug/trace namespaces. Under AD-008, live RPC tracing is performed directly at zero cost, and paid Buy execution was superseded for RPC queries and redirected to Cencori LLM inference (`cencori.v1.chat.completions`). This document is preserved as an immutable historical record of the pre-AD-008 verification process.
+
+**Document Status:** SUPERSEDED BY DIRECT GROWTH NODE (AD-008) — HISTORICAL RECORD
+**Generated At:** 2026-11-07 06:26:00 UTC (Preflight Verified)
+**Target Environment:** Celo Mainnet (`eip155:42220`)
+**Proposed Spend:** Exactly 10,000 atomic units ($0.01) in USDC or USDT (NOT EXECUTED)
 
 ---
 
