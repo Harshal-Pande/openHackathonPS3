@@ -137,15 +137,61 @@ export function classifyFailure(
     };
   }
 
-  // Propagated child call failure from trace
+  // Check for any caught child reverts in the trace to note in facts
+  const caughtChild = trace?.flattenedFrames.find(
+    (f) => f.depth > 0 && f.causalityStatus === 'CAUGHT_CHILD_REVERT' && Boolean(f.error || f.revertReason)
+  );
+  if (caughtChild) {
+    provenFacts.push(
+      `A nested call to ${caughtChild.to || 'contract'} at depth ${caughtChild.depth} failed with "${caughtChild.error || caughtChild.revertReason}", but the parent contract handled the failure and execution continued.`
+    );
+  }
+
+  const rootRevertReason = revert?.reason || trace?.rawTree?.revertReason;
+
+  // Propagated or uncertain child call failure from trace
   if (trace && trace.deepestFailingFrame && trace.deepestFailingFrame.depth > 0) {
     const frame = trace.deepestFailingFrame;
-    provenFacts.push(`Execution trace reveals a nested ${frame.type} call to ${frame.to || 'contract'} failed at call depth ${frame.depth}.`);
-    provenFacts.push(`The nested error propagated up through ${frame.depth} parent frame(s) to the top-level transaction.`);
+    const childReason = frame.decodedRevert?.reason || frame.revertReason || frame.error || 'Nested call reverted';
 
-    const childReason = frame.decodedRevert?.reason || frame.error || 'Nested call reverted';
-    likelyExplanations.push(`The target contract invoked an external dependency or child contract (${frame.to}) which rejected the call with: "${childReason}".`);
-    safeNextSteps.push(`Inspect the child contract at ${frame.to} and check why it rejected the call with input ${frame.input.slice(0, 10)}...`);
+    provenFacts.push(`Nested ${frame.type} call to ${frame.to || 'contract'} failed at call depth ${frame.depth} with: "${childReason}".`);
+    if (rootRevertReason) {
+      provenFacts.push(`Top-level transaction reverted with reason: "${rootRevertReason}".`);
+    }
+
+    if (frame.causalityStatus === 'CAUSALITY_UNCERTAIN') {
+      unknowns.push('The trace shows this nested sub-call failed, but ancestor execution may have terminated independently.');
+      likelyExplanations.push(
+        `A sub-call to ${frame.to || 'contract'} reverted with "${childReason}", but available trace data does not definitively prove whether the ancestor contract failed because of this call or an independent condition.`
+      );
+      safeNextSteps.push(
+        `Inspect the calling contract code around call depth ${frame.depth} to verify how return values from ${frame.to || 'contract'} are checked.`
+      );
+
+      return {
+        category: 'CAUSALITY_UNCERTAIN',
+        confidence: 'MEDIUM',
+        headline: `Nested Call Reverted at Depth ${frame.depth}; Causality Uncertain`,
+        narrative: `A nested sub-call to ${frame.to || 'contract'} failed with error "${childReason}". While ancestor frames also reverted, trace evidence does not prove a continuous causal link to the top-level failure.`,
+        evidenceCitations: citations,
+        provenFacts,
+        likelyExplanations,
+        unknowns,
+        safeNextSteps,
+        rootRevertReason,
+        nestedFailureReason: childReason,
+        causalityCategory: 'CAUSALITY_UNCERTAIN'
+      };
+    }
+
+    // Continuous causal propagation supported
+    provenFacts.push(`The nested failure propagated continuously up through call depth ${frame.depth} to the root transaction.`);
+    likelyExplanations.push(
+      `The contract called external dependency ${frame.to || 'contract'}, which rejected the call with: "${childReason}". This failure was not handled by parent contracts.`
+    );
+    safeNextSteps.push(
+      `Inspect the child contract at ${frame.to || 'contract'} and check why it rejected the call with input ${frame.input.slice(0, 10)}...`
+    );
     safeNextSteps.push('Verify token allowance, pool liquidity, or slippage limits if this was a DEX or token transfer operation.');
 
     return {
@@ -157,7 +203,10 @@ export function classifyFailure(
       provenFacts,
       likelyExplanations,
       unknowns,
-      safeNextSteps
+      safeNextSteps,
+      rootRevertReason,
+      nestedFailureReason: childReason,
+      causalityCategory: 'PROPAGATION_SUPPORTED'
     };
   }
 
@@ -176,7 +225,9 @@ export function classifyFailure(
       provenFacts,
       likelyExplanations,
       unknowns,
-      safeNextSteps
+      safeNextSteps,
+      rootRevertReason: revert.reason,
+      causalityCategory: 'OBSERVED_FAILURE'
     };
   }
 

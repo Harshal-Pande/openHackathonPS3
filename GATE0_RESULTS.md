@@ -22,12 +22,12 @@
 | USA₮ Faucet Identified | NOT_TESTED | LOCAL | Google Cloud Web3 Celo Mainnet Faucet | Faucet page documented; operator eligibility & wallet funding are UNVERIFIED and UNFUNDED. |
 | Direct Chainstack Growth Node Provisioned | PASS | LIVE_MAINNET_READ_ONLY | Operator dashboard (`ND-801-666-498`) | OP Geth, 250 RPS, debug/trace namespaces, Celo Mainnet 42220. Adopted under AD-008. |
 | Direct Chainstack Provider & Client Built | PASS | LOCAL_TESTED | `tests/chainstackProvider.test.ts` (6/6 pass) | Enforces chainId 42220, exponential backoff, URL redaction (`[REDACTED_RPC_ENDPOINT]`). |
-| Forensic Pipeline (revertDecoder, traceParser, classifier) | PASS | LOCAL_TESTED | `tests/revertDecoder.test.ts`, `tests/traceParser.test.ts`, `tests/forensics.test.ts` | 14/14 tests passing. Decodes `Error(string)` and `Panic(uint256)`, checks continuous revert propagation. |
-| Investigation Service & SQLite Persistence | PASS | LOCAL_TESTED | `tests/investigations.test.ts` (2/2 pass) | Persists investigations and atomic evidence items to SQLite. |
+| Forensic Pipeline (revertDecoder, traceParser, classifier) | PASS | LOCAL_TESTED | `tests/revertDecoder.test.ts`, `tests/traceParser.test.ts`, `tests/forensics.test.ts` | 15/15 tests passing. Decodes `Error(string)` and `Panic(uint256)`, checks continuous revert propagation and caught sub-calls. |
+| Investigation Service & SQLite Persistence | PASS | LOCAL_TESTED | `tests/investigations.test.ts` (6/6 pass) | Persists investigations, raw traces, decoded reverts, and atomic evidence items to SQLite with full round-trip reload. |
 | Regression & Edge Case Hardening Suite | PASS | LOCAL_TESTED | `tests/regressionEdgeCases.test.ts` (10/10 pass) | Covers trace timeouts, rate limits, 404s, 502/503 outages, pending txs, unconfirmed receipts. |
-| React Dark Forensics Dashboard | PASS | LOCAL_TESTED | Vite build (`dist/client`) | Full UI with call trace viewer, root failure highlights, evidence ledger, report download. |
-| Full Automated Test Suite | PASS | LOCAL_TESTED | Vitest (45/45 passing) | 100% pass across all 8 test files. |
-| Live Chainstack Node Execution | PASS | LIVE_MAINNET_READ_ONLY | `live_verify.mjs` & Fastify API | Verified live on Celo Mainnet 42220; 4 frames traced, deepest failing frame at depth 1 to 0xe3d8... |
+| React Dark Forensics Dashboard | PASS | LOCAL_TESTED | Vite build (`dist/client`) | Full UI with call trace viewer, root failure highlights, evidence ledger, honest stage tracking, report download. |
+| Full Automated Test Suite | PASS | LOCAL_TESTED | Vitest (53/53 passing) | 100% pass across all 8 test files. |
+| Live Chainstack Node Execution | PASS | LIVE_MAINNET_READ_ONLY | Fastify API & node runner | Verified live on Celo Mainnet 42220; 4 frames traced, deepest failing frame at depth 1 to 0xe3d8... |
 
 ---
 

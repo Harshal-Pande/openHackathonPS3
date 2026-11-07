@@ -3,6 +3,23 @@ import { NormalizedTransaction, NormalizedReceipt } from '../providers/chainstac
 import { EvidenceItem, DecodedRevert } from './types.js';
 import { ParsedTraceResult } from './traceParser.js';
 
+/**
+ * Builds the deterministic forensic evidence ledger for a transaction investigation.
+ *
+ * EVIDENCE INTEGRITY SPECIFICATION:
+ * Each evidence item includes a `contentHash` computed as a SHA-256 digest over the canonical
+ * JSON-serialized representation of the observed evidence payload (`value`).
+ *
+ * IMPORTANT CAVEATS & SCOPE OF GUARANTEE:
+ * 1. Content-Integrity Checksum: The `contentHash` validates that the in-memory or persisted
+ *    evidence representation matches what was observed and parsed by RevertLens at ingestion time.
+ * 2. No RPC Honesty Guarantee: The hash does NOT prove that the upstream RPC provider (e.g. Chainstack)
+ *    behaved honestly, returned untampered state, or was free from node-level bugs.
+ * 3. No On-Chain Anchoring: The hash is an internal integrity check; it is NOT anchored on-chain
+ *    or notarized by a blockchain timestamping service.
+ * 4. No Database Immutability Guarantee: While SQLite stores these items durably, local database
+ *    storage does not prevent tampering by an operator with direct write access to the SQLite file.
+ */
 export function buildEvidenceLedger(
   tx: NormalizedTransaction | null,
   receipt: NormalizedReceipt | null,

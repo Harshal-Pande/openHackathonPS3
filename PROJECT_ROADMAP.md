@@ -13,10 +13,10 @@ This document serves as the authoritative 10-phase roadmap (Phases 0 through 9) 
 | **Phase 2** | Buy Discovery & Readiness | **VERIFIED_COMPLETE** | Phase 1 | Buy CLI v0.8.5 verification, 402 quotes, config hardening |
 | **Phase 3** | Gate 0: Live Buy & Chainstack Verification | **VERIFIED_READINESS** (Live Trace Quoted; Paid Execution Deferred) | Phase 2, Operator Wallet | Quoted candidate trace bound to SHA-256 hash, formal approval packet in `GATE0_APPROVAL_REQUEST.md` |
 | **Phase 4** | Free Chainstack Growth Node & Persistence | **VERIFIED_COMPLETE** | Phase 3, Chainstack Node | Direct Elastic Global Node integration (OP Geth, 250 RPS), SQLite migrations, backoff & redaction |
-| **Phase 5** | Celo Transaction Forensics Pipeline | **VERIFIED_COMPLETE** | Phase 4 | Call trace parser, revert decoder (`Error`, `Panic`), atomic evidence ledger, deterministic classifier |
-| **Phase 6** | Cencori AI Explanation (Optional/Buy) | **READINESS_CONFIRMED** | Phase 5, USA₮ Faucet | Buy Cencori capability identified, USA₮ faucet eligibility confirmed, deterministic fallback engine active |
-| **Phase 7** | Frontend Forensic Dashboard | **VERIFIED_COMPLETE** | Phase 5 | Interactive dark UI, call trace tree viewer, error badges, evidence ledger, report JSON export |
-| **Phase 8** | Testing, Hardening & Security | **VERIFIED_COMPLETE** | Phase 7 | 35 automated tests in Vitest (100% pass), production invariants, URL redaction |
+| **Phase 5** | Celo Transaction Forensics Pipeline | **VERIFIED_COMPLETE** | Phase 4 | Call trace parser, revert decoder (`Error`, `Panic`), EVM causality taxonomy, atomic evidence ledger, deterministic classifier |
+| **Phase 6** | Cencori AI Explanation (Optional/Buy) | **READINESS_CONFIRMED** | Phase 5, USA₮ Faucet | Buy Cencori capability identified; USA₮ faucet documented (UNVERIFIED / UNFUNDED); deterministic fallback engine active |
+| **Phase 7** | Frontend Forensic Dashboard | **VERIFIED_COMPLETE** | Phase 5 | Interactive dark UI, call trace tree viewer, error badges, evidence ledger, honest stage tracking, report JSON export |
+| **Phase 8** | Testing, Hardening & Security | **VERIFIED_COMPLETE** | Phase 7 | 53 automated tests in Vitest (100% pass), production invariants, URL redaction, UUID & query validations |
 | **Phase 9** | Deployment & Hackathon Submission | **IN_PROGRESS** | Phase 8 | Final documentation, live test evidence, hackathon compliance check |
 
 ---
@@ -69,17 +69,17 @@ This document serves as the authoritative 10-phase roadmap (Phases 0 through 9) 
 ### Phase 5 — Celo Transaction Forensics Pipeline
 - **Deliverables:**
   - `src/server/forensics/revertDecoder.ts`: decodes `Error(string)`, `Panic(uint256)` with reason codes, custom error fallback.
-  - `src/server/forensics/traceParser.ts`: traverses nested call tree, validates failure propagation to parent frame, identifies deepest failing frame.
+  - `src/server/forensics/traceParser.ts`: traverses nested call tree, classifies causality (`NO_FAILURE`, `OBSERVED_FAILURE`, `CAUGHT_CHILD_REVERT`, `PROPAGATION_SUPPORTED`, `CAUSALITY_UNCERTAIN`), isolates caught sub-calls, identifies deepest failing frame.
   - `src/server/forensics/evidenceBuilder.ts`: produces structured evidence ledger (`[E-01]`, `[E-02]`) with SHA-256 digests.
-  - `src/server/forensics/classifier.ts`: deterministic classification separating facts, likely explanations, unknowns, and safe troubleshooting checks.
+  - `src/server/forensics/classifier.ts`: deterministic classification separating facts, likely explanations, unknowns, and safe troubleshooting checks; preserves root and nested error reasons.
   - `src/server/forensics/explanationEngine.ts`: generates clear, human-readable forensic summary citing evidence IDs.
-  - `src/server/services/investigationService.ts`: orchestrates pipeline and persistence.
+  - `src/server/services/investigationService.ts`: orchestrates pipeline and complete round-trip persistence to SQLite.
 - **Status:** `VERIFIED_COMPLETE`
 
 ### Phase 6 — Cencori AI Explanation (Optional/Buy)
 - **Deliverables:**
   - Buy gateway `cencori.v1.chat.completions` capability identified in catalog.
-  - Google Cloud Web3 USA₮ Celo Mainnet faucet eligibility confirmed.
+  - Google Cloud Web3 USA₮ Celo Mainnet faucet reviewed; operator eligibility & wallet funding are UNVERIFIED and UNFUNDED.
   - Zero-spend safeguards in place; deterministic explanation engine serves as reliable default.
 - **Status:** `READINESS_CONFIRMED`
 
@@ -89,13 +89,15 @@ This document serves as the authoritative 10-phase roadmap (Phases 0 through 9) 
   - Transaction hash search with sample candidate button (`0xb90bcca5...`).
   - Forensic status banners, decoded revert cards, call trace tree viewer with error tags and "Root Failure Point" badges.
   - Evidence ledger with expandable SHA-256 hashes and raw JSON inspectors.
+  - Honest reactive investigation stages (`IDLE`, `SUBMITTED`, `RUNNING`, `COMPLETED`, `FAILED`) without fake progress intervals.
   - Troubleshooting guidance and downloadable JSON report export.
 - **Status:** `VERIFIED_COMPLETE`
 
 ### Phase 8 — Testing, Hardening & Security
 - **Deliverables:**
-  - 35 automated Vitest unit & integration tests covering config, health check, revert decoding, trace parsing, forensics classification, Chainstack provider, and API persistence.
+  - 53 automated Vitest unit & integration tests covering config, health check, revert decoding, trace parsing, forensics classification, Chainstack provider, regression edge cases, and API persistence round-trip.
   - Production invariants in `src/server/config.ts`.
+  - Strict input boundary validations for transaction hash, UUID IDs, and limit parameters.
   - Full TypeScript typecheck and Vite build passing cleanly.
 - **Status:** `VERIFIED_COMPLETE`
 

@@ -2,16 +2,37 @@
 
 **Celo transaction failure investigation with evidence and transparent service-payment proof.**
 
-This repository is the final implementation specification for the RevertLens hackathon MVP. It is designed to be opened as a project in **Google Antigravity**. It is not a source-code implementation and does not claim that any paid call, trace, deployment, or user test has already succeeded.
+RevertLens is an evidence-based forensic application for Celo Mainnet (`eip155:42220`). It investigates reverted blockchain transactions, parses nested execution call trees via `debug_traceTransaction` with `callTracer`, decodes Solidity reverts and panics, tracks continuous failure propagation to isolate caught sub-calls, builds an atomic SHA-256 evidence ledger, and provides clear causal explanations with full round-trip SQLite persistence.
 
-## Start here
+## Architecture & Technology
 
-1. Open this folder as the Antigravity workspace.
-2. Read `ANTIGRAVITY_START_HERE.md`.
-3. Antigravity automatically loads the root `AGENTS.md` and the workspace rules in `.agents/rules/`.
-4. Paste the complete prompt from `prompts/00_MASTER_BUILD_PROMPT.md` into the Antigravity Agent.
-5. The agent must execute Gate 0 first. It must stop before any paid action and ask the human operator to approve the exact token and amount.
-6. Only after Gate 0 is recorded may it implement the product.
+- **Runtime & Language:** Node.js 22 LTS, TypeScript with strict mode.
+- **Backend API:** Fastify with standard JSON envelope (`data`, `error`, `requestId`), CORS, and strict Zod boundary validation.
+- **RPC Provider:** Direct Elastic Global Node via Chainstack (OP Geth client, Celo Mainnet 42220, debug & trace namespaces, rate-limit backoff, URL redaction).
+- **Payment & Discovery:** `@celo/buy` CLI integration for capability discovery and x402-v2 quotes.
+- **Forensics Pipeline:** Revert decoder (Solidity `Error(string)` & `Panic(uint256)`), EVM call trace tree parser with causality classification (`NO_FAILURE`, `OBSERVED_FAILURE`, `CAUGHT_CHILD_REVERT`, `PROPAGATION_SUPPORTED`, `CAUSALITY_UNCERTAIN`), atomic evidence ledger builder (`[E-01]`, `[E-02]`), and deterministic classifier.
+- **Persistence:** Native Node 22 SQLite (`node:sqlite`) with schema migrations.
+- **Frontend Dashboard:** React 19 + Vite dark blockchain forensics dashboard with interactive call trace viewer, root failure badges, honest stage progression, and JSON report export.
+- **Testing:** 78 unit and integration tests passing in Vitest across 12 suites (100% pass rate).
+
+## Quick Start
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Configure local environment:
+   Copy `.env.example` to `.env` and set `CHAINSTACK_CELO_MAINNET_RPC_URL` to your Celo Mainnet node endpoint.
+3. Run tests and typecheck:
+   ```bash
+   npm run typecheck
+   npm test
+   ```
+4. Build and run locally:
+   ```bash
+   npm run build
+   npm start
+   ```
 
 ## Authoritative documents
 
@@ -40,14 +61,17 @@ Never commit wallet secrets, seed phrases, bearer tokens, private payment author
 - Architecture and contracts: fully specified in `docs/`.
 - Workspace rules and instructions: active in `AGENTS.md` and `.agents/rules/`.
 - Technical foundation: complete (Node 22, Fastify, React 19, TypeScript strict mode, Vitest, native SQLite `node:sqlite`).
-- Automated tests: 35 passed across 7 test suites (100% pass).
+- Automated tests: 78 passed across 12 test suites (100% pass).
 - Production build: clean (`tsc` server compile + Vite client bundle).
 - Direct Chainstack Elastic Global Node: integrated (`src/server/providers/chainstack.ts`) for zero-cost high-throughput Celo Mainnet RPC with OP Geth client, native `debug`/`trace` namespaces, backoff, and URL redaction.
-- Forensic investigation engine: complete (`revertDecoder` for `Error(string)` & `Panic(uint256)`, `traceParser` with revert propagation analysis, `evidenceBuilder` with SHA-256 digests, `classifier`, and evidence-citing `explanationEngine`).
-- Frontend dashboard: complete (`src/client/App.tsx`) with dark forensics UI, call trace viewer, root failure highlights, evidence ledger, and JSON report export.
+- Live RPC execution: verified against live Celo Mainnet 42220 (`eth_chainId`, block number, candidate transaction `0xb90bcca5...`, receipt, and 4-frame execution trace).
+- Forensic investigation engine: complete (`revertDecoder` for `Error(string)` & `Panic(uint256)`, `traceParser` with EVM causality taxonomy and continuous propagation analysis, `evidenceBuilder` with SHA-256 digests, `classifier`, and evidence-citing `explanationEngine`).
+- SQLite persistence: complete with full round-trip reload restoring `rawTree`, `decodedRevert`, `flattenedFrames`, and `description`.
+- Frontend dashboard: complete (`src/client/App.tsx`) with dark forensics UI, call trace viewer, root failure highlights, honest stage progression without fake timers, evidence ledger, distinct three-tier architecture cards (`DETERMINISTIC ANALYSIS`, `AI ENHANCED EXPLANATION`, and `BUY PAYMENT STATUS`), and JSON report export.
 - Buy live catalogue: inspected (170 capabilities active; `chainstack.celo` and `cencori.v1.chat.completions` 402 quotes verified).
-- Cencori AI explanation: capability mapped, Google Cloud Web3 USA₮ faucet compatibility verified for zero-cost Buy wallet funding.
-- Live RPC execution on host: ready immediately upon operator setting `CHAINSTACK_CELO_MAINNET_RPC_URL` in `.env`.
+- Cencori AI integration: complete (`CencoriProvider`, bounded evidence input, strict Zod output validation enforcing evidence citations and rejecting invented addresses, safe deterministic fallback).
+- Buy payment architecture: complete (11-state lifecycle in SQLite, cryptographic quote-to-approval binding via SHA-256, operator auth gate, emergency kill switch; stopped at approval stage with $0.00 spent).
+- Zero-cost funding research: complete (`ZERO_COST_FUNDING_RESEARCH.md` details Google Cloud Web3 USA₮ faucet eligibility).
 - ERC-8004 identity: not yet registered.
 - Independent users: not yet recruited or verified.
 - Deployment: local build verified; production deployment pending.

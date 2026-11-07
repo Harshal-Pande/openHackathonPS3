@@ -3,9 +3,27 @@ import React, { useState, useEffect } from 'react';
 const CANDIDATE_TX = '0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445';
 const TX_HASH_REGEX = /^0x[0-9a-fA-F]{64}$/;
 
-interface EvidenceItem {
+export type TransactionStatus = 'SUCCESS' | 'REVERTED' | 'PENDING' | 'NOT_FOUND' | 'UNKNOWN';
+
+export type TraceStatus =
+  | 'AVAILABLE'
+  | 'UNSUPPORTED'
+  | 'RATE_LIMITED'
+  | 'TIMEOUT'
+  | 'PROVIDER_ERROR'
+  | 'INVALID_RESPONSE'
+  | 'NOT_REQUESTED';
+
+export type FrameCausalityStatus =
+  | 'NO_FAILURE'
+  | 'OBSERVED_FAILURE'
+  | 'CAUGHT_CHILD_REVERT'
+  | 'PROPAGATION_SUPPORTED'
+  | 'CAUSALITY_UNCERTAIN';
+
+export interface EvidenceItem {
   id: string;
-  kind: string;
+  kind: 'TRANSACTION_FACT' | 'RECEIPT_FACT' | 'TRACE_FRAME' | 'REVERT_DATA' | 'FAILURE_PROPAGATION';
   sourceMethod: string;
   description: string;
   value: Record<string, unknown>;
@@ -13,9 +31,19 @@ interface EvidenceItem {
   observedAt: string;
 }
 
-interface FlattenedCallFrame {
+export interface DecodedRevert {
+  type: 'ERROR_STRING' | 'PANIC' | 'CUSTOM_ERROR' | 'UNKNOWN';
+  selector?: string;
+  reason?: string;
+  panicCode?: number;
+  panicExplanation?: string;
+  rawBytes?: string;
+}
+
+export interface FlattenedCallFrame {
   id: string;
   depth: number;
+  parentFrameId: string | null;
   type: string;
   from: string;
   to: string | null;
@@ -26,74 +54,144 @@ interface FlattenedCallFrame {
   output?: string;
   error?: string;
   revertReason?: string;
-  decodedRevert?: {
-    type: string;
-    selector?: string;
-    reason?: string;
-    panicExplanation?: string;
-  };
+  decodedRevert?: DecodedRevert;
   propagatedToParent: boolean;
   isDeepestFailingFrame: boolean;
+  causalityStatus?: FrameCausalityStatus;
+  orderIndex?: number;
+  isLastCallInParent?: boolean;
+  hasSubsequentCallsInParent?: boolean;
+  ancestorsReverted?: boolean;
 }
 
-interface InvestigationReport {
+export interface FailureDiagnosis {
+  category:
+    | 'EXPLICIT_REVERT'
+    | 'PANIC'
+    | 'OUT_OF_GAS'
+    | 'PROPAGATED_CHILD_REVERT'
+    | 'CAUGHT_CHILD_REVERT'
+    | 'CAUSALITY_UNCERTAIN'
+    | 'UNSUPPORTED_OR_MISSING_TRACE'
+    | 'UNKNOWN_REVERT'
+    | 'PENDING_TRANSACTION'
+    | 'SUCCESSFUL_TRANSACTION'
+    | 'UNCONFIRMED_RECEIPT'
+    | 'UNKNOWN_STATUS';
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  headline: string;
+  narrative: string;
+  evidenceCitations: string[];
+  provenFacts: string[];
+  likelyExplanations: string[];
+  unknowns: string[];
+  safeNextSteps: string[];
+  rootRevertReason?: string;
+  nestedFailureReason?: string;
+  causalityCategory?: FrameCausalityStatus;
+}
+
+export interface AiExplanation {
+  status: 'DISABLED' | 'UNAVAILABLE' | 'AWAITING_APPROVAL' | 'SUCCESS' | 'VALIDATION_FAILED' | 'ERROR';
+  provider: 'cencori';
+  model?: string;
+  summary?: string;
+  technicalExplanation?: string;
+  provenFacts?: string[];
+  likelyExplanations?: string[];
+  unknowns?: string[];
+  safeNextSteps?: string[];
+  evidenceReferences?: string[];
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  limitations?: string[];
+  validationErrors?: string[];
+  rawResponseHash?: string;
+  generatedAt?: string;
+}
+
+export interface BuyQuoteSummary {
+  quoteId: string;
+  capabilityId: string;
+  status:
+    | 'QUOTE_REQUESTED'
+    | 'QUOTE_RECEIVED'
+    | 'QUOTE_INVALID'
+    | 'AWAITING_OPERATOR_APPROVAL'
+    | 'APPROVED'
+    | 'EXECUTION_PENDING'
+    | 'SETTLEMENT_UNKNOWN'
+    | 'SETTLED'
+    | 'FAILED'
+    | 'EXPIRED'
+    | 'CANCELLED';
+  url: string;
+  method: string;
+  bodySha256: string;
+  tokenSymbol: string;
+  tokenContract: string;
+  amountAtomic: string;
+  amountDisplay: string;
+  recipient: string;
+  chainId: number;
+  expiry?: string | null;
+  reason?: string | null;
+}
+
+export interface InvestigationReport {
   investigationId: string;
   txHash: string;
   chainId: number;
-  status: 'SUCCESS' | 'REVERTED' | 'NOT_FOUND';
-  traceStatus: 'AVAILABLE' | 'UNSUPPORTED' | 'NOT_REQUESTED';
+  status: TransactionStatus;
+  traceStatus: TraceStatus;
   transaction: {
     hash: string;
-    blockNumber: number;
+    blockNumber: number | null;
+    transactionIndex: number | null;
     from: string;
     to: string | null;
     value: string;
     gas: string;
+    gasPrice?: string;
+    maxFeePerGas?: string;
+    maxPriorityFeePerGas?: string;
     input: string;
     nonce: number;
+    isPending: boolean;
   } | null;
   receipt: {
     transactionHash: string;
-    blockNumber: number;
-    status: string;
+    blockNumber: number | null;
+    status: 'SUCCESS' | 'REVERTED' | 'UNKNOWN';
+    rawStatus: number | null;
     gasUsed: string;
+    effectiveGasPrice?: string;
+    contractAddress?: string | null;
     logsCount: number;
   } | null;
   executionTrace: {
+    rawTree: Record<string, unknown> | null;
     flattenedFrames: FlattenedCallFrame[];
     totalFrames: number;
     maxDepth: number;
     deepestFailingFrame: FlattenedCallFrame | null;
   } | null;
-  decodedRevert: {
-    type: string;
-    selector?: string;
-    reason?: string;
-    panicExplanation?: string;
-    rawBytes?: string;
-  } | null;
+  decodedRevert: DecodedRevert | null;
   evidenceLedger: EvidenceItem[];
-  diagnosis: {
-    category: string;
-    confidence: string;
-    headline: string;
-    narrative: string;
-    evidenceCitations: string[];
-    provenFacts: string[];
-    likelyExplanations: string[];
-    unknowns: string[];
-    safeNextSteps: string[];
-  };
+  diagnosis: FailureDiagnosis;
   limitations: string[];
+  aiExplanation?: AiExplanation | null;
+  buyQuote?: BuyQuoteSummary | null;
   createdAt: string;
   completedAt: string;
 }
+
+type InvestigationStage = 'IDLE' | 'SUBMITTED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
 export const App: React.FC = () => {
   const [txHash, setTxHash] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
+  const [investigationStage, setInvestigationStage] = useState<InvestigationStage>('IDLE');
   const [report, setReport] = useState<InvestigationReport | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
   const [recentList, setRecentList] = useState<Array<{ id: string; txHash: string; status: string; createdAt: string }>>([]);
@@ -157,30 +255,28 @@ export const App: React.FC = () => {
     setValidationError(null);
     setApiError(null);
     setIsLoading(true);
-    setLoadingStep(1);
-
-    const stepInterval = setInterval(() => {
-      setLoadingStep((prev) => (prev < 4 ? prev + 1 : prev));
-    }, 400);
+    setInvestigationStage('SUBMITTED');
 
     try {
+      setInvestigationStage('RUNNING');
       const res = await fetch('/api/investigations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ txHash: clean })
       });
 
-      clearInterval(stepInterval);
       const json = await res.json();
 
       if (!res.ok || json.error) {
+        setInvestigationStage('FAILED');
         throw new Error(json.error?.message || 'Failed to complete transaction investigation.');
       }
 
+      setInvestigationStage('COMPLETED');
       setReport(json.data);
       fetchRecent();
     } catch (err: unknown) {
-      clearInterval(stepInterval);
+      setInvestigationStage('FAILED');
       const error = err as Error;
       setApiError(error.message);
     } finally {
@@ -433,7 +529,7 @@ export const App: React.FC = () => {
         </main>
       )}
 
-      {/* Loading Progress State */}
+      {/* Honest Investigation Progress State */}
       {isLoading && (
         <div
           style={{
@@ -451,21 +547,24 @@ export const App: React.FC = () => {
             Investigating Transaction on Celo Mainnet
           </h3>
           <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '24px' }}>
-            Running deep forensics through Chainstack OP Geth node...
+            Querying Chainstack OP Geth node for execution facts & call trace...
           </p>
 
-          <div style={{ textAlign: 'left', maxWidth: '360px', margin: '0 auto', fontSize: '13px' }}>
-            <div style={{ color: loadingStep >= 1 ? '#38bdf8' : '#475569', marginBottom: '8px' }}>
-              {loadingStep >= 1 ? '✓' : '○'} Validating Celo Mainnet chain ID (42220)
+          <div style={{ textAlign: 'left', maxWidth: '380px', margin: '0 auto', fontSize: '13px' }}>
+            <div style={{ color: '#38bdf8', marginBottom: '10px' }}>
+              ✓ Investigation request submitted to backend
             </div>
-            <div style={{ color: loadingStep >= 2 ? '#38bdf8' : '#475569', marginBottom: '8px' }}>
-              {loadingStep >= 2 ? '✓' : '○'} Retrieving transaction & receipt facts
+            <div
+              style={{
+                color: investigationStage === 'RUNNING' ? '#22c55e' : '#94a3b8',
+                marginBottom: '10px',
+                fontWeight: investigationStage === 'RUNNING' ? '600' : 'normal'
+              }}
+            >
+              {investigationStage === 'RUNNING' ? '● Investigation running on live Celo node...' : '○ Waiting for node response...'}
             </div>
-            <div style={{ color: loadingStep >= 3 ? '#38bdf8' : '#475569', marginBottom: '8px' }}>
-              {loadingStep >= 3 ? '✓' : '○'} Executing debug_traceTransaction (callTracer)
-            </div>
-            <div style={{ color: loadingStep >= 4 ? '#38bdf8' : '#475569', marginBottom: '8px' }}>
-              {loadingStep >= 4 ? '✓' : '○'} Normalizing evidence & decoding revert bytes
+            <div style={{ color: '#64748b', fontSize: '12px' }}>
+              Status updates reflect verified backend execution stages only.
             </div>
           </div>
         </div>
@@ -530,6 +629,18 @@ export const App: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
               <span
                 style={{
+                  fontSize: '11px',
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  backgroundColor: '#0369a1',
+                  color: '#e0f2fe',
+                  fontWeight: '800'
+                }}
+              >
+                DETERMINISTIC ANALYSIS
+              </span>
+              <span
+                style={{
                   fontSize: '12px',
                   padding: '4px 8px',
                   borderRadius: '4px',
@@ -573,6 +684,151 @@ export const App: React.FC = () => {
             <p style={{ fontSize: '14px', lineHeight: '1.6', color: '#cbd5e1', margin: 0 }}>
               {report.diagnosis.narrative}
             </p>
+          </div>
+
+          {/* AI Explanation & Buy Payment Status Cards */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+              gap: '16px',
+              marginBottom: '24px'
+            }}
+          >
+            {/* AI Enhanced Explanation Card */}
+            <div
+              style={{
+                backgroundColor: '#1e1b4b',
+                border: '1px solid #4338ca',
+                borderRadius: '10px',
+                padding: '20px'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', backgroundColor: '#3730a3', color: '#c7d2fe', fontWeight: '800' }}>
+                  AI ENHANCED EXPLANATION
+                </span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: report.aiExplanation?.status === 'SUCCESS' ? '#065f46' : '#312e81',
+                    color: report.aiExplanation?.status === 'SUCCESS' ? '#a7f3d0' : '#e0e7ff',
+                    fontWeight: '700'
+                  }}
+                >
+                  {report.aiExplanation?.status || 'DISABLED'}
+                </span>
+              </div>
+
+              {report.aiExplanation?.status === 'SUCCESS' ? (
+                <div style={{ fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <p style={{ color: '#e0e7ff', lineHeight: '1.5', margin: 0 }}>
+                    {report.aiExplanation.summary}
+                  </p>
+                  {report.aiExplanation.technicalExplanation && (
+                    <div style={{ backgroundColor: '#0f172a', padding: '10px', borderRadius: '6px', color: '#cbd5e1', fontSize: '12px' }}>
+                      {report.aiExplanation.technicalExplanation}
+                    </div>
+                  )}
+                  {report.aiExplanation.evidenceReferences && report.aiExplanation.evidenceReferences.length > 0 && (
+                    <div style={{ fontSize: '12px', color: '#a5b4fc' }}>
+                      Citing verified evidence: {report.aiExplanation.evidenceReferences.join(', ')}
+                    </div>
+                  )}
+                </div>
+              ) : report.aiExplanation?.status === 'AWAITING_APPROVAL' ? (
+                <div style={{ fontSize: '13px', color: '#c7d2fe' }}>
+                  <p style={{ margin: '0 0 8px 0' }}>
+                    A paid Cencori quote was generated and is awaiting operator approval.
+                  </p>
+                  <div style={{ fontSize: '12px', color: '#93c5fd' }}>
+                    Zero personal spend: Public users cannot authorize project wallet disbursements.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: '13px', color: '#a5b4fc' }}>
+                  <p style={{ margin: '0 0 6px 0' }}>
+                    Cencori AI enhancement is currently disabled in configuration (<code>CENCORI_ENABLED=false</code>).
+                  </p>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#818cf8' }}>
+                    Deterministic forensic analysis remains authoritative and complete without external LLM dependencies.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Buy Payment Status Card */}
+            <div
+              style={{
+                backgroundColor: '#1e293b',
+                border: '1px solid #0284c7',
+                borderRadius: '10px',
+                padding: '20px'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <span style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '4px', backgroundColor: '#075985', color: '#e0f2fe', fontWeight: '800' }}>
+                  BUY PAYMENT STATUS
+                </span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    backgroundColor: report.buyQuote?.status === 'APPROVED' ? '#065f46' : '#0f172a',
+                    color: report.buyQuote?.status === 'APPROVED' ? '#6ee7b7' : '#38bdf8',
+                    border: '1px solid #0284c7',
+                    fontWeight: '700'
+                  }}
+                >
+                  {report.buyQuote?.status || 'NO_PAID_ACTION'}
+                </span>
+              </div>
+
+              <div style={{ fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {report.buyQuote ? (
+                  <>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Quote ID: </span>
+                      <code style={{ color: '#f8fafc', fontSize: '11px' }}>{report.buyQuote.quoteId.slice(0, 16)}...</code>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Quoted Price: </span>
+                      <span style={{ color: '#38bdf8', fontWeight: '700' }}>{report.buyQuote.amountDisplay}</span>{' '}
+                      <span style={{ color: '#94a3b8' }}>({report.buyQuote.amountAtomic} atomic {report.buyQuote.tokenSymbol})</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Payee: </span>
+                      <code style={{ color: '#f8fafc', fontSize: '11px' }}>{report.buyQuote.recipient.slice(0, 12)}...</code>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Network: </span>
+                      <span style={{ color: '#f8fafc' }}>Celo Mainnet (Chain ID 42220)</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Personal Spend: </span>
+                      <span style={{ color: '#22c55e', fontWeight: '800' }}>$0.00 (Zero spend incurred)</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Buy Architecture: </span>
+                      <span style={{ color: '#cbd5e1' }}>Ready (x402-v2 challenge quotes supported)</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b' }}>Accepted Tokens: </span>
+                      <span style={{ color: '#94a3b8' }}>USDC, USDT, USA₮ (Tether America USD)</span>
+                    </div>
+                  </>
+                )}
+                <div style={{ marginTop: '6px', fontSize: '11px', color: '#64748b' }}>
+                  Safety: Public visitors cannot spend project funds. Quotes require authenticated operator approval.
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Transaction Summary Grid */}

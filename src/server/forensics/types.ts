@@ -19,6 +19,13 @@ export interface DecodedRevert {
   rawBytes?: string;
 }
 
+export type FrameCausalityStatus =
+  | 'NO_FAILURE'
+  | 'OBSERVED_FAILURE'
+  | 'CAUGHT_CHILD_REVERT'
+  | 'PROPAGATION_SUPPORTED'
+  | 'CAUSALITY_UNCERTAIN';
+
 export interface FlattenedCallFrame {
   id: string;
   depth: number;
@@ -36,6 +43,11 @@ export interface FlattenedCallFrame {
   decodedRevert?: DecodedRevert;
   propagatedToParent: boolean;
   isDeepestFailingFrame: boolean;
+  causalityStatus: FrameCausalityStatus;
+  orderIndex: number;
+  isLastCallInParent: boolean;
+  hasSubsequentCallsInParent: boolean;
+  ancestorsReverted: boolean;
 }
 
 export interface FailureDiagnosis {
@@ -45,6 +57,7 @@ export interface FailureDiagnosis {
     | 'OUT_OF_GAS'
     | 'PROPAGATED_CHILD_REVERT'
     | 'CAUGHT_CHILD_REVERT'
+    | 'CAUSALITY_UNCERTAIN'
     | 'UNSUPPORTED_OR_MISSING_TRACE'
     | 'UNKNOWN_REVERT'
     | 'PENDING_TRANSACTION'
@@ -59,6 +72,60 @@ export interface FailureDiagnosis {
   likelyExplanations: string[];
   unknowns: string[];
   safeNextSteps: string[];
+  rootRevertReason?: string;
+  nestedFailureReason?: string;
+  causalityCategory?: FrameCausalityStatus;
+}
+
+export type QuoteStatus =
+  | 'QUOTE_REQUESTED'
+  | 'QUOTE_RECEIVED'
+  | 'QUOTE_INVALID'
+  | 'AWAITING_OPERATOR_APPROVAL'
+  | 'APPROVED'
+  | 'EXECUTION_PENDING'
+  | 'SETTLEMENT_UNKNOWN'
+  | 'SETTLED'
+  | 'FAILED'
+  | 'EXPIRED'
+  | 'CANCELLED';
+
+export interface BuyQuoteSummary {
+  quoteId: string;
+  capabilityId: string;
+  status: QuoteStatus;
+  url: string;
+  method: string;
+  bodySha256: string;
+  tokenSymbol: string;
+  tokenContract: string;
+  amountAtomic: string;
+  amountDisplay: string;
+  recipient: string;
+  chainId: number;
+  expiry?: string | null;
+  reason?: string | null;
+  approvalId?: string | null;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+}
+
+export interface AiExplanation {
+  status: 'DISABLED' | 'UNAVAILABLE' | 'AWAITING_APPROVAL' | 'SUCCESS' | 'VALIDATION_FAILED' | 'ERROR';
+  provider: 'cencori';
+  model?: string;
+  summary?: string;
+  technicalExplanation?: string;
+  provenFacts?: string[];
+  likelyExplanations?: string[];
+  unknowns?: string[];
+  safeNextSteps?: string[];
+  evidenceReferences?: string[];
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
+  limitations?: string[];
+  validationErrors?: string[];
+  rawResponseHash?: string;
+  generatedAt?: string;
 }
 
 export interface InvestigationReport {
@@ -87,6 +154,8 @@ export interface InvestigationReport {
   evidenceLedger: EvidenceItem[];
   diagnosis: FailureDiagnosis;
   limitations: string[];
+  aiExplanation?: AiExplanation | null;
+  buyQuote?: BuyQuoteSummary | null;
   createdAt: string;
   completedAt: string;
 }

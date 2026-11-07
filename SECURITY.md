@@ -59,3 +59,29 @@ Implemented in Phase 4 for the free Chainstack Growth Elastic Global Node:
 - All HTTP error logging, console outputs, and exception traces pass through `redactRpcUrl()` in `src/server/providers/chainstack.ts`, replacing any endpoint substring with `[REDACTED_RPC_ENDPOINT]`.
 - `.env` is strictly git-ignored; `.env.example` contains only empty sentinel comments.
 
+---
+
+## 7. Evidence Integrity and Cryptographic Checksum Semantics
+
+Each forensic item in the `EvidenceLedger` is assigned an immutable ID (e.g. `[E-01]`) and a canonical SHA-256 `contentHash` computed over the normalized JSON representation of its observed value:
+- **Scope of Guarantee:** The `contentHash` guarantees internal content integrity: it proves that the parsed evidence in memory or retrieved from SQLite has not diverged or suffered accidental data corruption since ingestion.
+- **Explicit Limitations & Non-Claims:**
+  - *No RPC Node Honesty Proof:* A content checksum over RPC output does not guarantee that the upstream RPC node acted honestly or returned unmanipulated blockchain state.
+  - *No On-Chain Notarization:* Hashes are maintained internally in SQLite; they are not anchored or timestamped onto the Celo blockchain.
+  - *No Storage Anti-Tamper Guarantee:* While SQLite persists these rows durably, an attacker with filesystem access to the `.sqlite` database file could alter stored entries. Trust is rooted in application process integrity.
+
+---
+
+## 8. Operator-Only Quote Approval & Prompt Injection Defense
+
+Implemented in Phase 6:
+- **Public Disconnect:** Public visitors invoking `/api/investigations` have zero ability to approve quotes or authorize project wallet spending.
+- **Operator Authentication:** Mutating operations under `/api/operator/*` require a verified operator session, rate-limited against brute force (maximum 5 attempts per 15 minutes per IP).
+- **Strict Cryptographic Binding:** Approvals require exact matching between client-submitted `expectedBodySha256` and the stored `body_sha256`. Any change in parameters permanently marks the quote `QUOTE_INVALID`.
+- **Anti-Hallucination & Prompt Injection Defense:**
+  - AI prompt context contains only sanitized forensic facts, never environment variables, RPC URLs, or secrets.
+  - Model responses are scanned for prompt injection phrases (`ignore previous instructions`, `transfer funds`, etc.).
+  - Output validation rejects invented addresses (`0x[a-f0-9]{40}`) not observed in on-chain receipts or traces.
+  - Output validation rejects invented revert reasons not found in observed trace or decoded revert errors.
+  - AI confidence cannot be elevated above the deterministic confidence level.
+

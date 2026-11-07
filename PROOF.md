@@ -34,25 +34,34 @@ The following transactions have been independently verified on Celo Mainnet (`ei
   - **Frame 0.0 (Depth 1):** `STATICCALL` to `0x765de816845861e75a25fca122bb6898b8b1282a` (`balanceOf`) — `status: SUCCESS`
   - **Frame 0.0.0 (Depth 2):** `DELEGATECALL` to `0x434563b0604be100f04b7ae485bcafe3c9d8850e` — `status: SUCCESS`
   - **Frame 0.1 (Depth 1):** `CALL` to `0xe3d8bd6aed4f159bc8000a9cd47cffdb95f96121` (`swapExactETHForTokens`) — `error: "execution reverted"` (Root failing cause!)
-- **Investigation Report ID:** `88f7e14d-eb85-48c1-93ae-73d139ab60a9`
+- **Investigation Report ID:** `88f7e14d-eb85-48c1-93ae-73d139ab60a9` (and Phase 5.6 re-verification `9807fda7-565c-4529-ae1b-7fb58883dc15`)
 - **Diagnosis Category:** `PROPAGATED_CHILD_REVERT` (Confidence: `HIGH`)
+- **Causality Classification:** `PROPAGATION_SUPPORTED`
 - **Headline:** `"Nested Call Failure at Depth 1: execution reverted"`
 - **Narrative:** `"The transaction failed because a nested sub-call to contract 0xe3d8bd6aed4f159bc8000a9cd47cffdb95f96121 reverted with error "execution reverted". The trace confirms this error was not handled by parent contracts and propagated to cause the root transaction failure."`
+- **Frame-by-Frame Causality Status:**
+  - Frame 0 (depth 0, CALL to `0xd0be...`): `OBSERVED_FAILURE`
+  - Frame 0.0 (depth 1, STATICCALL to `0x765d...`): `NO_FAILURE`
+  - Frame 0.0.0 (depth 2, DELEGATECALL to `0x4345...`): `NO_FAILURE`
+  - Frame 0.1 (depth 1, CALL to `0xe3d8...`): `PROPAGATION_SUPPORTED`
 - **Evidence Ledger:**
   - `[E-01]` `TRANSACTION_FACT`: Sender `0x6bfc...` to router `0xd0be...`, gas limit `5,000,000` (SHA-256: `ec86ad05ca717b45...`)
   - `[E-02]` `RECEIPT_FACT`: Mined at block 52460432, status REVERTED, gas used 54,232 (SHA-256: `accf64947ca82b1f...`)
   - `[E-03]` `REVERT_DATA`: Decoded `Error(string)` selector `0x08c379a0`, message `"Swap reverted"` (SHA-256: `5cd2940a128b04a5...`)
   - `[E-04]` `TRACE_FRAME`: 4 call frames, max depth 2 (SHA-256: `45c516da40649545...`)
   - `[E-05]` `FAILURE_PROPAGATION`: Deepest failing frame at depth 1 to `0xe3d8bd6aed4f159bc8000a9cd47cffdb95f96121` (SHA-256: `e96683a867ee2a32...`)
-- **Database Persistence:** Confirmed durable in `data/revertlens.sqlite` across server restarts.
+- **Database Persistence:** Confirmed durable in `data/revertlens.sqlite` across server restarts; round-trip reload restores `rawTree`, `decodedRevert`, `evidenceLedger`, and all `flattenedFrames`.
 
 ---
 
 ## 3. Buy Service Payment Proofs
 
-| Report ID | Provider | Capability | Token | Amount | Settlement Tx Hash | Receipt Verified | Evidence Contribution |
-|---|---|---|---|---|---|---|---|
-| *Pending Optional Live Cencori Call* | Chainstack / Cencori | `cencori.v1.chat.completions` | USAT / USDC | 10000 | `NOT_TESTED` | `NOT_TESTED` | Awaiting operator wallet funding |
+| Capability | Provider | Token | Quoted Amount | Quoted Payee | Body SHA-256 Bound | Settlement Tx Hash | Phase Status | Spend Incurred |
+|---|---|---|---|---|---|---|---|---|
+| `chainstack.celo` | Chainstack | USDC | 10000 | `0x20fa...333B` | `35406284f1...` | N/A (Direct Node used) | Quoted / Free Node Active | $0.00 |
+| `cencori.v1.chat.completions` | Cencori | USDC / USA₮ | 10000 | `0x20fa...333B` | Verified per-request | `NOT_EXECUTED` | Stopped at Approval Stage | $0.00 |
+
+*Strict Zero-Spend Invariant:* Phase 6 completed full quote generation and cryptographic approval verification without executing paid CLI transactions. Zero personal funds have been spent ($0.00 spent). On-chain settlement will be recorded only if authorized by the operator with verified wallet funding.
 
 ---
 

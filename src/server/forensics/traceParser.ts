@@ -14,13 +14,23 @@ export function parseCallTrace(rawTree: RawCallFrame): ParsedTraceResult {
   const flattened: FlattenedCallFrame[] = [];
   let maxDepth = 0;
 
-  function traverse(frame: RawCallFrame, depth: number, parentId: string | null, indexInParent: number): string {
+  function traverse(
+    frame: RawCallFrame,
+    depth: number,
+    parentId: string | null,
+    indexInParent: number,
+    totalSiblings: number
+  ): string {
     const frameId = parentId ? `${parentId}.${indexInParent}` : '0';
     if (depth > maxDepth) maxDepth = depth;
 
     const rawError = frame.error || frame.revertReason;
     const revertBytes = rawError && frame.output && frame.output.startsWith('0x') && frame.output.length >= 10 ? frame.output : undefined;
-    const decoded = rawError ? decodeRevertData(revertBytes, rawError) : undefined;
+    const fallbackReason = frame.revertReason || frame.error;
+    const decoded = rawError ? decodeRevertData(revertBytes, fallbackReason) : undefined;
+
+    const isLastCallInParent = totalSiblings > 0 ? indexInParent === totalSiblings - 1 : true;
+    const hasSubsequentCallsInParent = totalSiblings > 0 ? indexInParent < totalSiblings - 1 : false;
 
     const currentFrame: FlattenedCallFrame = {
       id: frameId,
@@ -37,22 +47,28 @@ export function parseCallTrace(rawTree: RawCallFrame): ParsedTraceResult {
       error: rawError,
       revertReason: frame.revertReason,
       decodedRevert: decoded || undefined,
-      propagatedToParent: false, // Calculated in second pass
-      isDeepestFailingFrame: false
+      propagatedToParent: false, // Evaluated in second pass
+      isDeepestFailingFrame: false,
+      causalityStatus: 'NO_FAILURE',
+      orderIndex: indexInParent,
+      isLastCallInParent,
+      hasSubsequentCallsInParent,
+      ancestorsReverted: false
     };
 
     flattened.push(currentFrame);
 
     if (Array.isArray(frame.calls)) {
+      const childCount = frame.calls.length;
       frame.calls.forEach((child, idx) => {
-        traverse(child, depth + 1, frameId, idx);
+        traverse(child, depth + 1, frameId, idx, childCount);
       });
     }
 
     return frameId;
   }
 
-  traverse(rawTree, 0, null, 0);
+  traverse(rawTree, 0, null, 0, 1);
 
   // Map for fast parent lookups
   const frameMap = new Map<string, FlattenedCallFrame>();
@@ -60,32 +76,103 @@ export function parseCallTrace(rawTree: RawCallFrame): ParsedTraceResult {
     frameMap.set(f.id, f);
   }
 
-  // Helper to check if error propagates continuously all the way up to the root frame
-  function propagatesToRoot(frame: FlattenedCallFrame): boolean {
-    const hasError = Boolean(frame.error || frame.decodedRevert || frame.revertReason);
-    if (!hasError) return false;
-    let curr: FlattenedCallFrame | undefined = frame;
+  // Helper to check if all ancestors continuously have an error indicator
+  function checkAncestorsReverted(frame: FlattenedCallFrame): boolean {
+    if (!frame.parentFrameId) return false;
+    let curr = frameMap.get(frame.parentFrameId);
     while (curr) {
       const currError = Boolean(curr.error || curr.decodedRevert || curr.revertReason);
       if (!currError) return false;
-      if (!curr.parentFrameId) return true; // Reached root and root also has error
+      if (!curr.parentFrameId) return true; // Reached root and it had error
       curr = frameMap.get(curr.parentFrameId);
     }
     return false;
   }
 
-  // Second pass: Evaluate Failure Propagation
+  // Second pass: Evaluate Failure Propagation and Causality Status
   for (const frame of flattened) {
-    frame.propagatedToParent = propagatesToRoot(frame);
+    const hasError = Boolean(frame.error || frame.decodedRevert || frame.revertReason);
+    frame.ancestorsReverted = checkAncestorsReverted(frame);
+
+    if (!hasError) {
+      frame.causalityStatus = 'NO_FAILURE';
+      frame.propagatedToParent = false;
+      continue;
+    }
+
+    if (!frame.parentFrameId) {
+      // Root frame with error
+      frame.causalityStatus = 'OBSERVED_FAILURE';
+      frame.propagatedToParent = true;
+      continue;
+    }
+
+    // Child frame with error:
+    if (!frame.ancestorsReverted) {
+      // Parent or an ancestor did not revert -> failure was definitely handled/caught
+      frame.causalityStatus = 'CAUGHT_CHILD_REVERT';
+      frame.propagatedToParent = false;
+      continue;
+    }
+
+    if (frame.hasSubsequentCallsInParent) {
+      // Parent continued executing and made subsequent sub-calls after this child!
+      // This proves parent caught this child's failure.
+      frame.causalityStatus = 'CAUGHT_CHILD_REVERT';
+      frame.propagatedToParent = false;
+      continue;
+    }
+
+    // Terminal failing sub-call with ancestors that also reverted.
+    // Check if multiple sibling branches failed or if parent has a distinct independent revert message:
+    const parentSiblings = flattened.filter(
+      (f) => f.parentFrameId === frame.parentFrameId && Boolean(f.error || f.revertReason)
+    );
+    const multipleFailingSiblings = parentSiblings.length > 1;
+
+    const parent = frameMap.get(frame.parentFrameId);
+    const parentReason = parent?.decodedRevert?.reason || parent?.revertReason;
+    const childReason = frame.decodedRevert?.reason || frame.revertReason;
+
+    // Distinct explicit messages between parent and child indicate parent may have reverted independently
+    const reasonsDifferSignificantly = Boolean(
+      parentReason &&
+        childReason &&
+        parentReason !== childReason &&
+        parentReason !== 'execution reverted' &&
+        childReason !== 'execution reverted'
+    );
+
+    if (multipleFailingSiblings || reasonsDifferSignificantly) {
+      frame.causalityStatus = 'CAUSALITY_UNCERTAIN';
+      frame.propagatedToParent = true;
+    } else {
+      frame.causalityStatus = 'PROPAGATION_SUPPORTED';
+      frame.propagatedToParent = true;
+    }
   }
 
-  // Third pass: Identify the Deepest Failing Frame along the continuous propagated path
+  // Third pass: Identify the Deepest Failing Frame
+  // Priority: deepest frame with PROPAGATION_SUPPORTED, then CAUSALITY_UNCERTAIN, then OBSERVED_FAILURE
   let deepestFailing: FlattenedCallFrame | null = null;
-  for (const frame of flattened) {
-    if (frame.propagatedToParent) {
+  const propagatingFrames = flattened.filter((f) => f.propagatedToParent && f.causalityStatus === 'PROPAGATION_SUPPORTED');
+
+  if (propagatingFrames.length > 0) {
+    for (const frame of propagatingFrames) {
       if (!deepestFailing || frame.depth >= deepestFailing.depth) {
         deepestFailing = frame;
       }
+    }
+  } else {
+    const uncertainFrames = flattened.filter((f) => f.propagatedToParent && f.causalityStatus === 'CAUSALITY_UNCERTAIN');
+    if (uncertainFrames.length > 0) {
+      for (const frame of uncertainFrames) {
+        if (!deepestFailing || frame.depth >= deepestFailing.depth) {
+          deepestFailing = frame;
+        }
+      }
+    } else {
+      deepestFailing = flattened.find((f) => !f.parentFrameId && (f.error || f.revertReason)) || null;
     }
   }
 

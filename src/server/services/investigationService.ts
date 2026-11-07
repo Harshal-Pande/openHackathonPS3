@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { ChainstackProvider, ChainstackProviderError } from '../providers/chainstack.js';
 import { Database } from '../db/database.js';
-import { InvestigationReport, DecodedRevert } from '../forensics/types.js';
+import { InvestigationReport, DecodedRevert, AiExplanation, BuyQuoteSummary } from '../forensics/types.js';
 import { parseCallTrace, ParsedTraceResult } from '../forensics/traceParser.js';
 import { decodeRevertData } from '../forensics/revertDecoder.js';
 import { buildEvidenceLedger } from '../forensics/evidenceBuilder.js';
 import { generateDeterministicExplanation } from '../forensics/explanationEngine.js';
+import { AiExplanationService } from './aiExplanationService.js';
 
 const TX_HASH_REGEX = /^0x[0-9a-fA-F]{64}$/;
 
@@ -24,7 +25,8 @@ export class InvestigationServiceError extends Error {
 export class InvestigationService {
   constructor(
     private provider: ChainstackProvider,
-    private db: Database
+    private db: Database,
+    private aiExplanationService?: AiExplanationService
   ) {}
 
   public async investigate(txHash: string): Promise<InvestigationReport> {
@@ -136,7 +138,7 @@ export class InvestigationService {
     } else if (parsedTrace?.rawTree?.error || parsedTrace?.rawTree?.revertReason) {
       decodedRevert = decodeRevertData(
         parsedTrace.rawTree.output,
-        parsedTrace.rawTree.error || parsedTrace.rawTree.revertReason
+        parsedTrace.rawTree.revertReason || parsedTrace.rawTree.error
       );
     }
 
@@ -192,11 +194,27 @@ export class InvestigationService {
       evidenceLedger,
       diagnosis: explanation.diagnosis,
       limitations: explanation.limitations,
+      aiExplanation: null,
+      buyQuote: null,
       createdAt: now,
       completedAt: new Date().toISOString()
     };
 
-    // 8. Persist in SQLite
+    // 8. Process AI Explanation (if service provided)
+    if (this.aiExplanationService) {
+      const aiResult = await this.aiExplanationService.processExplanation(report);
+      report.aiExplanation = aiResult.aiExplanation;
+      report.buyQuote = aiResult.buyQuote || null;
+    } else {
+      report.aiExplanation = {
+        status: 'DISABLED',
+        provider: 'cencori',
+        summary: 'AI enhancement is currently disabled. Deterministic chain evidence is authoritative.',
+        limitations: ['Cencori AI explanation is disabled via CENCORI_ENABLED=false.']
+      };
+    }
+
+    // 9. Persist in SQLite
     this.db.saveInvestigation({
       id: investigationId,
       tx_hash: cleanHash,
@@ -205,7 +223,9 @@ export class InvestigationService {
       trace_status: traceStatus,
       raw_tx: JSON.stringify(tx),
       raw_receipt: JSON.stringify(receipt),
+      raw_trace: parsedTrace?.rawTree ? JSON.stringify(parsedTrace.rawTree) : null,
       normalized_trace: parsedTrace ? JSON.stringify(parsedTrace.flattenedFrames) : null,
+      decoded_revert: decodedRevert ? JSON.stringify(decodedRevert) : null,
       diagnosis: JSON.stringify(explanation.diagnosis),
       limitations: JSON.stringify(explanation.limitations),
       created_at: now,
@@ -219,6 +239,7 @@ export class InvestigationService {
         evidence_id: e.id,
         kind: e.kind,
         source_method: e.sourceMethod,
+        description: e.description,
         value: JSON.stringify(e.value),
         content_hash: e.contentHash,
         created_at: e.observedAt
@@ -237,7 +258,7 @@ export class InvestigationService {
       id: e.evidence_id,
       kind: e.kind as any,
       sourceMethod: e.source_method,
-      description: e.kind.replace(/_/g, ' '),
+      description: e.description || e.kind.replace(/_/g, ' '),
       value: JSON.parse(e.value),
       contentHash: e.content_hash,
       observedAt: e.created_at
@@ -245,9 +266,35 @@ export class InvestigationService {
 
     const tx = row.raw_tx ? JSON.parse(row.raw_tx) : null;
     const receipt = row.raw_receipt ? JSON.parse(row.raw_receipt) : null;
+    const rawTree = row.raw_trace ? JSON.parse(row.raw_trace) : null;
     const flattenedFrames = row.normalized_trace ? JSON.parse(row.normalized_trace) : [];
+    const decodedRevert = row.decoded_revert ? JSON.parse(row.decoded_revert) : null;
     const diagnosis = row.diagnosis ? JSON.parse(row.diagnosis) : null;
     const limitations = row.limitations ? JSON.parse(row.limitations) : [];
+
+    const quoteRows = this.db.getQuotesByInvestigationId(id);
+    const primaryQuote = quoteRows.length > 0 ? quoteRows[0] : null;
+    const buyQuote: BuyQuoteSummary | null = primaryQuote
+      ? {
+          quoteId: primaryQuote.id,
+          capabilityId: primaryQuote.capability_id,
+          status: primaryQuote.status as any,
+          url: primaryQuote.url,
+          method: primaryQuote.method,
+          bodySha256: primaryQuote.body_sha256,
+          tokenSymbol: primaryQuote.token_symbol,
+          tokenContract: primaryQuote.token_contract,
+          amountAtomic: primaryQuote.amount_atomic,
+          amountDisplay: primaryQuote.amount_display,
+          recipient: primaryQuote.recipient,
+          chainId: primaryQuote.chain_id || 42220,
+          expiry: primaryQuote.expiry,
+          reason: primaryQuote.reason,
+          approvalId: primaryQuote.approval_id,
+          approvedAt: primaryQuote.approved_at,
+          approvedBy: primaryQuote.approved_by
+        }
+      : null;
 
     return {
       investigationId: row.id,
@@ -259,17 +306,19 @@ export class InvestigationService {
       receipt,
       executionTrace: flattenedFrames.length > 0
         ? {
-            rawTree: null,
+            rawTree,
             flattenedFrames,
             totalFrames: flattenedFrames.length,
             maxDepth: Math.max(...flattenedFrames.map((f: any) => f.depth || 0)),
             deepestFailingFrame: flattenedFrames.find((f: any) => f.isDeepestFailingFrame) || null
           }
         : null,
-      decodedRevert: null,
+      decodedRevert,
       evidenceLedger,
       diagnosis,
       limitations,
+      aiExplanation: null,
+      buyQuote,
       createdAt: row.created_at,
       completedAt: row.updated_at
     };
