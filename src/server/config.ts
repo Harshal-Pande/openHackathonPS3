@@ -65,6 +65,10 @@ const envSchema = z.object({
 
   CENCORI_ENABLED: booleanField,
 
+  // Official Hackathon Attribution & Agent Wallet Configuration
+  CELO_ATTRIBUTION_TAG: z.string().default('celo_235f6ef56f5b'),
+  AGENT_WALLET_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).default('0x3e1bef07824cd0E076F4907641F0A0EF27898e52'),
+
   REPORT_TTL_DAYS: z.coerce.number().int().positive().default(14),
   REPORTS_PUBLIC_BY_DEFAULT: booleanField
 });
@@ -100,6 +104,10 @@ function enforceProductionInvariants(config: AppConfig): void {
   }
   if (config.BUY_ENABLED && config.BUY_PER_CALL_CAP_ATOMIC === '0') {
     errors.push('BUY_ENABLED is true but BUY_PER_CALL_CAP_ATOMIC is 0 — no per-call cap configured.');
+  }
+
+  if (config.CELO_ATTRIBUTION_TAG !== 'celo_235f6ef56f5b') {
+    errors.push('CELO_ATTRIBUTION_TAG must match the official hackathon tag "celo_235f6ef56f5b".');
   }
 
   if (errors.length > 0) {

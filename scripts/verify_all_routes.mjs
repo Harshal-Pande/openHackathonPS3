@@ -85,6 +85,20 @@ async function testAllRoutes() {
     return body.data?.status === 'ok' && body.data?.chainId === 42220;
   });
 
+  // 1b. GET /api/agent/metadata (Public ERC-8004 metadata -> 200)
+  await testRoute('Public Agent ERC-8004 Metadata', { method: 'GET', url: '/api/agent/metadata' }, '/api/agent/metadata', [200], (res, body) => {
+    return body.data?.name === 'RevertLens' && body.data?.attributionTag === 'celo_235f6ef56f5b' && body.data?.chainId === 42220;
+  });
+
+  // 1c. GET /api/agent/erc8004-registration-tx (Prepare tagged registration tx -> 200)
+  await testRoute('Prepare Tagged ERC-8004 Registration Tx', { method: 'GET', url: '/api/agent/erc8004-registration-tx' }, '/api/agent/erc8004-registration-tx', [200], (res, body) => {
+    return (
+      body.data?.taggedTransaction?.chainId === 42220 &&
+      body.data?.taggedTransaction?.attributionTag === 'celo_235f6ef56f5b' &&
+      body.data?.taggedTransaction?.verifiedCodes?.includes('celo_235f6ef56f5b')
+    );
+  });
+
   // 2. POST /api/investigations (Invalid hash -> 400)
   await testRoute('Investigation Invalid Hash', {
     method: 'POST',

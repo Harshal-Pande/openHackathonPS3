@@ -39,6 +39,8 @@ RevertLens is designed as a single, self-contained, deployable process:
 | `OPERATOR_PASSWORD_HASH` | **YES** | Argon2id hash of the operator access password. |
 | `CORS_ORIGIN` | **YES** | Explicit public frontend origin (e.g. `https://revertlens.app`). Cannot be `*`. |
 | `PUBLIC_BASE_URL` | Optional | Public URL of the deployed application. |
+| `CELO_ATTRIBUTION_TAG` | **YES** | Official hackathon attribution tag (`celo_235f6ef56f5b`). |
+| `AGENT_WALLET_ADDRESS` | **YES** | Official agent wallet (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`). |
 | `BUY_ENABLED` | Optional | Boolean flag to enable Buy payments (defaults to `false`). |
 | `CENCORI_ENABLED` | Optional | Boolean flag to enable Cencori AI (defaults to `false`). |
 | `BUY_DAILY_BUDGET_ATOMIC` | Required if Buy on | Daily spending cap in token atomic units. |

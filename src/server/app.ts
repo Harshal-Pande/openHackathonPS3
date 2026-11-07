@@ -8,6 +8,10 @@ import { AppConfig, ensureAppConfig } from './config.js';
 import { Database } from './db/database.js';
 import { ChainstackProvider } from './providers/chainstack.js';
 import { CencoriProvider } from './providers/cencori.js';
+import {
+  CeloAttributionService,
+  ERC8004_IDENTITY_REGISTRY_CELO_MAINNET
+} from './services/celoAttributionService.js';
 import { BuyQuoteService } from './services/buyQuoteService.js';
 import { AiExplanationService } from './services/aiExplanationService.js';
 import { OperatorAuthService } from './auth/operatorAuth.js';
@@ -65,6 +69,7 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
 
   const authService = deps.authService || new OperatorAuthService(appConfig);
   const investigationService = new InvestigationService(provider, db, aiExplanationService);
+  const celoAttributionService = new CeloAttributionService(appConfig.CELO_ATTRIBUTION_TAG);
 
   server.register(cors, {
     origin: appConfig.CORS_ORIGIN,
@@ -236,6 +241,43 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
     });
 
     return quote;
+  });
+
+  // ==========================================
+  // HACKATHON AGENT & ATTRIBUTION ENDPOINTS
+  // ==========================================
+
+  // GET /api/agent/metadata - Public ERC-8004 agent registration metadata
+  server.get('/api/agent/metadata', async () => {
+    return celoAttributionService.generateErc8004Metadata({
+      agentWallet: appConfig.AGENT_WALLET_ADDRESS as `0x${string}`,
+      baseUrl: appConfig.PUBLIC_BASE_URL
+    });
+  });
+
+  // GET /api/agent/erc8004-registration-tx - Prepares tagged ERC-8004 registration transaction payload
+  server.get('/api/agent/erc8004-registration-tx', async (request) => {
+    const query = (request.query || {}) as { agentURI?: string };
+    const agentURI = query.agentURI || `${appConfig.PUBLIC_BASE_URL}/api/agent/metadata`;
+    const tx = celoAttributionService.buildErc8004RegistrationTransaction({
+      agentURI,
+      from: appConfig.AGENT_WALLET_ADDRESS as `0x${string}`
+    });
+    return {
+      agentURI,
+      registryAddress: ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
+      taggedTransaction: {
+        to: tx.to,
+        from: tx.from,
+        value: tx.value.toString(),
+        data: tx.data,
+        chainId: tx.chainId,
+        gasLimit: tx.gasLimit ? tx.gasLimit.toString() : '350000',
+        attributionTag: tx.attributionTag,
+        dataSuffix: tx.dataSuffix,
+        verifiedCodes: tx.verifiedCodes
+      }
+    };
   });
 
   // ==========================================
