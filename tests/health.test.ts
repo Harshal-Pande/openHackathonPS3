@@ -32,7 +32,8 @@ describe('Health Check Endpoint GET /api/health', () => {
       chainId: 42220,
       featureFlags: {
         buyEnabled: false,
-        cencoriEnabled: false
+        cencoriEnabled: false,
+        chainstackConfigured: false
       },
       buyReady: false
     });

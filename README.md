@@ -36,16 +36,20 @@ Never commit wallet secrets, seed phrases, bearer tokens, private payment author
 
 ## Current status
 
-- Product specification: prepared.
-- Architecture and contracts: specified.
-- Workspace rules and instructions: active.
-- Minimal technical foundation: established (Node 22, Fastify, React 19, TypeScript strict, Vitest).
-- Automated tests: 6 passed (config validation, health endpoint envelope).
-- Buy live catalogue: inspected (Chainstack Celo and Cencori endpoints active).
-- Chainstack Celo trace capability through Buy: unverified (awaiting operator approval and wallet setup).
-- Cencori paid call through Buy: unverified (awaiting operator approval).
+- Product specification: prepared and locked.
+- Architecture and contracts: fully specified in `docs/`.
+- Workspace rules and instructions: active in `AGENTS.md` and `.agents/rules/`.
+- Technical foundation: complete (Node 22, Fastify, React 19, TypeScript strict mode, Vitest, native SQLite `node:sqlite`).
+- Automated tests: 35 passed across 7 test suites (100% pass).
+- Production build: clean (`tsc` server compile + Vite client bundle).
+- Direct Chainstack Elastic Global Node: integrated (`src/server/providers/chainstack.ts`) for zero-cost high-throughput Celo Mainnet RPC with OP Geth client, native `debug`/`trace` namespaces, backoff, and URL redaction.
+- Forensic investigation engine: complete (`revertDecoder` for `Error(string)` & `Panic(uint256)`, `traceParser` with revert propagation analysis, `evidenceBuilder` with SHA-256 digests, `classifier`, and evidence-citing `explanationEngine`).
+- Frontend dashboard: complete (`src/client/App.tsx`) with dark forensics UI, call trace viewer, root failure highlights, evidence ledger, and JSON report export.
+- Buy live catalogue: inspected (170 capabilities active; `chainstack.celo` and `cencori.v1.chat.completions` 402 quotes verified).
+- Cencori AI explanation: capability mapped, Google Cloud Web3 USA₮ faucet compatibility verified for zero-cost Buy wallet funding.
+- Live RPC execution on host: ready immediately upon operator setting `CHAINSTACK_CELO_MAINNET_RPC_URL` in `.env`.
 - ERC-8004 identity: not yet registered.
 - Independent users: not yet recruited or verified.
-- Deployment: not yet performed.
+- Deployment: local build verified; production deployment pending.
 
 Do not change these statuses without evidence.

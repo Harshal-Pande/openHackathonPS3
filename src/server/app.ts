@@ -1,13 +1,35 @@
 import fastify, { FastifyInstance, FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { AppConfig } from './config.js';
+import { Database } from './db/database.js';
+import { ChainstackProvider } from './providers/chainstack.js';
+import { InvestigationService } from './services/investigationService.js';
 
-export function buildApp(appConfig: AppConfig): FastifyInstance {
+export interface AppDependencies {
+  db?: Database;
+  provider?: ChainstackProvider;
+}
+
+const InvestigateBodySchema = z.object({
+  txHash: z.string().trim()
+});
+
+export function buildApp(appConfig: AppConfig, deps: AppDependencies = {}): FastifyInstance {
   const server = fastify({
     logger: false,
     genReqId: () => randomUUID()
   });
+
+  const db = deps.db || new Database(appConfig.DATABASE_PATH);
+  const provider =
+    deps.provider ||
+    new ChainstackProvider({
+      rpcUrl: appConfig.CHAINSTACK_CELO_MAINNET_RPC_URL
+    });
+
+  const investigationService = new InvestigationService(provider, db);
 
   server.register(cors, {
     origin: appConfig.CORS_ORIGIN,
@@ -16,7 +38,6 @@ export function buildApp(appConfig: AppConfig): FastifyInstance {
 
   // Standard API Envelope Formatter
   server.addHook('onSend', async (request, reply, payload) => {
-    // Only format JSON /api responses if not already formatted
     const contentType = reply.getHeader('content-type');
     if (typeof contentType === 'string' && contentType.includes('application/json')) {
       try {
@@ -38,14 +59,18 @@ export function buildApp(appConfig: AppConfig): FastifyInstance {
 
   // Error Handler conforming to API contract
   server.setErrorHandler((error: FastifyError | Error, request, reply) => {
-    const statusCode = ('statusCode' in error && typeof error.statusCode === 'number') ? error.statusCode : 500;
-    const errorCode = ('code' in error && typeof error.code === 'string') ? error.code : 'INTERNAL_SERVER_ERROR';
+    const statusCode = 'statusCode' in error && typeof (error as any).statusCode === 'number'
+      ? (error as any).statusCode
+      : (reply.statusCode >= 400 ? reply.statusCode : 500);
+    const errorCode = 'code' in error && typeof (error as any).code === 'string'
+      ? (error as any).code
+      : (statusCode === 400 ? 'BAD_REQUEST' : statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_SERVER_ERROR');
 
     reply.status(statusCode).send({
       data: null,
       error: {
         code: errorCode,
-        message: statusCode >= 500 ? 'An internal server error occurred.' : error.message
+        message: statusCode >= 500 && appConfig.NODE_ENV === 'production' ? 'An internal server error occurred.' : error.message
       },
       requestId: request.id
     });
@@ -59,10 +84,53 @@ export function buildApp(appConfig: AppConfig): FastifyInstance {
       chainId: 42220,
       featureFlags: {
         buyEnabled: appConfig.BUY_ENABLED,
-        cencoriEnabled: appConfig.CENCORI_ENABLED
+        cencoriEnabled: appConfig.CENCORI_ENABLED,
+        chainstackConfigured: provider.isConfigured()
       },
-      buyReady: false // False until live Gate 0 verified and wallet provisioned
+      buyReady: false
     };
+  });
+
+  // POST /api/investigations - Execute or retrieve investigation
+  server.post('/api/investigations', async (request, reply) => {
+    const parseResult = InvestigateBodySchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const err: any = new Error(`Invalid request body: ${parseResult.error.errors.map((e) => e.message).join(', ')}`);
+      err.statusCode = 400;
+      err.code = 'BAD_REQUEST';
+      throw err;
+    }
+
+    try {
+      const report = await investigationService.investigate(parseResult.data.txHash);
+      return report;
+    } catch (err: unknown) {
+      const error = err as any;
+      if (!error.statusCode) {
+        error.statusCode = 400;
+      }
+      throw error;
+    }
+  });
+
+  // GET /api/investigations/:id - Fetch by ID
+  server.get('/api/investigations/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const report = investigationService.getInvestigation(id);
+    if (!report) {
+      const err: any = new Error(`Investigation ${id} not found.`);
+      err.statusCode = 404;
+      err.code = 'NOT_FOUND';
+      throw err;
+    }
+    return report;
+  });
+
+  // GET /api/investigations - List recent
+  server.get('/api/investigations', async (request) => {
+    const query = request.query as { limit?: string };
+    const limit = query.limit ? parseInt(query.limit, 10) : 20;
+    return investigationService.listRecent(limit);
   });
 
   return server;

@@ -17,6 +17,10 @@ const envSchema = z.object({
   OPERATOR_PASSWORD_HASH: z.string().min(1).default(PLACEHOLDER_OPERATOR_HASH),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
+  // Direct Chainstack Celo Mainnet RPC Endpoint (Growth plan)
+  // Kept server-side only; never leaked to frontend or logs
+  CHAINSTACK_CELO_MAINNET_RPC_URL: z.string().url().optional().or(z.literal('')),
+
   // Buy CLI integration: official @celo/buy package, invoked via npx or installed globally.
   // Backend spawns: npx @celo/buy@latest --json curl --max-amount <cap> ...
   // Wallet management is handled by the Buy CLI OS keychain (run `buy setup` once per machine).
