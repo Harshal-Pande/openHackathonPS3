@@ -1,7 +1,7 @@
 export interface NormalizedTransaction {
   hash: string;
-  blockNumber: number;
-  transactionIndex: number;
+  blockNumber: number | null;
+  transactionIndex: number | null;
   from: string;
   to: string | null;
   value: string;
@@ -11,13 +11,14 @@ export interface NormalizedTransaction {
   maxPriorityFeePerGas?: string;
   input: string;
   nonce: number;
+  isPending: boolean;
 }
 
 export interface NormalizedReceipt {
   transactionHash: string;
-  blockNumber: number;
-  status: 'SUCCESS' | 'REVERTED';
-  rawStatus: number;
+  blockNumber: number | null;
+  status: 'SUCCESS' | 'REVERTED' | 'UNKNOWN';
+  rawStatus: number | null;
   gasUsed: string;
   effectiveGasPrice?: string;
   contractAddress?: string | null;
@@ -78,7 +79,8 @@ export class ChainstackProvider {
     if (!this.isConfigured()) {
       throw new ChainstackProviderError(
         'Chainstack Celo RPC URL is not configured. Set CHAINSTACK_CELO_MAINNET_RPC_URL in .env',
-        'ENDPOINT_NOT_CONFIGURED'
+        'ENDPOINT_NOT_CONFIGURED',
+        503
       );
     }
 
@@ -98,14 +100,29 @@ export class ChainstackProvider {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
-        const response = await fetch(this.rpcUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        }).finally(() => clearTimeout(timeoutId));
+        let response: Response;
+        try {
+          response = await fetch(this.rpcUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+        } catch (fetchErr: unknown) {
+          const fErr = fetchErr as Error;
+          if (fErr.name === 'AbortError') {
+            throw new ChainstackProviderError(
+              `Request timed out after ${this.timeoutMs}ms while calling RPC method '${method}'.`,
+              'TIMEOUT',
+              504
+            );
+          }
+          throw fErr;
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
         if (!response.ok) {
           if (response.status === 429) {
@@ -113,8 +130,8 @@ export class ChainstackProvider {
           }
           throw new ChainstackProviderError(
             `Chainstack HTTP error: ${response.status} ${response.statusText}`,
-            'HTTP_ERROR',
-            response.status
+            'PROVIDER_ERROR',
+            response.status >= 500 ? 502 : response.status
           );
         }
 
@@ -130,12 +147,14 @@ export class ChainstackProvider {
           if (data.error.code === -32601) {
             throw new ChainstackProviderError(
               `RPC method '${method}' is not supported by this Chainstack node: ${data.error.message}`,
-              'METHOD_NOT_SUPPORTED'
+              'METHOD_NOT_SUPPORTED',
+              501
             );
           }
           throw new ChainstackProviderError(
             `JSON-RPC error from Chainstack (${data.error.code}): ${data.error.message}`,
-            'JSON_RPC_ERROR'
+            'JSON_RPC_ERROR',
+            502
           );
         }
 
@@ -144,10 +163,13 @@ export class ChainstackProvider {
         const error = err as Error;
         lastError = error;
 
-        // If client error or method unsupported, do not retry
+        // If client error, timeout, rate limit, or method unsupported, do not retry
         if (
           error instanceof ChainstackProviderError &&
-          (error.code === 'METHOD_NOT_SUPPORTED' || (error.statusCode && error.statusCode < 500 && error.statusCode !== 429))
+          (error.code === 'METHOD_NOT_SUPPORTED' ||
+            error.code === 'TIMEOUT' ||
+            error.code === 'RATE_LIMITED' ||
+            (error.statusCode && error.statusCode < 500 && error.statusCode !== 429))
         ) {
           throw error;
         }
@@ -161,9 +183,13 @@ export class ChainstackProvider {
 
     // Sanitize any potential URL in error message
     const sanitizedMsg = (lastError?.message || 'Unknown network error').replace(/https?:\/\/[^\s]+/g, '[REDACTED_RPC_ENDPOINT]');
+    if (lastError instanceof ChainstackProviderError) {
+      throw lastError;
+    }
     throw new ChainstackProviderError(
       `Chainstack RPC call to '${method}' failed after ${attempt} attempts: ${sanitizedMsg}`,
-      'RPC_TIMEOUT_OR_NETWORK_ERROR'
+      'PROVIDER_ERROR',
+      502
     );
   }
 
@@ -177,7 +203,8 @@ export class ChainstackProvider {
     if (chainId !== 42220) {
       throw new ChainstackProviderError(
         `Invalid chain ID: expected 42220 (Celo Mainnet), received ${chainId}`,
-        'INVALID_CHAIN_ID'
+        'INVALID_CHAIN_ID',
+        502
       );
     }
 
@@ -191,11 +218,32 @@ export class ChainstackProvider {
     const raw = await this.callRpc<Record<string, unknown> | null>('eth_getTransactionByHash', [txHash]);
     if (!raw) return null;
 
+    const isPending = raw.blockNumber === null || raw.blockNumber === undefined;
+    const blockNumber = isPending
+      ? null
+      : typeof raw.blockNumber === 'string'
+        ? parseInt(raw.blockNumber, 16)
+        : Number(raw.blockNumber);
+
+    const transactionIndex =
+      raw.transactionIndex === null || raw.transactionIndex === undefined
+        ? null
+        : typeof raw.transactionIndex === 'string'
+          ? parseInt(raw.transactionIndex, 16)
+          : Number(raw.transactionIndex);
+
+    const nonce =
+      raw.nonce === null || raw.nonce === undefined
+        ? 0
+        : typeof raw.nonce === 'string'
+          ? parseInt(raw.nonce, 16)
+          : Number(raw.nonce);
+
     return {
-      hash: String(raw.hash),
-      blockNumber: typeof raw.blockNumber === 'string' ? parseInt(raw.blockNumber, 16) : Number(raw.blockNumber),
-      transactionIndex: typeof raw.transactionIndex === 'string' ? parseInt(raw.transactionIndex, 16) : Number(raw.transactionIndex),
-      from: String(raw.from).toLowerCase(),
+      hash: String(raw.hash || txHash).toLowerCase(),
+      blockNumber,
+      transactionIndex,
+      from: String(raw.from || '').toLowerCase(),
       to: raw.to ? String(raw.to).toLowerCase() : null,
       value: String(raw.value || '0x0'),
       gas: String(raw.gas || '0x0'),
@@ -203,7 +251,8 @@ export class ChainstackProvider {
       maxFeePerGas: raw.maxFeePerGas ? String(raw.maxFeePerGas) : undefined,
       maxPriorityFeePerGas: raw.maxPriorityFeePerGas ? String(raw.maxPriorityFeePerGas) : undefined,
       input: String(raw.input || '0x'),
-      nonce: typeof raw.nonce === 'string' ? parseInt(raw.nonce, 16) : Number(raw.nonce)
+      nonce,
+      isPending
     };
   }
 
@@ -214,16 +263,36 @@ export class ChainstackProvider {
     const raw = await this.callRpc<Record<string, unknown> | null>('eth_getTransactionReceipt', [txHash]);
     if (!raw) return null;
 
-    const rawStatus = typeof raw.status === 'string' ? parseInt(raw.status, 16) : Number(raw.status);
+    let status: 'SUCCESS' | 'REVERTED' | 'UNKNOWN' = 'UNKNOWN';
+    let rawStatus: number | null = null;
+
+    if (raw.status !== null && raw.status !== undefined) {
+      const parsedStatus = typeof raw.status === 'string' ? parseInt(raw.status, 16) : Number(raw.status);
+      if (!isNaN(parsedStatus)) {
+        rawStatus = parsedStatus;
+        if (parsedStatus === 1) {
+          status = 'SUCCESS';
+        } else if (parsedStatus === 0) {
+          status = 'REVERTED';
+        }
+      }
+    }
+
+    const blockNumber =
+      raw.blockNumber === null || raw.blockNumber === undefined
+        ? null
+        : typeof raw.blockNumber === 'string'
+          ? parseInt(raw.blockNumber, 16)
+          : Number(raw.blockNumber);
 
     return {
-      transactionHash: String(raw.transactionHash),
-      blockNumber: typeof raw.blockNumber === 'string' ? parseInt(raw.blockNumber, 16) : Number(raw.blockNumber),
-      status: rawStatus === 1 ? 'SUCCESS' : 'REVERTED',
+      transactionHash: String(raw.transactionHash || txHash).toLowerCase(),
+      blockNumber,
+      status,
       rawStatus,
       gasUsed: String(raw.gasUsed || '0x0'),
       effectiveGasPrice: raw.effectiveGasPrice ? String(raw.effectiveGasPrice) : undefined,
-      contractAddress: raw.contractAddress ? String(raw.contractAddress) : null,
+      contractAddress: raw.contractAddress ? String(raw.contractAddress).toLowerCase() : null,
       logsCount: Array.isArray(raw.logs) ? raw.logs.length : 0
     };
   }

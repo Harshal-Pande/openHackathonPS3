@@ -19,14 +19,15 @@
 | Candidate failed Celo tx verified | PASS | LIVE_MAINNET_READ_ONLY | Blockscout API | `0xb90bcca5...` block 52460432; reverted `Error(string)`: `"Swap reverted"`. |
 | **Trace quote obtained via `buy quote`** | **PASS** | **LIVE_MAINNET_READ_ONLY** | `buy quote` with trace payload | Body SHA-256: `35406284f1673b329e88e9b2d7e162c4e515123aec7237ef8aea1acba23b7882`; Quoted 10,000 atomic units ($0.01 USDC). |
 | `cencori.v1.chat.completions` available | PASS | LIVE_MAINNET_READ_ONLY | Catalog + 402 challenge | Model `maximo-atlas-1.3`, available: true, $0.01 per call. |
-| USA₮ Faucet eligibility confirmed | PASS | LOCAL | Google Cloud Web3 Celo Mainnet Faucet | Self ZK-pass verification yields USA₮; accepted by Buy gateway at zero personal cost. |
+| USA₮ Faucet Identified | NOT_TESTED | LOCAL | Google Cloud Web3 Celo Mainnet Faucet | Faucet page documented; operator eligibility & wallet funding are UNVERIFIED and UNFUNDED. |
 | Direct Chainstack Growth Node Provisioned | PASS | LIVE_MAINNET_READ_ONLY | Operator dashboard (`ND-801-666-498`) | OP Geth, 250 RPS, debug/trace namespaces, Celo Mainnet 42220. Adopted under AD-008. |
 | Direct Chainstack Provider & Client Built | PASS | LOCAL_TESTED | `tests/chainstackProvider.test.ts` (6/6 pass) | Enforces chainId 42220, exponential backoff, URL redaction (`[REDACTED_RPC_ENDPOINT]`). |
-| Forensic Pipeline (revertDecoder, traceParser, classifier) | PASS | LOCAL_TESTED | `tests/revertDecoder.test.ts`, `tests/traceParser.test.ts`, `tests/forensics.test.ts` | 14/14 tests passing. Decodes `Error(string)` and `Panic(uint256)`, checks revert propagation. |
+| Forensic Pipeline (revertDecoder, traceParser, classifier) | PASS | LOCAL_TESTED | `tests/revertDecoder.test.ts`, `tests/traceParser.test.ts`, `tests/forensics.test.ts` | 14/14 tests passing. Decodes `Error(string)` and `Panic(uint256)`, checks continuous revert propagation. |
 | Investigation Service & SQLite Persistence | PASS | LOCAL_TESTED | `tests/investigations.test.ts` (2/2 pass) | Persists investigations and atomic evidence items to SQLite. |
+| Regression & Edge Case Hardening Suite | PASS | LOCAL_TESTED | `tests/regressionEdgeCases.test.ts` (10/10 pass) | Covers trace timeouts, rate limits, 404s, 502/503 outages, pending txs, unconfirmed receipts. |
 | React Dark Forensics Dashboard | PASS | LOCAL_TESTED | Vite build (`dist/client`) | Full UI with call trace viewer, root failure highlights, evidence ledger, report download. |
-| Full Automated Test Suite | PASS | LOCAL_TESTED | Vitest (35/35 passing) | 100% pass across all 7 test files. |
-| Live Chainstack Node Execution | BLOCKED | LIVE_MAINNET_READ_ONLY | Awaiting `.env` creation | Requires operator to set `CHAINSTACK_CELO_MAINNET_RPC_URL` in `.env`. |
+| Full Automated Test Suite | PASS | LOCAL_TESTED | Vitest (45/45 passing) | 100% pass across all 8 test files. |
+| Live Chainstack Node Execution | PASS | LIVE_MAINNET_READ_ONLY | `live_verify.mjs` & Fastify API | Verified live on Celo Mainnet 42220; 4 frames traced, deepest failing frame at depth 1 to 0xe3d8... |
 
 ---
 
@@ -52,6 +53,7 @@
 ## Infrastructure Decision (AD-008)
 
 - **RPC Infrastructure:** Direct Chainstack Growth Elastic Global Node (`ND-801-666-498`) on Celo Mainnet (OP Geth, Worldwide global1, 250 RPS) with debug & trace namespaces.
-- **Cost:** $0.00 / call (unlimited within Growth plan quota).
+- **Cost:** $0.00 / call (zero personal spending incurred).
 - **Payment Architecture:** Buy CLI / MCP gateway capabilities preserved for paid Cencori LLM inference (`cencori.v1.chat.completions`) funded via USA₮ faucet.
-- **Action Required to Run Live Query:** Operator creates `.env` with `CHAINSTACK_CELO_MAINNET_RPC_URL="https://celo-mainnet.core.chainstack.com/..."`.
+- **Live Verification Status:** **PRIMARY GO** — Celo Mainnet chain ID 42220 verified; candidate transaction, receipt, and 4-frame execution trace verified live on Chainstack Growth node. Persisted in SQLite.
+

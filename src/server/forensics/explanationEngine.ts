@@ -28,11 +28,19 @@ export function generateDeterministicExplanation(
   const annotatedFacts: string[] = [];
 
   if (tx) {
-    annotatedFacts.push(`[${txFactId}] Sender ${tx.from} submitted transaction to ${tx.to || 'contract creation'} with gas limit ${tx.gas}.`);
+    if (tx.isPending) {
+      annotatedFacts.push(`[${txFactId}] Transaction submitted by ${tx.from} is pending in mempool (nonce: ${tx.nonce}, unconfirmed).`);
+    } else {
+      annotatedFacts.push(`[${txFactId}] Sender ${tx.from} submitted transaction to ${tx.to || 'contract creation'} with gas limit ${tx.gas}.`);
+    }
   }
 
   if (receipt) {
-    annotatedFacts.push(`[${receiptFactId}] Transaction mined in block ${receipt.blockNumber} with execution status ${receipt.status} (consumed ${receipt.gasUsed} gas).`);
+    if (receipt.blockNumber !== null) {
+      annotatedFacts.push(`[${receiptFactId}] Transaction mined in block ${receipt.blockNumber} with execution status ${receipt.status} (consumed ${receipt.gasUsed} gas).`);
+    } else {
+      annotatedFacts.push(`[${receiptFactId}] Transaction receipt recorded with execution status ${receipt.status}.`);
+    }
   }
 
   if (revert && revertFactId) {

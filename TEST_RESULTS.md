@@ -1,15 +1,15 @@
 # Test Results
 
-**Date/time:** 2026-11-07 06:46:00 UTC  
-**Commit:** 7d59083 + Phase 4 implementation  
+**Date/time:** 2026-11-07 07:05:00 UTC  
+**Commit:** 314dfdb + Phase 5.5 implementation  
 **Node:** v22.17.0  
 **npm:** 11.6.1  
 
 | Command | Exit code | Result | Notes |
 |---|---:|---|---|
 | `npm run typecheck` | 0 | PASS | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict; 0 errors |
-| `npm test` | 0 | PASS | **7 test files, 35/35 tests passed** in 1.35s |
-| `npm run build` | 0 | PASS | Server: `dist/server/`; Client: `dist/client/assets/index-zVKXPFNf.js` (240.71 kB) via Vite 6.4.5 |
+| `npm test` | 0 | PASS | **8 test files, 45/45 tests passed** in 1.44s |
+| `npm run build` | 0 | PASS | Server: `dist/server/`; Client: `dist/client/assets/index-DorCWAOR.js` (241.09 kB) via Vite 6.4.5 |
 
 ---
 
@@ -62,7 +62,7 @@
 | Test | Class | Result |
 |---|---|---|
 | flattens nested call frame tree and tracks depth | LOCAL | PASS |
-| detects when a child revert propagates to root | LOCAL | PASS |
+| detects when a child revert propagates continuously to root | LOCAL | PASS |
 | distinguishes caught child revert from root failure | LOCAL | PASS |
 
 ### `tests/forensics.test.ts` — 3 tests PASS (LOCAL)
@@ -78,11 +78,25 @@
 | rejects invalid transaction hash format with HTTP 400 | LOCAL | PASS |
 | executes full investigation with mocked provider and persists report to SQLite | MOCKED | PASS |
 
+### `tests/regressionEdgeCases.test.ts` — 10 tests PASS (LOCAL/MOCKED)
+| Test | Class | Result |
+|---|---|---|
+| handles trace timeout gracefully with TIMEOUT status and limitations note | MOCKED | PASS |
+| handles unsupported trace method (-32601) with UNSUPPORTED status | MOCKED | PASS |
+| handles rate limiting (429) during trace retrieval with RATE_LIMITED status | MOCKED | PASS |
+| returns HTTP 502 with redacted URL on provider network outage | MOCKED | PASS |
+| correctly classifies pending transaction in mempool without false revert | MOCKED | PASS |
+| handles mined transaction with null receipt as UNCONFIRMED_RECEIPT | MOCKED | PASS |
+| detects malformed trace payload and sets INVALID_RESPONSE | MOCKED | PASS |
+| returns HTTP 404 when transaction is not found on Celo Mainnet | MOCKED | PASS |
+| returns HTTP 503 when RPC endpoint is not configured | LOCAL | PASS |
+| verifies evidence correctness and does not treat caught child reverts as root cause | LOCAL | PASS |
+
 ---
 
 ## Test class breakdown
 
-- **LOCAL:** 26 passed  
-- **MOCKED:** 9 passed  
+- **LOCAL:** 27 passed  
+- **MOCKED:** 18 passed  
 - **LIVE_MAINNET_PAID:** 0 (zero personal budget spent; zero paid calls executed)  
-- **TOTAL:** **35 passed, 0 failed**  
+- **TOTAL:** **45 passed, 0 failed**  

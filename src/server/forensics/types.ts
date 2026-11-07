@@ -46,7 +46,11 @@ export interface FailureDiagnosis {
     | 'PROPAGATED_CHILD_REVERT'
     | 'CAUGHT_CHILD_REVERT'
     | 'UNSUPPORTED_OR_MISSING_TRACE'
-    | 'UNKNOWN_REVERT';
+    | 'UNKNOWN_REVERT'
+    | 'PENDING_TRANSACTION'
+    | 'SUCCESSFUL_TRANSACTION'
+    | 'UNCONFIRMED_RECEIPT'
+    | 'UNKNOWN_STATUS';
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   headline: string;
   narrative: string;
@@ -61,8 +65,15 @@ export interface InvestigationReport {
   investigationId: string;
   txHash: string;
   chainId: number;
-  status: 'SUCCESS' | 'REVERTED' | 'NOT_FOUND';
-  traceStatus: 'AVAILABLE' | 'UNSUPPORTED' | 'NOT_REQUESTED';
+  status: 'SUCCESS' | 'REVERTED' | 'PENDING' | 'NOT_FOUND' | 'UNKNOWN';
+  traceStatus:
+    | 'AVAILABLE'
+    | 'UNSUPPORTED'
+    | 'RATE_LIMITED'
+    | 'TIMEOUT'
+    | 'PROVIDER_ERROR'
+    | 'INVALID_RESPONSE'
+    | 'NOT_REQUESTED';
   transaction: NormalizedTransaction | null;
   receipt: NormalizedReceipt | null;
   executionTrace: {

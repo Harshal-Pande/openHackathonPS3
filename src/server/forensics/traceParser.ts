@@ -19,8 +19,8 @@ export function parseCallTrace(rawTree: RawCallFrame): ParsedTraceResult {
     if (depth > maxDepth) maxDepth = depth;
 
     const rawError = frame.error || frame.revertReason;
-    const revertBytes = frame.output && frame.output.startsWith('0x') && frame.output.length >= 10 ? frame.output : undefined;
-    const decoded = decodeRevertData(revertBytes, rawError);
+    const revertBytes = rawError && frame.output && frame.output.startsWith('0x') && frame.output.length >= 10 ? frame.output : undefined;
+    const decoded = rawError ? decodeRevertData(revertBytes, rawError) : undefined;
 
     const currentFrame: FlattenedCallFrame = {
       id: frameId,
@@ -60,35 +60,29 @@ export function parseCallTrace(rawTree: RawCallFrame): ParsedTraceResult {
     frameMap.set(f.id, f);
   }
 
-  // Second pass: Evaluate Failure Propagation
-  // A frame error propagated to parent if parent also has an error or is the top-level reverted tx
-  for (const frame of flattened) {
+  // Helper to check if error propagates continuously all the way up to the root frame
+  function propagatesToRoot(frame: FlattenedCallFrame): boolean {
     const hasError = Boolean(frame.error || frame.decodedRevert || frame.revertReason);
-    if (!hasError) {
-      frame.propagatedToParent = false;
-      continue;
+    if (!hasError) return false;
+    let curr: FlattenedCallFrame | undefined = frame;
+    while (curr) {
+      const currError = Boolean(curr.error || curr.decodedRevert || curr.revertReason);
+      if (!currError) return false;
+      if (!curr.parentFrameId) return true; // Reached root and root also has error
+      curr = frameMap.get(curr.parentFrameId);
     }
-
-    if (!frame.parentFrameId) {
-      // Root frame with error is the root revert
-      frame.propagatedToParent = true;
-      continue;
-    }
-
-    const parent = frameMap.get(frame.parentFrameId);
-    if (parent && Boolean(parent.error || parent.decodedRevert || parent.revertReason)) {
-      frame.propagatedToParent = true;
-    } else {
-      // Parent did not fail; parent handled or caught child error
-      frame.propagatedToParent = false;
-    }
+    return false;
   }
 
-  // Third pass: Identify the Deepest Failing Frame along the propagated path
+  // Second pass: Evaluate Failure Propagation
+  for (const frame of flattened) {
+    frame.propagatedToParent = propagatesToRoot(frame);
+  }
+
+  // Third pass: Identify the Deepest Failing Frame along the continuous propagated path
   let deepestFailing: FlattenedCallFrame | null = null;
   for (const frame of flattened) {
-    const hasError = Boolean(frame.error || frame.decodedRevert || frame.revertReason);
-    if (hasError && frame.propagatedToParent) {
+    if (frame.propagatedToParent) {
       if (!deepestFailing || frame.depth >= deepestFailing.depth) {
         deepestFailing = frame;
       }

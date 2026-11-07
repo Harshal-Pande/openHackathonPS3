@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ChainstackProvider } from '../providers/chainstack.js';
+import { ChainstackProvider, ChainstackProviderError } from '../providers/chainstack.js';
 import { Database } from '../db/database.js';
 import { InvestigationReport, DecodedRevert } from '../forensics/types.js';
 import { parseCallTrace, ParsedTraceResult } from '../forensics/traceParser.js';
@@ -8,6 +8,18 @@ import { buildEvidenceLedger } from '../forensics/evidenceBuilder.js';
 import { generateDeterministicExplanation } from '../forensics/explanationEngine.js';
 
 const TX_HASH_REGEX = /^0x[0-9a-fA-F]{64}$/;
+
+export class InvestigationServiceError extends Error {
+  public statusCode: number;
+  public code: string;
+
+  constructor(message: string, statusCode: number = 500, code: string = 'INVESTIGATION_ERROR') {
+    super(message);
+    this.name = 'InvestigationServiceError';
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
 
 export class InvestigationService {
   constructor(
@@ -18,7 +30,11 @@ export class InvestigationService {
   public async investigate(txHash: string): Promise<InvestigationReport> {
     const trimmed = txHash.trim();
     if (!TX_HASH_REGEX.test(trimmed)) {
-      throw new Error('Invalid transaction hash format. Must be a 0x-prefixed 64-character hexadecimal string.');
+      throw new InvestigationServiceError(
+        'Invalid transaction hash format. Must be a 0x-prefixed 64-character hexadecimal string.',
+        400,
+        'INVALID_INPUT'
+      );
     }
 
     const cleanHash = trimmed.toLowerCase();
@@ -26,39 +42,91 @@ export class InvestigationService {
 
     // Check if endpoint is configured
     if (!this.provider.isConfigured()) {
-      throw new Error(
-        'Chainstack Celo RPC endpoint is not configured. Set CHAINSTACK_CELO_MAINNET_RPC_URL in your local .env file.'
+      throw new InvestigationServiceError(
+        'Chainstack Celo RPC endpoint is not configured. Set CHAINSTACK_CELO_MAINNET_RPC_URL in your local .env file.',
+        503,
+        'ENDPOINT_NOT_CONFIGURED'
       );
     }
 
     // 1. Verify Celo Mainnet chain ID
-    const chainId = await this.provider.getChainId();
+    let chainId: number;
+    try {
+      chainId = await this.provider.getChainId();
+    } catch (err: unknown) {
+      if (err instanceof ChainstackProviderError) {
+        throw new InvestigationServiceError(err.message, err.statusCode || 502, err.code);
+      }
+      throw new InvestigationServiceError((err as Error).message, 502, 'PROVIDER_UNAVAILABLE');
+    }
 
     // 2. Fetch Transaction
-    const tx = await this.provider.getTransaction(cleanHash);
+    let tx;
+    try {
+      tx = await this.provider.getTransaction(cleanHash);
+    } catch (err: unknown) {
+      if (err instanceof ChainstackProviderError) {
+        throw new InvestigationServiceError(err.message, err.statusCode || 502, err.code);
+      }
+      throw new InvestigationServiceError((err as Error).message, 502, 'PROVIDER_UNAVAILABLE');
+    }
+
     if (!tx) {
-      throw new Error(`Transaction ${cleanHash} not found on Celo Mainnet.`);
+      throw new InvestigationServiceError(
+        `Transaction ${cleanHash} not found on Celo Mainnet. Verify the hash or check if it was re-orged.`,
+        404,
+        'TRANSACTION_NOT_FOUND'
+      );
     }
 
     // 3. Fetch Receipt
-    const receipt = await this.provider.getTransactionReceipt(cleanHash);
+    let receipt = null;
+    if (!tx.isPending) {
+      try {
+        receipt = await this.provider.getTransactionReceipt(cleanHash);
+      } catch (err: unknown) {
+        if (err instanceof ChainstackProviderError) {
+          throw new InvestigationServiceError(err.message, err.statusCode || 502, err.code);
+        }
+        throw new InvestigationServiceError((err as Error).message, 502, 'PROVIDER_UNAVAILABLE');
+      }
+    }
 
-    // 4. Fetch Trace if failed
+    // 4. Fetch Trace if reverted
     let parsedTrace: ParsedTraceResult | null = null;
     let traceStatus: InvestigationReport['traceStatus'] = 'NOT_REQUESTED';
+    let traceErrorMsg: string | null = null;
 
     if (receipt && receipt.status === 'REVERTED') {
       try {
         const rawTrace = await this.provider.getCallTrace(cleanHash);
-        if (rawTrace) {
+        if (rawTrace && typeof rawTrace === 'object' && ('type' in rawTrace || 'calls' in rawTrace || 'error' in rawTrace)) {
           parsedTrace = parseCallTrace(rawTrace);
           traceStatus = 'AVAILABLE';
-        } else {
+        } else if (rawTrace === null) {
           traceStatus = 'UNSUPPORTED';
+        } else {
+          traceStatus = 'INVALID_RESPONSE';
         }
-      } catch {
-        traceStatus = 'UNSUPPORTED';
+      } catch (err: unknown) {
+        if (err instanceof ChainstackProviderError) {
+          if (err.code === 'METHOD_NOT_SUPPORTED') {
+            traceStatus = 'UNSUPPORTED';
+          } else if (err.code === 'RATE_LIMITED') {
+            traceStatus = 'RATE_LIMITED';
+          } else if (err.code === 'TIMEOUT') {
+            traceStatus = 'TIMEOUT';
+          } else {
+            traceStatus = 'PROVIDER_ERROR';
+          }
+          traceErrorMsg = err.message;
+        } else {
+          traceStatus = 'PROVIDER_ERROR';
+          traceErrorMsg = (err as Error).message;
+        }
       }
+    } else {
+      traceStatus = 'NOT_REQUESTED';
     }
 
     // 5. Decode Revert Data
@@ -78,8 +146,30 @@ export class InvestigationService {
     // 7. Classify & Generate Explanation
     const explanation = generateDeterministicExplanation(tx, receipt, parsedTrace, decodedRevert, evidenceLedger);
 
+    // Add traceStatus-specific limitations if trace was requested but unavailable
+    if (receipt && receipt.status === 'REVERTED' && traceStatus !== 'AVAILABLE') {
+      if (traceStatus === 'UNSUPPORTED') {
+        explanation.limitations.push('The node does not support debug_traceTransaction with callTracer (RPC error -32601). Detailed call tree was unavailable.');
+      } else if (traceStatus === 'TIMEOUT') {
+        explanation.limitations.push('The execution trace request timed out from the provider (504). Analysis is based on receipt and parameters.');
+      } else if (traceStatus === 'RATE_LIMITED') {
+        explanation.limitations.push('Rate limit (HTTP 429) was reached while fetching execution trace. Analysis was limited to on-chain receipt.');
+      } else if (traceStatus === 'INVALID_RESPONSE') {
+        explanation.limitations.push('The node returned an unparseable or malformed trace payload.');
+      } else if (traceStatus === 'PROVIDER_ERROR') {
+        explanation.limitations.push(`Trace retrieval failed due to a provider error${traceErrorMsg ? `: ${traceErrorMsg}` : ''}.`);
+      }
+    }
+
     const investigationId = randomUUID();
-    const status: InvestigationReport['status'] = receipt ? receipt.status : 'NOT_FOUND';
+    let status: InvestigationReport['status'] = 'UNKNOWN';
+    if (tx.isPending) {
+      status = 'PENDING';
+    } else if (receipt) {
+      status = receipt.status;
+    } else {
+      status = 'UNKNOWN';
+    }
 
     const report: InvestigationReport = {
       investigationId,

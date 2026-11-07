@@ -15,11 +15,71 @@ export function classifyFailure(
   const unknowns: string[] = [];
   const safeNextSteps: string[] = [];
 
-  // If receipt status is SUCCESS
+  // 1. Pending transaction in mempool
+  if (tx && tx.isPending) {
+    provenFacts.push(`Transaction is currently unconfirmed in the mempool (block number is null, nonce: ${tx.nonce}).`);
+    provenFacts.push(`Origin account: ${tx.from}; Target address: ${tx.to || 'contract creation'}.`);
+    likelyExplanations.push('The transaction is waiting for a Celo validator/sequencer to include it in a proposed block.');
+    unknowns.push('Execution success, revert reason, and gas consumed are unknown until the transaction is mined into a block.');
+    safeNextSteps.push('Wait for block confirmation, or submit a replacement transaction with higher priority gas fee if stuck.');
+
+    return {
+      category: 'PENDING_TRANSACTION',
+      confidence: 'HIGH',
+      headline: 'Transaction is Pending in Mempool',
+      narrative: 'This transaction has been broadcast to Celo Mainnet but has not yet been included in a mined block. It is currently in the pending transaction pool.',
+      evidenceCitations: citations,
+      provenFacts,
+      likelyExplanations,
+      unknowns,
+      safeNextSteps
+    };
+  }
+
+  // 2. Mined transaction with missing receipt
+  if (tx && !tx.isPending && !receipt) {
+    provenFacts.push(`Transaction was mined in block ${tx.blockNumber}, but the node returned no receipt.`);
+    unknowns.push('Execution receipt is not currently indexed or accessible on this RPC node.');
+    safeNextSteps.push('Query another archive node or wait a moment for receipt indexing to complete.');
+
+    return {
+      category: 'UNCONFIRMED_RECEIPT',
+      confidence: 'MEDIUM',
+      headline: 'Receipt Not Yet Indexed',
+      narrative: `The transaction was included in block ${tx.blockNumber}, but its execution receipt could not be retrieved from the provider.`,
+      evidenceCitations: citations,
+      provenFacts,
+      likelyExplanations: ['The node may be experiencing indexing lag or receipt pruning.'],
+      unknowns,
+      safeNextSteps
+    };
+  }
+
+  // 3. Receipt exists with indeterminate/unknown status
+  if (receipt && receipt.status === 'UNKNOWN') {
+    provenFacts.push(`The transaction receipt returned an indeterminate or missing status code (${receipt.rawStatus}).`);
+    unknowns.push('Cannot conclusively determine whether the transaction succeeded or reverted on-chain.');
+    safeNextSteps.push('Inspect the transaction events and state changes on Celoscan.');
+
+    return {
+      category: 'UNKNOWN_STATUS',
+      confidence: 'LOW',
+      headline: 'Receipt Status Indeterminate',
+      narrative: `The transaction receipt returned status code '${receipt.rawStatus}', which does not conform to standard status indicators (1 for success, 0 for revert).`,
+      evidenceCitations: citations,
+      provenFacts,
+      likelyExplanations: ['The transaction may predate status reporting or was retrieved from an atypical node client.'],
+      unknowns,
+      safeNextSteps
+    };
+  }
+
+  // 4. If receipt status is SUCCESS
   if (receipt && receipt.status === 'SUCCESS') {
     provenFacts.push(`Receipt status confirms the transaction succeeded on-chain at block ${receipt.blockNumber}.`);
+    provenFacts.push(`Gas consumed: ${receipt.gasUsed} gas units.`);
     return {
-      category: 'CAUGHT_CHILD_REVERT',
+      category: 'SUCCESSFUL_TRANSACTION',
       confidence: 'HIGH',
       headline: 'Transaction Executed Successfully',
       narrative: 'The transaction was successfully mined and executed without top-level revert.',

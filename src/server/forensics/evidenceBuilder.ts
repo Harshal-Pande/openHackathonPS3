@@ -47,7 +47,8 @@ export function buildEvidenceLedger(
       value: tx.value,
       gasLimit: tx.gas,
       nonce: tx.nonce,
-      blockNumber: tx.blockNumber
+      blockNumber: tx.blockNumber,
+      isPending: tx.isPending
     });
   }
 

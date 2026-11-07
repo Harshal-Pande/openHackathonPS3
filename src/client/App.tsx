@@ -117,6 +117,36 @@ export const App: React.FC = () => {
     fetchRecent();
   }, []);
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'REVERTED':
+        return '#ef4444';
+      case 'SUCCESS':
+        return '#22c55e';
+      case 'PENDING':
+        return '#eab308';
+      default:
+        return '#94a3b8';
+    }
+  };
+
+  const getTraceStatusColor = (traceStatus: string) => {
+    switch (traceStatus) {
+      case 'AVAILABLE':
+        return '#22c55e';
+      case 'UNSUPPORTED':
+        return '#38bdf8';
+      case 'TIMEOUT':
+      case 'RATE_LIMITED':
+        return '#f59e0b';
+      case 'PROVIDER_ERROR':
+      case 'INVALID_RESPONSE':
+        return '#ef4444';
+      default:
+        return '#64748b';
+    }
+  };
+
   const runInvestigation = async (targetHash: string) => {
     const clean = targetHash.trim();
     if (!TX_HASH_REGEX.test(clean)) {
@@ -490,20 +520,20 @@ export const App: React.FC = () => {
           {/* Primary Diagnosis Banner */}
           <div
             style={{
-              backgroundColor: report.status === 'REVERTED' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(34, 197, 94, 0.08)',
-              border: `1px solid ${report.status === 'REVERTED' ? '#ef4444' : '#22c55e'}`,
+              backgroundColor: `${getStatusColor(report.status)}14`,
+              border: `1px solid ${getStatusColor(report.status)}`,
               borderRadius: '12px',
               padding: '24px',
               marginBottom: '24px'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', flexWrap: 'wrap' }}>
               <span
                 style={{
                   fontSize: '12px',
                   padding: '4px 8px',
                   borderRadius: '4px',
-                  backgroundColor: report.status === 'REVERTED' ? '#ef4444' : '#22c55e',
+                  backgroundColor: getStatusColor(report.status),
                   color: '#ffffff',
                   fontWeight: '800'
                 }}
@@ -522,8 +552,18 @@ export const App: React.FC = () => {
               >
                 Confidence: {report.diagnosis.confidence}
               </span>
-              <span style={{ fontSize: '13px', color: '#64748b' }}>
-                Trace Status: {report.traceStatus}
+              <span
+                style={{
+                  fontSize: '12px',
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  backgroundColor: `${getTraceStatusColor(report.traceStatus)}22`,
+                  color: getTraceStatusColor(report.traceStatus),
+                  border: `1px solid ${getTraceStatusColor(report.traceStatus)}44`,
+                  fontWeight: '600'
+                }}
+              >
+                Trace: {report.traceStatus}
               </span>
             </div>
 

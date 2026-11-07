@@ -62,15 +62,28 @@ export function buildApp(appConfig: AppConfig, deps: AppDependencies = {}): Fast
     const statusCode = 'statusCode' in error && typeof (error as any).statusCode === 'number'
       ? (error as any).statusCode
       : (reply.statusCode >= 400 ? reply.statusCode : 500);
+
     const errorCode = 'code' in error && typeof (error as any).code === 'string'
       ? (error as any).code
-      : (statusCode === 400 ? 'BAD_REQUEST' : statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_SERVER_ERROR');
+      : (statusCode === 400 ? 'BAD_REQUEST'
+         : statusCode === 404 ? 'NOT_FOUND'
+         : statusCode === 504 ? 'GATEWAY_TIMEOUT'
+         : statusCode === 502 || statusCode === 503 ? 'PROVIDER_UNAVAILABLE'
+         : 'INTERNAL_SERVER_ERROR');
+
+    // Strict URL redaction so secrets are never leaked in error messages
+    const rawMessage = error.message || 'An error occurred during request processing.';
+    const sanitizedMessage = rawMessage.replace(/https?:\/\/[^\s]+/g, '[REDACTED_RPC_ENDPOINT]');
+
+    const message = statusCode >= 500 && appConfig.NODE_ENV === 'production' && statusCode !== 502 && statusCode !== 503 && statusCode !== 504
+      ? 'An internal server error occurred.'
+      : sanitizedMessage;
 
     reply.status(statusCode).send({
       data: null,
       error: {
         code: errorCode,
-        message: statusCode >= 500 && appConfig.NODE_ENV === 'production' ? 'An internal server error occurred.' : error.message
+        message
       },
       requestId: request.id
     });
@@ -92,29 +105,21 @@ export function buildApp(appConfig: AppConfig, deps: AppDependencies = {}): Fast
   });
 
   // POST /api/investigations - Execute or retrieve investigation
-  server.post('/api/investigations', async (request, reply) => {
+  server.post('/api/investigations', async (request) => {
     const parseResult = InvestigateBodySchema.safeParse(request.body);
     if (!parseResult.success) {
       const err: any = new Error(`Invalid request body: ${parseResult.error.errors.map((e) => e.message).join(', ')}`);
       err.statusCode = 400;
-      err.code = 'BAD_REQUEST';
+      err.code = 'INVALID_INPUT';
       throw err;
     }
 
-    try {
-      const report = await investigationService.investigate(parseResult.data.txHash);
-      return report;
-    } catch (err: unknown) {
-      const error = err as any;
-      if (!error.statusCode) {
-        error.statusCode = 400;
-      }
-      throw error;
-    }
+    const report = await investigationService.investigate(parseResult.data.txHash);
+    return report;
   });
 
   // GET /api/investigations/:id - Fetch by ID
-  server.get('/api/investigations/:id', async (request, reply) => {
+  server.get('/api/investigations/:id', async (request) => {
     const { id } = request.params as { id: string };
     const report = investigationService.getInvestigation(id);
     if (!report) {
