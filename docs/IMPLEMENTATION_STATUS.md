@@ -1,138 +1,139 @@
 # RevertLens Implementation Status
 
-**Date:** 2026-11-07  
-**Status:** Minimal Technical Foundation Established; Gate 0 Live Discovery Complete (Blocked on Paid Execution Approval)
+**Last updated:** 2026-11-07 (Session 2)  
+**Status:** Foundation hardened; Buy CLI identified; Gate 0 read-only discovery complete; blocked on operator wallet for paid execution.
 
 ---
 
-## 1. What Was Inspected
+## 1. Git Repository Identity and Status
 
-1. **Core Documentation & Specifications:**
-   - `AGENTS.md`
-   - `ANTIGRAVITY_START_HERE.md`
-   - `.agents/rules/` (`00-always-on-project.md`, `01-buy-payments-security.md`, `02-chain-forensics.md`, `03-frontend-ux.md`, `04-testing-and-release.md`)
-   - `docs/01_PRODUCT_REQUIREMENTS.md` through `docs/10_DECISIONS_AND_NON_GOALS.md`
-   - `FILE_MANIFEST.json` and all prompt templates.
-
-2. **System Environment & Tooling:**
-   - OS: Windows 10/11 (win32 x64)
-   - Node.js: `v22.17.0` (LTS compliant)
-   - npm: `11.6.1`
-   - Git: Local git repo linked to `https://github.com/Harshal-Pande/openHackathonPS3.git` on branch `main`
-   - Buy CLI: Inspected global npm and system PATH (`buy` executable is not currently installed; no local `~/.buy` keychain directory).
-
-3. **Live Buy Gateway & Catalogue:**
-   - Queried live catalogue at `https://gateway.usebuy.ai/v1/catalog`.
-   - Tested HTTP 402 challenge on `https://gateway.usebuy.ai/chainstack/celo`.
-   - Tested HTTP 402 challenge on `https://gateway.usebuy.ai/cencori/v1/chat/completions`.
-   - Verified candidate failed Celo transaction `0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445` (block 52460432, reverted with `Error(string)`: `"Swap reverted"`).
+| Field | Value |
+|---|---|
+| **Working directory** | `D:\Blockchain\BuildWithBuy` |
+| **Branch** | `main` |
+| **Remote** | `https://github.com/Harshal-Pande/openHackathonPS3.git` |
+| **Last commit** | `f3e9430` — "feat: establish RevertLens foundation and record Gate 0 findings" |
+| **Uncommitted changes (session 2)** | Yes (config.ts, App.tsx, tests/config.test.ts, .env.example, docs/) — not yet pushed per task restrictions |
+| **Status** | Clean working tree at start of session 2; modifications from session 2 are uncommitted |
 
 ---
 
-## 2. Existing Workspace Condition
+## 2. What Was Inspected (Session 2)
 
-- **Prior State:** The workspace contained `.git`, an initial commit with a 1-line `README.md`, and an unpacked directory `REVERTLENS_ANTIGRAVITY_FINAL` containing specifications and documentation, but zero application source code, package manifests, or test suites.
-- **Normalization:** Flattened `REVERTLENS_ANTIGRAVITY_FINAL` into the workspace root so that `.agents/rules/`, `docs/`, and project manifests are in the canonical positions expected by Antigravity and git.
-- **No Duplicate Structure:** Redundant nested subfolders were eliminated while preserving every single specification and template file.
-
----
-
-## 3. Gate 0 Findings
-
-- **Live Service Discovery:**
-  - `chainstack.celo` is active and listed as available: `true`.
-  - `cencori.v1.chat.completions` is active and listed as available: `true`.
-- **Payment Protocol & Requirements:**
-  - Protocol: `x402-v1` and `x402-v2`.
-  - Network: Celo Mainnet (`eip155:42220`).
-  - Payee (`payTo`): `0x20faAca5F980E29639A0FCC6dcA6988E18ed333B`.
-  - Accepted Assets:
-    - USDC: `0xcebA9300f2b948710d2653dD7B07f33A8B32118C` (10,000 atomic units = $0.01)
-    - USDT: `0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e` (10,000 atomic units = $0.01)
-    - USAT: `0xD2ab3C9A02DBBAB236BfEC45D1d755DF4267F771` (10,000 atomic units = $0.01)
-  - Both endpoints respond with valid HTTP 402 challenges specifying the identical price and recipient.
+1. Git repository identity and remote.
+2. Existing `src/server/config.ts`, `src/client/App.tsx`, `tests/config.test.ts`, `tests/health.test.ts`.
+3. Official Buy CLI via `npx @celo/buy@latest --help`, `--version`, `quote --help`, `curl --help`, `mcp --help`, `setup --help`, `receipts --help`.
+4. Buy `quote` command exercised live against `chainstack.celo` (no wallet required, confirmed working).
+5. `buy whoami` confirmed: no account configured (`no_account` error — expected).
 
 ---
 
-## 4. Verified Capabilities vs Unverified Assumptions
+## 3. Official Buy Integration Mechanism
 
-| Capability / Feature | Status | Verification Detail |
+- **Package:** `@celo/buy` (npm, published by Celo)
+- **Confirmed version:** `0.8.5` (`npx @celo/buy@latest --version` exit 0)
+- **Source:** https://github.com/celo-org/buy-skill
+- **No global installation required:** `npx @celo/buy@latest` works out of the box.
+
+### Confirmed CLI commands and their roles
+
+| Command | Wallet required? | Role in RevertLens |
 |---|---|---|
-| Buy Gateway Catalogue Reachable | **VERIFIED** | Live GET request to `gateway.usebuy.ai/v1/catalog` returned 170 active capabilities. |
-| `chainstack.celo` Endpoint Availability | **VERIFIED** | Active on gateway, returns x402 challenge requesting $0.01 in USDC/USDT. |
-| `cencori.v1.chat.completions` Availability | **VERIFIED** | Active on gateway, schema validated, returns x402 challenge. |
-| Candidate Failed Celo Tx | **VERIFIED** | Hash `0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445` confirmed reverted on block 52460432. |
-| Chainstack Celo `debug_traceTransaction` Support | **UNVERIFIED** | Untested in live environment because execution requires a paid transaction through Buy. |
-| Chainstack Celo `callTracer` Support | **UNVERIFIED** | Requires successful paid trace request to determine whether callTracer returns a full call tree. |
-| Paid Request Settlement via Buy | **UNVERIFIED** | No wallet configured; zero funds spent; pending operator approval. |
-| Buy CLI Functionality on Host | **UNVERIFIED / BLOCKED** | CLI executable is not yet installed in host environment. |
+| `buy setup` | — | Operator runs once to provision wallet in OS keychain |
+| `buy whoami` | Yes | Verify wallet address and balances before spending |
+| `buy --json quote <url> -X POST --data @body.json` | No | Read-only 402 price discovery; used for operator review |
+| `buy --json curl --max-amount <cap> <url> -X POST --data @body.json` | Yes | Execute a single paid RPC or Cencori call |
+| `buy --json receipts --limit 1 --resolve` | Yes | Settlement verification after a paid call |
+| `buy mcp serve` | Yes | Alternative MCP interface for AI agents |
+
+### Backend adapter design (not yet implemented)
+
+The backend adapter will:
+1. Write the exact validated JSON-RPC body to a **temp file** (not shell string).
+2. Spawn `npx` with a **fixed argv array**: `['@celo/buy@latest', '--json', 'curl', '--max-amount', atomicCap, url, '-X', 'POST', '-H', 'content-type: application/json', '--data', `@${bodyFile}`]`.
+3. Apply `shell: false`, `timeout: 70000ms` (10s over gateway max), kill on timeout.
+4. Capture bounded stdout/stderr; redact before logging.
+5. Verify settlement with `buy receipts` before marking `SETTLED`.
+
+### What Buy CLI does NOT provide
+- Real-time settlement callbacks — polling `buy receipts` is required.
+- A quote-binding mechanism — the application must hash and store the exact request body before invoking.
+- Operator approval UI — the application must implement this independently.
 
 ---
 
-## 5. Dependencies and Setup Completed
+## 4. Existing Workspace Condition (Session 2 Findings)
 
-- `package.json` configured with TypeScript strict mode, Fastify backend, React 19 frontend, Vite, Viem, Zod, and Vitest.
-- `tsconfig.json`, `tsconfig.server.json`, and `tsconfig.client.json` configured.
-- `vite.config.ts` and `vitest.config.ts` established.
-- `src/server/config.ts`: Environment validation using Zod with safe placeholders, budget defaults, and allowlists.
-- `src/server/app.ts`: Fastify application implementing the API envelope format specified in `docs/05_API_CONTRACT.md` and `GET /api/health`.
-- `src/server/index.ts`: Server bootstrapper.
-- `src/client/App.tsx`: Minimal frontend shell displaying RevertLens brand, Celo Mainnet · Chain ID 42220 badge, transaction hash input validation (`0x` + 64 hex chars), trust statement, and staged investigation feedback.
-- `index.html`: Clean HTML entry point.
-- `tests/config.test.ts` & `tests/health.test.ts`: Automated tests for config validation and API contract compliance.
+- No `.env` file present (expected; gitignored).
+- No wallet directory (`~/.buy`, `%APPDATA%\buy`, `%LOCALAPPDATA%\buy`) present.
+- No secrets or keys in any source file.
+- `dist/` directory present (from prior build) — gitignored.
+- `node_modules/` present — gitignored.
 
 ---
 
-## 6. Files Created or Modified
+## 5. Files Created or Modified (Session 2)
 
-- **Root & Project Configuration:**
-  - `package.json`
-  - `tsconfig.json`
-  - `tsconfig.server.json`
-  - `tsconfig.client.json`
-  - `vite.config.ts`
-  - `vitest.config.ts`
-  - `index.html`
-  - `GATE0_RESULTS.md`
-  - `TEST_RESULTS.md`
-  - `docs/IMPLEMENTATION_STATUS.md`
-- **Application Source (`src/`):**
-  - `src/server/config.ts`
-  - `src/server/app.ts`
-  - `src/server/index.ts`
-  - `src/client/main.tsx`
-  - `src/client/App.tsx`
-- **Tests (`tests/`):**
-  - `tests/config.test.ts`
-  - `tests/health.test.ts`
+| File | Change |
+|---|---|
+| `src/server/config.ts` | Added `BUY_CLI_EXECUTABLE` / `BUY_CLI_ARGS_PREFIX` fields; added `enforceProductionInvariants()` function that rejects placeholder secrets and misconfigured budgets in production |
+| `.env.example` | Updated with `BUY_CLI_EXECUTABLE=npx`, `BUY_CLI_ARGS_PREFIX=@celo/buy@latest`, and Buy integration documentation comments |
+| `src/client/App.tsx` | Corrected misleading messaging: removed "evidence-backed diagnostics" claim, removed "Subsidized Buy services" footer claim, added `[Prototype]` label, stated clearly that no paid call or analysis has occurred |
+| `tests/config.test.ts` | Expanded from 4 to 14 tests; added full production security invariant test suite |
+| `GATE0_RESULTS.md` | Updated with Buy CLI v0.8.5 details, `buy quote` live test result, corrected `buy setup` wallet requirements |
+| `TEST_RESULTS.md` | Updated with session 2 results (16/16 tests) |
+| `docs/IMPLEMENTATION_STATUS.md` | This file |
 
 ---
 
-## 7. Tests Executed and Actual Results
+## 6. Gate 0 Findings
 
-- `npm run typecheck`: **PASS** (exited 0; 0 errors across server and client TypeScript projects).
-- `npm test`: **PASS** (2 test suites, 6 tests passed, 0 failed).
-  - `tests/config.test.ts`: 4 passed (default config, boolean transforms, rejection of invalid environment, array parsing).
-  - `tests/health.test.ts`: 2 passed (health endpoint 200 with standard envelope, CORS headers).
-- `npm run build`: **PASS** (Server compiled to `dist/server`, frontend built via Vite to `dist/client`).
+| Item | Status | Class |
+|---|---|---|
+| Buy CLI `@celo/buy` v0.8.5 inspected | **PASS** | LOCAL |
+| `buy quote` works without wallet | **PASS** | LOCAL |
+| Live catalogue fetched (170 capabilities) | **PASS** | LIVE_MAINNET_READ_ONLY |
+| `chainstack.celo` available, $0.01 USDC | **PASS** | LIVE_MAINNET_READ_ONLY |
+| `cencori.v1.chat.completions` available, $0.01 USDC | **PASS** | LIVE_MAINNET_READ_ONLY |
+| Candidate failed Celo tx verified on Blockscout | **PASS** | LIVE_MAINNET_READ_ONLY |
+| `buy whoami` / wallet configured | **BLOCKED** | LOCAL |
+| Any paid RPC call | **NOT_TESTED** | LIVE_MAINNET_PAID |
+| `debug_traceTransaction` / `callTracer` support | **NOT_TESTED** | LIVE_MAINNET_PAID |
+| Cencori paid call | **NOT_TESTED** | LIVE_MAINNET_PAID |
+| Settlement receipt verification | **NOT_TESTED** | LIVE_MAINNET_PAID |
+
+---
+
+## 7. Tests Executed and Actual Results (Session 2)
+
+- `npm run typecheck`: **PASS** (exit 0, 0 errors)
+- `npm test` (Vitest): **PASS** (exit 0, 2 test files, **16/16** tests passed)
+  - `tests/config.test.ts`: 14 passed (includes full production security invariant suite)
+  - `tests/health.test.ts`: 2 passed
+- `npm run build`: **PASS** (exit 0)
 
 ---
 
 ## 8. Remaining Blockers
 
-1. **Operator Wallet & Spend Approval for Gate 0:**
-   - A dedicated project wallet with a minimal test balance (~0.05 USDC/USDT on Celo) is required to test the paid Chainstack Celo RPC and trace endpoint.
-   - Per security rules, no paid request may be sent without explicit user approval of the exact token, amount, recipient, and payload hash.
-2. **Buy CLI / Integration Mechanism on Host:**
-   - The `buy` CLI is not installed on the system PATH. The operator must install or provide the sanctioned Buy integration tool (e.g., Buy CLI, x402 client adapter, or Buy MCP server).
+1. **Operator wallet not configured.**  
+   The human operator must run `buy setup` on the deployment host to generate and store a Celo wallet in the OS keychain. The agent must never run `buy setup` or handle private keys.
+
+2. **No funded project wallet.**  
+   The wallet address produced by `buy setup` must be funded with a small USDC/USDT balance (minimum ~$0.10 for testing) on Celo Mainnet before any paid call.
+
+3. **No spend approval granted.**  
+   Per mandatory security rules, the operator must review and approve the exact $0.01 test payload (body hash, payee, token, amount) before the first paid call is executed.
+
+4. **`debug_traceTransaction` / `callTracer` support unverified.**  
+   This is the key Gate 0 unknown. It cannot be tested without executing a live paid Chainstack RPC call.
 
 ---
 
 ## 9. Exact Next Three Implementation Steps
 
-1. **Obtain Operator Approval & Execute Gate 0 Live Trace Test:**
-   - Once the operator provisions a funded wallet and approves the exact $0.01 spend, execute the single paid RPC call to `chainstack.celo` for candidate transaction `0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445` requesting `debug_traceTransaction` with `callTracer` to determine if trace support is a **GO** or if the project must pivot to the **RECEIPT-ONLY FALLBACK**.
-2. **Implement SQLite Persistence & Investigation State Machine:**
-   - Set up SQLite repository for durable storage of investigations, immutable quotes, operator approvals, purchase attempts, and settlement proofs as defined in `docs/02_ARCHITECTURE_AND_DATA_MODEL.md`.
-3. **Implement Operator Approval Service & Payment Guardrails:**
-   - Build server-side quote generation, hash binding, atomic budget reservation, and kill-switch endpoints to enforce the strict no-blind-retry and quote-bound spending invariants before building the forensic parser.
+1. **Gate 0 live trace test (requires operator):** Operator runs `buy setup`, funds wallet, reviews exact $0.01 quote, approves; agent executes one paid `debug_traceTransaction` call against candidate tx `0xb90bcca5...` and reports whether `callTracer` returns a usable call tree.
+
+2. **SQLite persistence layer:** Implement schema migrations for `Investigation`, `EvidenceItem`, `QuoteRecord`, `OperatorApproval`, `PurchaseAttempt`, and `SettlementProof` tables as defined in `docs/02_ARCHITECTURE_AND_DATA_MODEL.md`.
+
+3. **Buy adapter skeleton (non-spending):** Implement the `BuyAdapter` module — `quote()` function only, no `pay()` — with exact argv construction, body file temp handling, stdout parsing, and Zod validation of the 402 response schema. This can be unit-tested with mocked CLI output.

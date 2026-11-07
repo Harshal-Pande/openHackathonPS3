@@ -44,7 +44,8 @@ export const App: React.FC = () => {
           </span>
         </div>
         <p style={{ fontSize: '18px', color: 'var(--text-muted)' }}>
-          Your Celo transaction failed. Find out why with evidence-backed diagnostics.
+          Your Celo transaction failed. Find out why.{' '}
+          <span style={{ fontSize: '14px', color: 'var(--error)' }}>[Prototype — investigation backend not yet active]</span>
         </p>
       </header>
 
@@ -118,19 +119,22 @@ export const App: React.FC = () => {
               marginBottom: '24px'
             }}
           >
-            <h2 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>Investigation Staged</h2>
+            <h2 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>Hash Received</h2>
             <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-              Target Hash: <code style={{ color: 'var(--primary)' }}>{submittedHash}</code>
+              Transaction Hash: <code style={{ color: 'var(--primary)' }}>{submittedHash}</code>
             </p>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-              Subsidized Buy service quote and operator approval will be initiated when backend forensic pipeline is active.
+              The backend investigation pipeline is not yet active. No RPC call, payment, or analysis has been performed.
+              Once the backend is live, the operator will be asked to approve the exact service cost before any paid
+              request is made on your behalf.
             </p>
           </div>
         )}
 
         <footer style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
           <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-            🔒 No wallet connection or private key required. Analysis uses subsidized Buy gateway services.
+            🔒 No wallet connection or private key required.{' '}
+            <strong style={{ color: 'var(--text)' }}>Prototype:</strong> investigation backend is not yet connected.
           </p>
         </footer>
       </main>
