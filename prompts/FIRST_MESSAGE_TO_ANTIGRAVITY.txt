@@ -1,0 +1,1 @@
+Open and follow prompts/00_MASTER_BUILD_PROMPT.md exactly. Begin with workspace inspection only. Do not write application code, run paid Buy calls, sign transactions, publish, deploy, or change external accounts until the relevant phase and explicit human approval. Your first deliverable is WORKSPACE_AUDIT.md and a Gate 0 plan.

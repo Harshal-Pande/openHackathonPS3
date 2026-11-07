@@ -1,0 +1,1 @@
+case_id,tx_hash,chain_id,block_number,receipt_status,trace_available,expected_failure_path,expected_propagation,expected_decoder,reviewer,confidence,source_url,notes
