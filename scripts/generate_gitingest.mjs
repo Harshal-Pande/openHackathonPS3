@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = process.cwd();
-const OUTPUT_FILE = path.join(REPO_ROOT, 'revertlens_mod02_gitingest.txt');
+const OUTPUT_FILE = path.join(REPO_ROOT, 'revertlens_mod03_gitingest.txt');
 
 // Strict exclusion patterns
 const EXCLUDE_DIRS = new Set([
@@ -30,7 +30,8 @@ const EXCLUDE_FILES = new Set([
   '.env',
   '.env.local',
   '.DS_Store',
-  'revertlens_mod02_gitingest.txt'
+  'revertlens_mod02_gitingest.txt',
+  'revertlens_mod03_gitingest.txt'
 ]);
 
 const EXCLUDE_EXTENSIONS = new Set([
