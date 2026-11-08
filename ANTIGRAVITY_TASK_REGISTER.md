@@ -1,0 +1,103 @@
+# RevertLens — Antigravity Task Register (Category B: Agent-Owned Tasks)
+**Document Version:** 1.0.0  
+**Generated:** 2026-11-08  
+**Governance:** Antigravity Master Audit & Engineering Execution  
+
+---
+
+## 1. Register Overview
+
+This register contains all technical and operational tasks owned and executed directly by Antigravity within the authorized workspace. These tasks require zero manual code writing from the user.
+
+### Priority Scheme:
+- **P0:** Critical security or fundamental correctness issue (blocks safe execution).
+- **P1:** Mandatory blocker for hackathon completion (attribution, ERC-8004, Buy proof).
+- **P2:** Important functionality, concurrency, or production-readiness improvement.
+- **P3:** Polish, usability, bundle optimization, or documentation enhancement.
+
+### Status Indicators:
+- `READY_FOR_IMPLEMENTATION` — Fully specified, all prerequisites met.
+- `USER_INPUT_REQUIRED` — Waiting on human action or approval before execution.
+- `BLOCKS_NEXT_MODULE` — Must complete before downstream modules can proceed.
+- `CAN_RUN_IN_PARALLEL` — Can be executed concurrently with other tasks.
+
+---
+
+## 2. Complete Antigravity Task Register
+
+| Task ID | Module | Priority | Status | Title & Objective | Affected Files | Dependencies |
+|:---:|:---:|:---:|:---:|:---|:---|:---:|
+| **AGY-01** | Mod 1 | **P2** | `COMPLETED` | Enable SQLite WAL Mode & Busy Timeout (DEF-15) | `src/server/db/database.ts` | None |
+| **AGY-02** | Mod 1 | **P2** | `COMPLETED` | Add Fastify SPA Fallback Route Handler (DEF-16) | `src/server/app.ts` | None |
+| **AGY-03** | Mod 1 | **P2** | `COMPLETED` | Add Revert Decoder String Length Bounds Check (DEF-17) | `src/server/forensics/revertDecoder.ts` | None |
+| **AGY-04** | Mod 1 | **P3** | `COMPLETED` | Configure Vite Vendor Code-Splitting Chunking (DEF-18) | `vite.config.ts` | None |
+| **AGY-05** | Mod 2 | **P1** | `READY_FOR_IMPLEMENTATION` | Separate Operator Auth Password from Session Secret (DEF-14) | `src/server/auth/operatorAuth.ts`, `src/server/config.ts` | AGY-01 |
+| **AGY-06** | Mod 2 | **P2** | `READY_FOR_IMPLEMENTATION` | Add Rate Limiting Middleware for Public Forensic Ingestion | `src/server/app.ts`, `package.json` | AGY-05 |
+| **AGY-07** | Mod 3 | **P1** | `USER_INPUT_REQUIRED` | Wire Buy CLI Execution Adapter with Security Invariants | `src/server/services/buyQuoteService.ts`, `src/server/app.ts` | USR-06, USR-08 |
+| **AGY-08** | Mod 3 | **P1** | `USER_INPUT_REQUIRED` | Settle Live Cencori AI Quote via Buy CLI & Verify Receipt | `PROOF.md`, `GATE0_RESULTS.md` | AGY-07, USR-08 |
+| **AGY-09** | Mod 4 | **P1** | `READY_FOR_IMPLEMENTATION` | Audit & Re-verify ERC-8021 Attribution Suffix Construction | `src/server/services/celoAttributionService.ts` | None |
+| **AGY-10** | Mod 5 | **P1** | `USER_INPUT_REQUIRED` | Update Public Base URL in ERC-8004 Metadata Generation | `src/server/config.ts`, `src/server/services/celoAttributionService.ts` | USR-05 |
+| **AGY-11** | Mod 5 | **P1** | `USER_INPUT_REQUIRED` | Verify Broadcasted ERC-8004 Registration Receipt & Token ID | `PROOF.md`, `GATE0_RESULTS.md` | USR-07 |
+| **AGY-12** | Mod 6 | **P1** | `READY_FOR_IMPLEMENTATION` | Audit Multi-Stage Dockerfile & Container Readiness | `Dockerfile`, `.dockerignore` | AGY-01 to AGY-05 |
+| **AGY-13** | Mod 6 | **P1** | `USER_INPUT_REQUIRED` | Verify Live Public Deployment Endpoints (`/api/health`, `/api/agent/metadata`) | Public URL | USR-05 |
+| **AGY-14** | Mod 7 | **P2** | `USER_INPUT_REQUIRED` | Execute Independent User Testing Suite on Live Domain | `INDEPENDENT_USER_EVIDENCE.md` | AGY-13 |
+| **AGY-15** | Mod 8 | **P1** | `USER_INPUT_REQUIRED` | Final Pre-Submission Cleanliness Review & Git Push Verification | Git repository | USR-04 |
+| **AGY-16** | Mod 8 | **P1** | `USER_INPUT_REQUIRED` | Reconcile All Hackathon Claims in `PROOF.md` & `README.md` | `README.md`, `PROOF.md`, `MASTER_CHANGELOG.md` | AGY-08, AGY-11 |
+
+---
+
+## 3. Detailed Task Specifications
+
+### TASK AGY-01: Enable SQLite WAL Mode & Busy Timeout (DEF-15)
+- **Objective:** Prevent `SQLITE_BUSY` database locking under concurrent HTTP requests by switching SQLite journal mode from default `DELETE` to Write-Ahead Logging (`WAL`), and setting a 5000ms busy timeout.
+- **Files Involved:** `src/server/db/database.ts`
+- **Implementation Requirement:** In `Database` constructor, execute `this.db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");` immediately after opening connection.
+- **Security Considerations:** Ensure WAL mode works with file permissions across Docker container volume mounts.
+- **Required Tests:** Run `npm test`, verify `tests/investigations.test.ts` passes with multiple concurrent reads and writes.
+- **Acceptance Criteria:** `PRAGMA journal_mode` returns `wal`; concurrent requests succeed without locking.
+- **Evidence:** Terminal output from test suite and verified database pragma inspection.
+
+### TASK AGY-02: Add Fastify SPA Fallback Route Handler (DEF-16)
+- **Objective:** Ensure direct browser navigation or refreshing on clean URLs (e.g. `/investigation/:id`, `/history`, `/about`, `/operator`) serves the SPA `index.html` shell instead of HTTP 404.
+- **Files Involved:** `src/server/app.ts`
+- **Implementation Requirement:** Register a Fastify `setNotFoundHandler` that serves `dist/client/index.html` for GET requests when `Accept: text/html` is requested and the URL does not begin with `/api/` or `/assets/`.
+- **Security Considerations:** Never serve `index.html` for missing `/api/*` endpoints; API endpoints must return standard JSON 404. Guard against path traversal.
+- **Required Tests:** Add route test in `verify_all_routes.mjs` for `GET /history` and `GET /investigation/some-uuid` returning status 200 with HTML content type.
+- **Acceptance Criteria:** Direct browser navigation to any client route reloads the application cleanly.
+- **Evidence:** Route verification output showing 200 on deep SPA routes.
+
+### TASK AGY-03: Revert Decoder String Length Bounds Check (DEF-17)
+- **Objective:** Protect `decodeRevertData` against integer overflow or unbounded string allocations when parsing malformed or adversarial revert bytes.
+- **Files Involved:** `src/server/forensics/revertDecoder.ts`
+- **Implementation Requirement:** In `decodeRevertData`, validate `strLen`:
+  ```ts
+  const strLen = parseInt(lengthHex, 16);
+  if (isNaN(strLen) || strLen < 0 || strLen > 4096) {
+    return { type: 'ERROR_STRING', selector, reason: fallbackReason || 'Execution reverted', rawBytes: rawHex };
+  }
+  ```
+- **Security Considerations:** Prevents DoS from crafted revert bytes with extreme length values.
+- **Required Tests:** Add unit test in `tests/revertDecoder.test.ts` with a malicious 64-char length prefix.
+- **Acceptance Criteria:** Malformed length prefix gracefully falls back to safe error representation without crashing.
+- **Evidence:** Passing unit test output in `tests/revertDecoder.test.ts`.
+
+### TASK AGY-04: Configure Vite Vendor Code-Splitting (DEF-18)
+- **Objective:** Eliminate Vite build warning: `(!) Some chunks are larger than 500 kB after minification`.
+- **Files Involved:** `vite.config.ts`
+- **Implementation Requirement:** Configure `build.rollupOptions.output.manualChunks` to split vendor dependencies:
+  - `vendor-react`: `['react', 'react-dom']`
+  - `vendor-viem`: `['viem']`
+  - `vendor-icons`: `['lucide-react']`
+- **Security Considerations:** Ensure chunk hashes remain immutable with proper cache busting.
+- **Required Tests:** Run `npm run build`, inspect chunk outputs in terminal.
+- **Acceptance Criteria:** All individual JS chunks are below 350 kB; no build chunk warnings.
+- **Evidence:** Build terminal output showing chunks < 350 kB.
+
+### TASK AGY-05: Separate Operator Auth Password from Session Secret (DEF-14)
+- **Objective:** Resolve DEF-14 by ensuring `OperatorAuthService` compares passwords against `OPERATOR_PASSWORD_HASH` using a secure password-hashing algorithm, rather than comparing against `SESSION_SECRET`.
+- **Files Involved:** `src/server/auth/operatorAuth.ts`, `src/server/config.ts`
+- **Implementation Requirement:** Use Node.js built-in `crypto.scryptSync` or `crypto.pbkdf2Sync` with random salt for password verification, or verify Argon2id hash. Disentangle session token signing from operator authentication.
+- **Security Considerations:** Protect against brute-force attacks with IP rate limiting and constant-time comparison.
+- **Required Tests:** Update `tests/buySecurity.test.ts` and `scripts/verify_all_routes.mjs`.
+- **Acceptance Criteria:** Session secret is used only for session signing; operator login verifies against dedicated password hash.
+- **Evidence:** Passing `buySecurity.test.ts` and route verification tests.

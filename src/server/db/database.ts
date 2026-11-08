@@ -66,6 +66,17 @@ export class Database {
       }
     }
     this.db = new DatabaseSync(dbPath);
+    if (dbPath !== ':memory:') {
+      this.db.exec(`
+        PRAGMA journal_mode = WAL;
+        PRAGMA busy_timeout = 5000;
+        PRAGMA synchronous = NORMAL;
+      `);
+    } else {
+      this.db.exec(`
+        PRAGMA busy_timeout = 5000;
+      `);
+    }
     this.migrate();
   }
 
@@ -381,6 +392,18 @@ export class Database {
       }
     }
     return total;
+  }
+
+  public getJournalMode(): string {
+    const stmt = this.db.prepare(`PRAGMA journal_mode;`);
+    const row = stmt.get() as { journal_mode?: string } | undefined;
+    return row?.journal_mode || 'unknown';
+  }
+
+  public getBusyTimeout(): number {
+    const stmt = this.db.prepare(`PRAGMA busy_timeout;`);
+    const row = stmt.get() as { timeout?: number } | undefined;
+    return typeof row?.timeout === 'number' ? row.timeout : 0;
   }
 
   public close(): void {

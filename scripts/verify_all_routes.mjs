@@ -233,6 +233,45 @@ async function testAllRoutes() {
     url: '/assets/../package.json'
   }, '/assets/*', [403, 404], (res, body) => res.statusCode === 403 || res.statusCode === 404);
 
+  // 20. GET /history -> 302 Redirect to Hash SPA Route
+  await testRoute('SPA Clean Route Redirect (/history)', {
+    method: 'GET',
+    url: '/history'
+  }, '/history', [302], (res) => res.headers['location'] === '/#/history');
+
+  // 21. GET /about -> 302 Redirect to Hash SPA Route
+  await testRoute('SPA Clean Route Redirect (/about)', {
+    method: 'GET',
+    url: '/about'
+  }, '/about', [302], (res) => res.headers['location'] === '/#/about');
+
+  // 22. GET /operator -> 302 Redirect to Hash SPA Route
+  await testRoute('SPA Clean Route Redirect (/operator)', {
+    method: 'GET',
+    url: '/operator'
+  }, '/operator', [302], (res) => res.headers['location'] === '/#/operator');
+
+  // 23. GET /investigation/:id -> 302 Redirect to Hash SPA Report Route
+  await testRoute('SPA Clean Route Redirect (/investigation/:id)', {
+    method: 'GET',
+    url: `/investigation/${investigationId}`
+  }, '/investigation/:id', [302], (res) => res.headers['location'] === `/#/investigation/${investigationId}`);
+
+  // 24. GET /api/nonexistent -> 404 with standard JSON API error envelope
+  await testRoute('Unknown API Route 404 JSON Envelope', {
+    method: 'GET',
+    url: '/api/nonexistent-endpoint'
+  }, '/api/*', [404], (res, body) => {
+    return body && body.error && body.error.code === 'NOT_FOUND' && body.data === null;
+  });
+
+  // 25. GET /unknown-page (Browser HTML request) -> 302 Redirect to SPA Home
+  await testRoute('Browser HTML Navigation Fallback to SPA Home', {
+    method: 'GET',
+    url: '/unknown-page',
+    headers: { 'Accept': 'text/html,application/xhtml+xml' }
+  }, '/*', [302], (res) => res.headers['location'] === '/#/');
+
   // Clean up
   db.close();
   for (const f of [TEMP_DB, `${TEMP_DB}-journal`, `${TEMP_DB}-wal`, `${TEMP_DB}-shm`]) {

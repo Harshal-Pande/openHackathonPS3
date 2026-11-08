@@ -413,6 +413,28 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       reply.status(204).send();
     });
 
+    // Client clean routes: redirect to hash-based SPA routes
+    server.get('/history', async (req, reply) => {
+      reply.redirect('/#/history', 302);
+    });
+
+    server.get('/about', async (req, reply) => {
+      reply.redirect('/#/about', 302);
+    });
+
+    server.get('/operator', async (req, reply) => {
+      reply.redirect('/#/operator', 302);
+    });
+
+    server.get('/investigate', async (req, reply) => {
+      reply.redirect('/#/', 302);
+    });
+
+    server.get('/investigation/:id', async (req, reply) => {
+      const { id } = req.params as { id: string };
+      reply.redirect(`/#/investigation/${id}`, 302);
+    });
+
     server.get('/assets/*', async (req, reply) => {
       const sanitizedUrl = req.url.split('?')[0];
       const filePath = path.join(clientDistDir, sanitizedUrl);
@@ -429,6 +451,45 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       reply.status(404).send('Asset Not Found');
     });
   }
+
+  // Not Found handler: maintains standard JSON API contract for /api/* and redirects unhandled browser HTML requests to SPA
+  server.setNotFoundHandler((request, reply) => {
+    // Missing /api/* endpoints return standard API contract JSON 404
+    if (request.url.startsWith('/api/') || request.url === '/api') {
+      reply.status(404).send({
+        data: null,
+        error: {
+          code: 'NOT_FOUND',
+          message: `Endpoint ${request.method} ${request.url} not found.`
+        },
+        requestId: request.id
+      });
+      return;
+    }
+
+    // Missing assets under /assets/* return text 404
+    if (request.url.startsWith('/assets/')) {
+      reply.status(404).send('Asset Not Found');
+      return;
+    }
+
+    // Browser navigation with Accept: text/html redirects to SPA
+    const accept = request.headers['accept'] || '';
+    if (typeof accept === 'string' && accept.includes('text/html')) {
+      reply.redirect('/#/', 302);
+      return;
+    }
+
+    // Default 404 for other unhandled requests
+    reply.status(404).send({
+      data: null,
+      error: {
+        code: 'NOT_FOUND',
+        message: `Resource ${request.method} ${request.url} not found.`
+      },
+      requestId: request.id
+    });
+  });
 
   return server;
 }

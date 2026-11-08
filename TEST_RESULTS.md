@@ -1,167 +1,93 @@
-# Test Results
+# RevertLens — Automated Test & Verification Results
 
-**Date/time:** 2026-11-07 08:15:00 UTC
-**Commit:** Phase 8 Release Engineering & Production Runtime Validation
-**Node:** v22.17.0
-**npm:** 11.6.1
-
-| Command | Exit code | Result | Notes |
-|---|---:|---|---|
-| `npm run typecheck` | 0 | PASS | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict; 0 errors |
-| `npm test` | 0 | PASS | **13 test files, 93/93 tests passed** in 1.70s |
-| `npm run build` | 0 | PASS | Server: `dist/server/`; Client: `dist/client/assets/index-BXaFsXBa.js` (472.36 kB) via Vite 6.4.5 |
+**Date/time:** 2026-11-08 13:01:30 UTC  
+**Phase:** Module 1: Core Reliability Implementation (MOD-01)  
+**Node:** v22.13.0  
+**npm:** 10.9.2  
+**Target Network:** Celo Mainnet (`eip155:42220`)  
 
 ---
 
-## Test breakdown by file
+## 1. Master Command Results Summary
 
-### `tests/userJourneyE2E.test.ts` — 10 tests PASS (LOCAL_INTEGRATION)
-| Test | Class | Result |
-|---|---|---|
-| Scenario A: processes known reverted transaction and returns complete diagnosis & evidence | LOCAL_INTEGRATION | PASS |
-| Scenario B: rejects invalid format transaction hash with HTTP 400 and no provider calls | LOCAL_INTEGRATION | PASS |
-| Scenario C: returns HTTP 404 for valid format but non-existent transaction | LOCAL_INTEGRATION | PASS |
-| Scenario D: clearly identifies pending transaction without falsely labelling it reverted | LOCAL_INTEGRATION | PASS |
-| Scenario E: reports traceStatus UNSUPPORTED with clear limitations when node lacks callTracer | LOCAL_INTEGRATION | PASS |
-| Scenario F: handles provider timeout during trace retrieval gracefully | LOCAL_INTEGRATION | PASS |
-| Scenario G: operates deterministically with full utility when Cencori is disabled | LOCAL_INTEGRATION | PASS |
-| Scenario H: rejects invalid AI response and safely falls back to deterministic explanation | LOCAL_INTEGRATION | PASS |
-| Scenario I: recovers past investigation with full fidelity from database across restart | LOCAL_INTEGRATION | PASS |
-| Scenario J: handles deep and large call traces safely without process crashes | LOCAL_INTEGRATION | PASS |
-
-### `tests/config.test.ts` — 16 tests PASS (LOCAL)
-| Test | Class | Result |
-|---|---|---|
-| Loads valid default config | LOCAL | PASS |
-| Defaults to `npx @celo/buy@latest` as Buy CLI | LOCAL | PASS |
-| Correctly parses boolean flag transforms | LOCAL | PASS |
-| Rejects invalid NODE_ENV values | LOCAL | PASS |
-| Parses comma-separated allowlists into arrays | LOCAL | PASS |
-| Rejects placeholder SESSION_SECRET in production | LOCAL | PASS |
-| Rejects SESSION_SECRET < 32 chars in production | LOCAL | PASS |
-| Rejects placeholder OPERATOR_PASSWORD_HASH in production | LOCAL | PASS |
-| Allows valid production config with all required fields | LOCAL | PASS |
-| Rejects production with BUY_ENABLED=true + zero daily budget | LOCAL | PASS |
-| Rejects production with BUY_ENABLED=true + zero per-call cap | LOCAL | PASS |
-| BUY_ENABLED defaults to false in all environments | LOCAL | PASS |
-| CENCORI_ENABLED defaults to false in all environments | LOCAL | PASS |
-| All spending limits default to zero | LOCAL | PASS |
-
-### `tests/health.test.ts` — 4 tests PASS (LOCAL)
-| Test | Class | Result |
-|---|---|---|
-| GET /api/health returns 200 with API envelope & chainstackConfigured flag | LOCAL | PASS |
-| CORS headers set correctly for configured origin | LOCAL | PASS |
-| serves static HTML index on GET / | LOCAL | PASS |
-| blocks directory traversal attempts on static assets with HTTP 403 or 404 | LOCAL | PASS |
-
-### `tests/chainstackProvider.test.ts` — 6 tests PASS (MOCKED)
-| Test | Class | Result |
-|---|---|---|
-| reports isConfigured true when URL present | MOCKED | PASS |
-| reports isConfigured false when URL missing | MOCKED | PASS |
-| enforces Celo Mainnet chain ID 42220 | MOCKED | PASS |
-| rejects non-Celo chain ID | MOCKED | PASS |
-| redacts secret RPC URL in error outputs | MOCKED | PASS |
-| gracefully detects unsupported trace method (-32601) | MOCKED | PASS |
-
-### `tests/revertDecoder.test.ts` — 5 tests PASS (LOCAL)
-| Test | Class | Result |
-|---|---|---|
-| decodes standard Solidity Error(string) | LOCAL | PASS |
-| decodes Solidity Panic(0x01) assert failure | LOCAL | PASS |
-| decodes Solidity Panic(0x11) arithmetic overflow | LOCAL | PASS |
-| returns custom error for unknown selector | LOCAL | PASS |
-| handles empty or malformed revert data gracefully | LOCAL | PASS |
-
-### `tests/traceParser.test.ts` — 7 tests PASS (LOCAL)
-| Test | Class | Result |
-|---|---|---|
-| parses single frame without subcalls | LOCAL | PASS |
-| correctly tracks nested calls and identifies propagated failure | LOCAL | PASS |
-| distinguishes caught child error (parent does not fail) vs propagated error | LOCAL | PASS |
-| marks child error as CAUGHT_CHILD_REVERT when parent continues and makes subsequent calls | LOCAL | PASS |
-| classifies multiple failing child branches as CAUSALITY_UNCERTAIN | LOCAL | PASS |
-| marks root-only failure as OBSERVED_FAILURE | LOCAL | PASS |
-| handles empty revert data and missing optional frame fields gracefully | LOCAL | PASS |
-
-### `tests/forensics.test.ts` — 3 tests PASS (LOCAL)
-| Test | Class | Result |
-|---|---|---|
-| builds atomic evidence items with SHA-256 hashes | LOCAL | PASS |
-| classifies explicit revert with decoded string | LOCAL | PASS |
-| classifies panic error with code and explanation | LOCAL | PASS |
-
-### `tests/investigations.test.ts` — 6 tests PASS (LOCAL/MOCKED)
-| Test | Class | Result |
-|---|---|---|
-| rejects invalid transaction hash format with HTTP 400 | LOCAL | PASS |
-| executes full investigation with mocked provider and persists report to SQLite | MOCKED | PASS |
-| validates UUID format in GET /api/investigations/:id with 400 INVALID_INPUT | LOCAL | PASS |
-| validates limit query param in GET /api/investigations with 400 INVALID_INPUT | LOCAL | PASS |
-| handles invalid JSON body in POST /api/investigations with 400 INVALID_INPUT | LOCAL | PASS |
-| performs full round-trip persistence to SQLite and restores all fields across instance reload | LOCAL | PASS |
-
-### `tests/regressionEdgeCases.test.ts` — 10 tests PASS (LOCAL/MOCKED)
-| Test | Class | Result |
-|---|---|---|
-| handles trace timeout gracefully with TIMEOUT status and limitations note | MOCKED | PASS |
-| handles unsupported trace method (-32601) with UNSUPPORTED status | MOCKED | PASS |
-| handles rate limiting (429) during trace retrieval with RATE_LIMITED status | MOCKED | PASS |
-| returns HTTP 502 with redacted URL on provider network outage | MOCKED | PASS |
-| correctly classifies pending transaction in mempool without false revert | MOCKED | PASS |
-| handles mined transaction with null receipt as UNCONFIRMED_RECEIPT | MOCKED | PASS |
-| detects malformed trace payload and sets INVALID_RESPONSE | MOCKED | PASS |
-| returns HTTP 404 when transaction is not found on Celo Mainnet | MOCKED | PASS |
-| returns HTTP 503 when RPC endpoint is not configured | LOCAL | PASS |
-| verifies evidence correctness and does not treat caught child reverts as root cause | LOCAL | PASS |
-
-### `tests/cencoriProvider.test.ts` — 3 tests PASS (LOCAL/MOCKED)
-| Test | Class | Result |
-|---|---|---|
-| respects enabled and disabled states | LOCAL | PASS |
-| constructs strict, evidence-only prompt payload conforming to schema | LOCAL | PASS |
-| generates quote object with exact body SHA-256 hash | MOCKED | PASS |
-
-### `tests/aiValidation.test.ts` — 9 tests PASS (LOCAL)
-| Test | Class | Result |
-|---|---|---|
-| accepts valid, well-cited AI response conforming to evidence | LOCAL | PASS |
-| rejects AI response referencing non-existent evidence IDs | LOCAL | PASS |
-| rejects proven facts that fail to cite an evidence reference | LOCAL | PASS |
-| rejects confidence elevation above deterministic confidence | LOCAL | PASS |
-| rejects invented addresses not present in the on-chain evidence | LOCAL | PASS |
-| rejects hallucinated revert reasons not observed on chain | LOCAL | PASS |
-| quarantines prompt injection patterns in AI response text | LOCAL | PASS |
-| handles malformed JSON and rejects empty responses gracefully | LOCAL | PASS |
-| automatically preserves missing deterministic limitations | LOCAL | PASS |
-
-### `tests/buyQuote.test.ts` — 9 tests PASS (LOCAL)
-| Test | Class | Result |
-|---|---|---|
-| creates immutable quote record bound to body SHA-256 with AWAITING_OPERATOR_APPROVAL status | LOCAL | PASS |
-| rejects quote creation when unapproved capability is requested | LOCAL | PASS |
-| rejects quote creation for non-Celo chain IDs | LOCAL | PASS |
-| rejects quote creation for unapproved recipient addresses | LOCAL | PASS |
-| rejects quote creation exceeding per-call spending cap | LOCAL | PASS |
-| rejects quote approval when expected body SHA-256 does not match quoted body | LOCAL | PASS |
-| allows authenticated operator to approve matching quote and transitions status to APPROVED | LOCAL | PASS |
-| rejects duplicate approval of an already-approved quote | LOCAL | PASS |
-| rejects approval when quote has expired | LOCAL | PASS |
-
-### `tests/buySecurity.test.ts` — 4 tests PASS (LOCAL)
-| Test | Class | Result |
-|---|---|---|
-| rejects quote approval from unauthenticated public callers with HTTP 401 | LOCAL | PASS |
-| allows authenticated operator to log in and approve quote | LOCAL | PASS |
-| emergency kill switch immediately halts all quote creation and approvals | LOCAL | PASS |
-| persists quote records, approval state, and body SHA-256 durably across SQLite reload | LOCAL | PASS |
+| Command | Exit Code | Result | Key Output & Notes |
+|:---|:---:|:---:|:---|
+| `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
+| `npm test` | **0** | **`PASS`** | **16 test files passed, 141/141 tests passed** in 2.97s (100% green). |
+| `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430 kB), `vendor-icons` (14.8 kB), `index` (178 kB). **0 warnings**. |
+| `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **27/27 test scenarios passed** across 20 unique Fastify endpoints (including SPA redirects and 404 envelope). |
+| `node scripts/verify_live_investigation.mjs` | **0** | **`PASS`** | **14/14 live checks passed** against Celo Mainnet OP Geth node. 5 SHA-256 evidence items verified across OS-isolated child process. |
+| `node scripts/browser_e2e_cdp.mjs` | **0** | **`PASS`** | Real Chrome DevTools Protocol automated testing: Desktop (1280x800) and Mobile (375x812) viewports fully validated. |
 
 ---
 
-## Test class breakdown
+## 2. Test Breakdown by File (16 Suites, 141 Tests)
 
-- **LOCAL:** 54 passed  
-- **MOCKED:** 24 passed  
-- **LIVE_MAINNET_PAID:** 0 (zero personal budget spent; zero paid calls executed)  
-- **TOTAL:** **78 passed, 0 failed**  
+| # | Test File | Test Count | Classification | Result |
+|:---:|:---|:---:|:---|:---:|
+| 1 | `tests/databaseReliability.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
+| 2 | `tests/revertDecoder.test.ts` | **12** | `LOCAL` | **PASS** |
+| 3 | `tests/chainstackProvider.test.ts` | **6** | `LOCAL` | **PASS** |
+| 4 | `tests/traceParser.test.ts` | **8** | `LOCAL` | **PASS** |
+| 5 | `tests/aiValidation.test.ts` | **9** | `LOCAL` | **PASS** |
+| 6 | `tests/config.test.ts` | **18** | `LOCAL` | **PASS** |
+| 7 | `tests/forensics.test.ts` | **3** | `LOCAL` | **PASS** |
+| 8 | `tests/buyQuote.test.ts` | **13** | `LOCAL_INTEGRATION` | **PASS** |
+| 9 | `tests/clientLib.test.ts` | **20** | `LOCAL` | **PASS** |
+| 10 | `tests/cencoriProvider.test.ts` | **3** | `LOCAL` | **PASS** |
+| 11 | `tests/attribution.test.ts` | **11** | `LOCAL` | **PASS** |
+| 12 | `tests/health.test.ts` | **4** | `LOCAL` | **PASS** |
+| 13 | `tests/regressionEdgeCases.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| 14 | `tests/buySecurity.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
+| 15 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| 16 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
+| **Total** | **16 Test Suites** | **141 Tests** | **100% Automated** | **141 PASS** |
+
+---
+
+## 3. Route Surface Verification Matrix (27 Scenarios)
+
+```
+[PASS] GET /api/health -> Status 200 (Public Health Check)
+[PASS] GET /api/agent/metadata -> Status 200 (Public Agent ERC-8004 Metadata)
+[PASS] GET /api/agent/erc8004-registration-tx -> Status 200 (Prepare Tagged ERC-8004 Registration Tx)
+[PASS] POST /api/investigations -> Status 400 (Investigation Invalid Hash)
+[PASS] POST /api/investigations -> Status 200 (Execute Investigation (Live Mainnet))
+[PASS] GET /api/investigations/not-a-uuid -> Status 400 (Get Investigation Invalid UUID)
+[PASS] GET /api/investigations/ffffffff-ffff-4fff-bfff-ffffffffffff -> Status 404 (Get Investigation Not Found)
+[PASS] GET /api/investigations/:id -> Status 200 (Get Investigation by ID)
+[PASS] GET /api/investigations?limit=5 -> Status 200 (List Recent Investigations)
+[PASS] GET /api/investigations?limit=invalid -> Status 400 (List Investigations Invalid Limit)
+[PASS] POST /api/investigations/:id/quote -> Status 200 (Generate Cencori Quote)
+[PASS] POST /api/operator/login -> Status 401 (Operator Login Bad Password)
+[PASS] POST /api/operator/login -> Status 200 (Operator Login Success)
+[PASS] GET /api/operator/quotes -> Status 401 (Operator Quotes Unauthenticated)
+[PASS] GET /api/operator/quotes -> Status 200 (Operator Quotes Authenticated)
+[PASS] POST /api/operator/quotes/:id/approve -> Status 400 (Approve Quote Tampered Hash)
+[PASS] POST /api/operator/kill-switch -> Status 200 (Engage Emergency Kill Switch)
+[PASS] POST /api/operator/logout -> Status 200 (Operator Logout)
+[PASS] GET / -> Status 200 (Serve SPA Index HTML)
+[PASS] GET /assets/index-BuVDAKYo.js -> Status 200 (Serve Static JS Asset)
+[PASS] GET /assets/../package.json -> Status 404 (Path Traversal Guard on Assets)
+[PASS] GET /history -> Status 302 (SPA Clean Route Redirect (/history))
+[PASS] GET /about -> Status 302 (SPA Clean Route Redirect (/about))
+[PASS] GET /operator -> Status 302 (SPA Clean Route Redirect (/operator))
+[PASS] GET /investigation/:id -> Status 302 (SPA Clean Route Redirect (/investigation/:id))
+[PASS] GET /api/nonexistent-endpoint -> Status 404 (Unknown API Route 404 JSON Envelope)
+[PASS] GET /unknown-page -> Status 302 (Browser HTML Navigation Fallback to SPA Home)
+```
+
+---
+
+## 4. Live Mainnet & OS Process Persistence Proof
+
+```
+Candidate Tx:     0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445
+Target Network:   Celo Mainnet (Chain ID 42220)
+Provider:         Chainstack Elastic Global Node (OP Geth)
+Receipt Status:   REVERTED (Gas Used: 0xd3d8)
+Call Tree Depth:  Depth 2, 4 total frames
+Deepest Failing:  Frame 0.1 ("execution reverted", PROPAGATION_SUPPORTED)
+Evidence Items:   5 atomic items ([E-01] to [E-05]), 100% SHA-256 verified
+Child OS Process: PID 12092 verified 14 recovery assertions across genuine OS process boundary
+```

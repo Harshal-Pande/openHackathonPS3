@@ -14,6 +14,18 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist/client'
+    outDir: 'dist/client',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor-react';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'vendor-icons';
+          }
+        }
+      }
+    }
   }
 });

@@ -305,3 +305,109 @@ Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Veri
 - Produced comprehensive standalone audit deliverable: `POST_REDESIGN_AUDIT.md`.
 
 
+
+---
+
+# PHASE 13 — MASTER PROJECT AUDIT, DOCUMENTATION CLEANUP & ROADMAP GENERATION
+
+**Date:** 2026-11-08  
+**Status:** COMPLETED & AUDITED  
+**Auditors & Authors:** Lead Principal Engineer, Security Architect, Blockchain Integration Engineer, Product Architect, QA Lead  
+
+### 1. Scope & Execution Objectives
+- Conducted an exhaustive, evidence-driven technical, architectural, security, operational, and hackathon compliance audit of the entire RevertLens project.
+- Re-executed all quality verification suites: `npm run typecheck` (0 errors), `npm test` (130/130 passing across 15 test files), `npm run build` (clean server and client compilation), `scripts/verify_all_routes.mjs` (21/21 scenarios passed across 14 Fastify endpoints), `scripts/verify_live_investigation.mjs` (14/14 live checks passed against Celo Mainnet OP Geth node), and `scripts/browser_e2e_cdp.mjs` (Desktop and Mobile Chrome CDP automation passed).
+- Executed on-chain read-only RPC balance query for intended agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`, confirming live balance: `0x0 0 CELO`.
+
+### 2. Documentation Architecture & Archive Cleanup
+- Inventoried all 106 Markdown (`.md`) files across the workspace.
+- Relocated 62 historical phase reports, completed execution logs, superseded audits, and obsolete prompt files into a clean archive structure (`docs/archive/phase-reports/`, `docs/archive/execution-logs/`, `docs/archive/superseded-audits/`, `docs/archive/obsolete-prompts/`) using `git mv` to preserve complete commit provenance.
+- Cleaned the active repository root to contain only 24 essential, authoritative governance files, active runbooks, and current release deliverables.
+- Produced `DOCUMENTATION_INVENTORY.md` detailing the classification and location of all project files.
+
+### 3. Key Findings & Defect Register Updates
+- Updated `MASTER_DEFECT_REGISTER.md` with newly confirmed findings:
+  - **DEF-14 (High | Security/Auth):** Operator login authentication currently compares input against `SESSION_SECRET` rather than `OPERATOR_PASSWORD_HASH`. Scheduled for root-cause resolution in Module 2.
+  - **DEF-15 (Medium | DB/Concurrency):** SQLite initialization lacks `PRAGMA journal_mode = WAL;` and `PRAGMA busy_timeout = 5000;`, risking write locking in production. Scheduled for Module 1.
+  - **DEF-16 (Medium | Usability/Routing):** Fastify server lacks SPA fallback handler for direct navigation or refresh on deep URLs without hash. Scheduled for Module 1.
+  - **DEF-17 (Medium | Security/Robustness):** Revert decoder string length parsing lacks explicit sanity bounds clamping (`0 <= strLen <= 4096`). Scheduled for Module 1.
+  - **DEF-18 (Low | Performance):** Client JS bundle chunk (624 kB) exceeds recommended 500 kB threshold without code-splitting. Scheduled for Module 1.
+  - **DEF-19 (Informational | Operations):** Live Buy payment settlement has not been executed on-chain due to 0 CELO wallet balance and pending operator authorization.
+  - **DEF-20 (Informational | Operations):** Tagged ERC-8004 agent registration transaction is prepared and verified, but not broadcast pending public deployment URL and gas funding.
+
+### 4. Tracking Deliverables Created & Updated
+1. `MASTER_PROJECT_AUDIT.md` — Definitive technical, architectural, forensic, and security audit.
+2. `MASTER_EXECUTION_ROADMAP.md` — Critical-path module-by-module plan (Modules 1 through 8).
+3. `USER_ACTION_CHECKLIST.md` — Explicit, non-technical instructions for the 10 human-owned tasks (Category A).
+4. `ANTIGRAVITY_TASK_REGISTER.md` — Complete register of the 16 agent-owned technical tasks (Category B).
+5. `MASTER_DEFECT_REGISTER.md` — Authoritative defect ledger (DEF-01 through DEF-20).
+6. `DOCUMENTATION_INVENTORY.md` — Complete classification and move log for all 106 markdown documents.
+7. `MASTER_CHANGELOG.md` — Appended Phase 13 entry; preserved all historical changelog entries.
+
+### 5. Git Status & Invariant Enforcements
+- All file relocations tracked via Git index.
+- In accordance with non-negotiable instructions:
+  - **Zero** blockchain transactions signed or broadcast.
+  - **Zero** Buy payments executed ($0.00 spent).
+  - **Zero** ERC-8004 registrations broadcast.
+  - **Zero** wallet secrets, private keys, or API tokens exposed.
+  - **Zero** commits or pushes executed to remote Git repository.
+  - **Zero** feature implementation begun prior to explicit operator authorization.
+
+---
+
+# PHASE 13.1 — MODULE 1 (MOD-01): CORE RELIABILITY & INFRASTRUCTURE FOUNDATIONS
+
+**Date:** 2026-11-08  
+**Status:** IMPLEMENTED_AND_VERIFIED  
+**Auditors & Authors:** Lead Principal Engineer, Security Architect, QA Lead  
+
+### 1. Scope & Objectives
+Authorized execution of Module 1 (`MOD-01`) from `MASTER_EXECUTION_ROADMAP.md` addressing all 4 core reliability tasks (`AGY-01` through `AGY-04`) and permanently resolving defects `DEF-15`, `DEF-16`, `DEF-17`, and `DEF-18` with zero patchwork and zero regression.
+
+### 2. Root-Cause Remediation Implemented
+
+#### AGY-01: SQLite WAL Mode & Busy Timeout (DEF-15)
+- **Root Cause:** Default SQLite rollback journal mode (`DELETE`) locked the database file during writes, creating `SQLITE_BUSY` contention under concurrent read/write requests.
+- **Structural Correction:** Configured `PRAGMA journal_mode = WAL;`, `PRAGMA busy_timeout = 5000;`, and `PRAGMA synchronous = NORMAL;` on connection initialization in `src/server/db/database.ts`. Added connection inspection helpers `getJournalMode()` and `getBusyTimeout()`. Handled in-memory `:memory:` databases gracefully without throwing on pragma.
+- **Verification:** Created `tests/databaseReliability.test.ts` verifying WAL pragma, 5000ms busy timeout, data persistence across independent instances, and 25 concurrent read/write operations without locking errors. 4/4 tests pass.
+
+#### AGY-02: SPA Navigation & Routing Architecture (DEF-16)
+- **Root Cause & Architectural Insight:** Inspection of `src/client/lib/router.ts` and `TopBar.tsx` confirmed the application is intentionally a hash-routed SPA (`#/history`, `#/about`, `#/operator`, `#/investigation/:id`). In browser navigation, hash fragments are not transmitted over HTTP, so browser reloads already request `GET /` and succeed. However, direct navigation to clean URLs without hash (`/history`, `/about`, etc.) returned 404. Simply serving `index.html` at clean URLs would leave `window.location.hash` empty, causing the hash router to mount the homepage instead of the requested subpage.
+- **Structural Correction:** Added Fastify 302 redirects for clean routes (`/history`, `/about`, `/operator`, `/investigate`, `/investigation/:id`) to their canonical hash-based SPA equivalents (`/#/history`, etc.). Implemented `server.setNotFoundHandler` preserving standard JSON 404 envelopes for missing `/api/*` endpoints and redirecting browser HTML requests to `/#/`.
+- **Verification:** Added 6 route scenarios to `scripts/verify_all_routes.mjs`. 27/27 scenarios passed across 20 unique Fastify endpoints.
+
+#### AGY-03: Safe Revert Decoder Bounds Validation (DEF-17)
+- **Root Cause:** `decodeRevertData` in `src/server/forensics/revertDecoder.ts` parsed the 32-byte length field with `parseInt(lengthHex, 16)` without an upper bound or hex validation. Astronomical or malformed inputs could produce unexpected parsing behavior.
+- **Structural Correction:** Clamped string length to `MAX_REVERT_STRING_BYTES = 4096`, verified high-order zero padding on 32-byte length words, validated hex format, correctly offset string bytes at `(offset + 32) * 2`, sanitized unprintable control characters, and handled empty `Error("")` strings and truncated payloads safely.
+- **Verification:** Expanded `tests/revertDecoder.test.ts` from 5 to 12 tests covering oversized lengths, astronomical lengths (`0xffffff...`), truncated data, boundary length (4096 bytes), empty error strings, non-hex payloads, and truncated panics. 12/12 tests pass.
+
+#### AGY-04: Vite Vendor Code-Splitting (DEF-18)
+- **Root Cause:** Monolithic client bundling packaged React, React-DOM, Lucide icons, and application code into a single 624 kB chunk, triggering Vite's build warning `(!) Some chunks are larger than 500 kB after minification`.
+- **Structural Correction:** Configured `manualChunks` in `vite.config.ts` separating `vendor-react` (`react`, `react-dom`), `vendor-icons` (`lucide-react`), and application code (`index`).
+- **Verification:** `npm run build` completed in 3.30s with zero warnings:
+  - Before: `dist/client/assets/index-CPzjZ2ir.js` (624.02 kB) + warning.
+  - After: `dist/client/assets/vendor-react-DldHo_fF.js` (430.37 kB), `dist/client/assets/index-BuVDAKYo.js` (178.28 kB), `dist/client/assets/vendor-icons-C9VBgMMj.js` (14.87 kB). 0 warnings.
+  - Verified real browser interaction with split chunks in `scripts/browser_e2e_cdp.mjs` (Desktop & Mobile 100% passed).
+
+### 3. Verification Evidence & Quality Gates
+- **TypeScript Typecheck:** `npm run typecheck` passed with 0 errors across server and client.
+- **Vitest Automated Suites:** `npm test` passed with **16/16 test files, 141/141 tests passing** (up from 130 tests).
+- **Production Build:** `npm run build` passed with zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **27/27 scenarios** across 20 unique endpoints.
+- **Live Mainnet Ingestion:** `node scripts/verify_live_investigation.mjs` passed **14/14 checks** with 5 SHA-256 evidence items verified across OS-isolated child process.
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% across Desktop (1280x800) and Mobile (375x812) viewports.
+
+### 4. Files Created / Modified
+- `src/server/db/database.ts` (WAL mode, busy timeout, pragma getters)
+- `src/server/app.ts` (SPA clean route redirects, notFoundHandler 404 envelope)
+- `src/server/forensics/revertDecoder.ts` (bounds clamping, offset validation, safe sanitization)
+- `vite.config.ts` (manualChunks vendor code-splitting)
+- `tests/databaseReliability.test.ts` (created new concurrency & persistence test suite)
+- `tests/revertDecoder.test.ts` (expanded with 7 new regression tests)
+- `scripts/verify_all_routes.mjs` (added 6 route injection scenarios)
+- `MASTER_DEFECT_REGISTER.md` (DEF-15, DEF-16, DEF-17, DEF-18 marked RESOLVED)
+- `ANTIGRAVITY_TASK_REGISTER.md` (AGY-01, AGY-02, AGY-03, AGY-04 marked COMPLETED)
+- `MASTER_EXECUTION_ROADMAP.md` (MOD-01 marked COMPLETED)
+- `TEST_RESULTS.md` (updated test ledger: 141 tests, 27 routes)
+- `MASTER_CHANGELOG.md` (appended Phase 13.1 log)
