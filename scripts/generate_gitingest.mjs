@@ -69,6 +69,7 @@ function shouldIncludeFile(filePath) {
   if (EXCLUDE_FILES.has(baseName)) return false;
   if (EXCLUDE_EXTENSIONS.has(ext)) return false;
   if (baseName.startsWith('.env')) return false;
+  if (baseName.includes('gitingest')) return false;
 
   return true;
 }

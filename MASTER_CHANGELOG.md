@@ -1,12 +1,12 @@
 # REVERTLENS — MASTER CHANGELOG & ARCHITECTURAL EVOLUTION
-**Project:** RevertLens — "Your Celo transaction failed. Find out why."  
-**Hackathon:** Agents on Open Rails 2026 | Loops House × Celo  
-**Track:** PS3 — Build with Buy  
-**Target Network:** Celo Mainnet (`eip155:42220`), Chain ID: `42220`  
-**Official Assigned Attribution Tag:** `celo_235f6ef56f5b`  
-**Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`  
-**Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`  
-**Status:** RELEASE CANDIDATE (LOCAL VERIFIED, PREPARED FOR HUMAN SUBMISSION)  
+**Project:** RevertLens — "Your Celo transaction failed. Find out why."
+**Hackathon:** Agents on Open Rails 2026 | Loops House Ã— Celo
+**Track:** PS3 — Build with Buy
+**Target Network:** Celo Mainnet (`eip155:42220`), Chain ID: `42220`
+**Official Assigned Attribution Tag:** `celo_235f6ef56f5b`
+**Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
+**Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`
+**Status:** RELEASE CANDIDATE (LOCAL VERIFIED, PREPARED FOR HUMAN SUBMISSION)
 **Last Updated:** 2026-11-08 (Phase 16 - MOD-03.2)
 
 ---
@@ -17,38 +17,38 @@ RevertLens was conceived and developed across 12 distinct engineering phases to 
 
 ```
 Phase 0: Architecture & Protocol Specification
-  │
+  â”‚
 Phase 1: Buy Gateway & Cencori LLM Integration Spike
-  │
+  â”‚
 Phase 2: EVM Transaction & Receipt Ingestion Layer
-  │
+  â”‚
 Phase 3: OP Geth Debug Trace Ingestion & Call Tree Parser
-  │
+  â”‚
 Phase 4: Deterministic Revert Reason Decoder & Custom Error Registry
-  │
+  â”‚
 Phase 5: Automated Forensic Inference & Evidence Assembler
-  │
+  â”‚
 Phase 6: Reactive Web UI (React + Vite + Tailwind CSS)
-  │
+  â”‚
 Phase 7: End-to-End User Journeys & Local SQLite Persistence
-  │
+  â”‚
 Phase 8: Security Hardening & Zero-Spend Payment Invariant Enforcement
-  │
+  â”‚
 Phase 9: Hackathon Release Readiness & Docker Containerization Audit
-  │
+  â”‚
 Phase 10: Root-Cause Stabilization & CDP Browser Automation Harness
-  │
+  â”‚
 Phase 11: Official Celo Attribution Tag (`celo_235f6ef56f5b`) & Agent Wallet Ingestion
-  │
+  â”‚
 Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Verification
 ```
 
 ### Key Milestones:
-- **Phase 0–3:** Established strict Fastify backend with Node.js 22 LTS, SQLite persistence, and viem. Identified that the public Celo RPC (`forno.celo.org`) disables `debug_traceTransaction`. Pivoted cleanly under AD-008 to a dedicated Chainstack Celo Mainnet Elastic Global Node (OP Geth, Chain ID 42220) providing full tracer access.
-- **Phase 4–6:** Implemented deterministic ABI decoding for Standard Errors (`Error(string)`, `Panic(uint256)`), ERC-20, Uniswap V2/V3, and native Celo governance/fee currencies. Built interactive UI displaying transaction metadata, gas consumption, root-cause call frame highlights, and structured forensic evidence.
-- **Phase 7–8:** Integrated Buy protocol client (`@celo/buy`) for paid Cencori AI completions (`cencori.v1.chat.completions`), enforcing strict 402 quote parsing, SHA-256 body binding, per-call budget limits, and human operator approval barriers.
-- **Phase 9–10:** Overcame headless browser automation limitations by authoring a direct Chrome DevTools Protocol (CDP) WebSocket test harness (`scripts/browser_e2e_cdp.mjs`), validating real UI workflows on Desktop (1280x800) and Mobile (375x812) viewports. Resolved live execution timeout flakes by adopting OS-level isolated child processes (`child_process.fork`).
-- **Phase 11–11.5:** Successfully integrated the official hackathon attribution tag `celo_235f6ef56f5b` with ERC-8021 specification, verified the permanent Agent Wallet (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`), prepared ERC-8004 Identity Registration calldata (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`), and confirmed 100% test pass rate across 14 test suites (110 tests).
+- **Phase 0â€“3:** Established strict Fastify backend with Node.js 22 LTS, SQLite persistence, and viem. Identified that the public Celo RPC (`forno.celo.org`) disables `debug_traceTransaction`. Pivoted cleanly under AD-008 to a dedicated Chainstack Celo Mainnet Elastic Global Node (OP Geth, Chain ID 42220) providing full tracer access.
+- **Phase 4â€“6:** Implemented deterministic ABI decoding for Standard Errors (`Error(string)`, `Panic(uint256)`), ERC-20, Uniswap V2/V3, and native Celo governance/fee currencies. Built interactive UI displaying transaction metadata, gas consumption, root-cause call frame highlights, and structured forensic evidence.
+- **Phase 7â€“8:** Integrated Buy protocol client (`@celo/buy`) for paid Cencori AI completions (`cencori.v1.chat.completions`), enforcing strict 402 quote parsing, SHA-256 body binding, per-call budget limits, and human operator approval barriers.
+- **Phase 9â€“10:** Overcame headless browser automation limitations by authoring a direct Chrome DevTools Protocol (CDP) WebSocket test harness (`scripts/browser_e2e_cdp.mjs`), validating real UI workflows on Desktop (1280x800) and Mobile (375x812) viewports. Resolved live execution timeout flakes by adopting OS-level isolated child processes (`child_process.fork`).
+- **Phase 11â€“11.5:** Successfully integrated the official hackathon attribution tag `celo_235f6ef56f5b` with ERC-8021 specification, verified the permanent Agent Wallet (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`), prepared ERC-8004 Identity Registration calldata (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`), and confirmed 100% test pass rate across 14 test suites (110 tests).
 
 ---
 
@@ -252,9 +252,9 @@ Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Veri
 
 # PHASE 12 — COMPLETE UI/UX FORENSIC WORKBENCH REDESIGN
 
-**Date:** 2026-11-07  
-**Status:** IMPLEMENTED_AND_VERIFIED  
-**Audience:** Judges, Technical Evaluators, and Hackathon Organizers  
+**Date:** 2026-11-07
+**Status:** IMPLEMENTED_AND_VERIFIED
+**Audience:** Judges, Technical Evaluators, and Hackathon Organizers
 
 ### 1. Objectives & Scope
 - Transformed legacy single-file inline-styled prototype into an institutional-grade EVM transaction forensics workbench ("The Evidence Bench").
@@ -290,9 +290,9 @@ Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Veri
 
 # PHASE 12.5 — POST-REDESIGN INDEPENDENT VERIFICATION & RELEASE GATE AUDIT
 
-**Date:** 2026-11-07  
-**Status:** FULLY_VERIFIED  
-**Auditor:** Antigravity Independent Quality & Release Gate Agent  
+**Date:** 2026-11-07
+**Status:** FULLY_VERIFIED
+**Auditor:** Antigravity Independent Quality & Release Gate Agent
 
 ### 1. Verification Scope & Independent Audit
 - Conducted clean-slate execution of all project quality checks (`npm run typecheck`, `npm test`, `npm run build`, `verify_all_routes.mjs`, `verify_live_investigation.mjs`, `browser_e2e_cdp.mjs`).
@@ -311,8 +311,8 @@ Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Veri
 # PHASE 13 — MASTER PROJECT AUDIT, DOCUMENTATION CLEANUP & ROADMAP GENERATION
 
 **Date:** 2026-11-08
-**Status:** COMPLETED & AUDITED  
-**Auditors & Authors:** Lead Principal Engineer, Security Architect, Blockchain Integration Engineer, Product Architect, QA Lead  
+**Status:** COMPLETED & AUDITED
+**Auditors & Authors:** Lead Principal Engineer, Security Architect, Blockchain Integration Engineer, Product Architect, QA Lead
 
 ### 1. Scope & Execution Objectives
 - Conducted an exhaustive, evidence-driven technical, architectural, security, operational, and hackathon compliance audit of the entire RevertLens project.
@@ -359,8 +359,8 @@ Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Veri
 # PHASE 13.1 — MODULE 1 (MOD-01): CORE RELIABILITY & INFRASTRUCTURE FOUNDATIONS
 
 **Date:** 2026-11-08
-**Status:** IMPLEMENTED_AND_VERIFIED  
-**Auditors & Authors:** Lead Principal Engineer, Security Architect, QA Lead  
+**Status:** IMPLEMENTED_AND_VERIFIED
+**Auditors & Authors:** Lead Principal Engineer, Security Architect, QA Lead
 
 ### 1. Scope & Objectives
 Authorized execution of Module 1 (`MOD-01`) from `MASTER_EXECUTION_ROADMAP.md` addressing all 4 core reliability tasks (`AGY-01` through `AGY-04`) and permanently resolving defects `DEF-15`, `DEF-16`, `DEF-17`, and `DEF-18` with zero patchwork and zero regression.
@@ -1055,7 +1055,7 @@ Following an independent audit of the MOD-04 implementation snapshot by ChatGPT,
 
 7. **DEF-55: Governance Task Register Re-alignment & Module Sequencing (P2):**
    - **Root Cause:** Tasks AGY-10 through AGY-13 were previously reused for MOD-04, conflicting with tasks already assigned to Modules 5 and 6.
-   - **Remediation:** Reconciled `ANTIGRAVITY_TASK_REGISTER.md` by assigning unique identifiers `AGY-04-01` through `AGY-04-05` for MOD-04.1. Marked MOD-04 as `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE`. Updated `MASTER_EXECUTION_ROADMAP.md` establishing the explicit dependency chain `MOD-04 → MOD-04.1 → MOD-06 → MOD-05 → MOD-07 → MOD-08`. Kept MOD-03 live settlement gated on funding/approval and MOD-05 registration dependent on public deployment.
+   - **Remediation:** Reconciled `ANTIGRAVITY_TASK_REGISTER.md` by assigning unique identifiers `AGY-04-01` through `AGY-04-05` for MOD-04.1. Marked MOD-04 as `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE`. Updated `MASTER_EXECUTION_ROADMAP.md` establishing the explicit dependency chain `MOD-04 â†’ MOD-04.1 â†’ MOD-06 â†’ MOD-05 â†’ MOD-07 â†’ MOD-08`. Kept MOD-03 live settlement gated on funding/approval and MOD-05 registration dependent on public deployment.
 
 ### 2. Verification Evidence
 - **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
@@ -1160,7 +1160,7 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
    - Authored `tests/erc8004Registration.test.ts` with 24 comprehensive unit and integration tests covering schema validation, calldata encoding, endpoint readiness states, and receipt verification paths.
    - Overhauled `ERC8004_REGISTRATION_PREPARATION.md` covering all 18 checklist items from Section 6.
    - Updated `ANTIGRAVITY_TASK_REGISTER.md` adding tasks `AGY-05-01` through `AGY-05-04`.
-   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence `MOD-04 ACCEPTED → MOD-05A PREPARATION → MOD-06 DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION`.
+   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence `MOD-04 ACCEPTED â†’ MOD-05A PREPARATION â†’ MOD-06 DEPLOYMENT â†’ MOD-05B LIVE REGISTRATION â†’ MOD-07 USER TESTING â†’ MOD-08 SUBMISSION`.
 
 ### 2. Verification Evidence
 - **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
@@ -1200,7 +1200,7 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
    - Updated `.env.example` to explicitly document immutable hackathon defaults (`CELO_ATTRIBUTION_TAG=celo_235f6ef56f5b`, `AGENT_WALLET_ADDRESS=0x3e1bef07824cd0E076F4907641F0A0EF27898e52`) and Chainstack RPC configuration instructions.
 
 5. **Roadmap & Checklist Reconciliation:**
-   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence: `MOD-04 ACCEPTED → MOD-05A PREPARATION → MOD-05A.1 JUDGE READINESS → MOD-06 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION`.
+   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence: `MOD-04 ACCEPTED â†’ MOD-05A PREPARATION â†’ MOD-05A.1 JUDGE READINESS â†’ MOD-06 PUBLIC DEPLOYMENT â†’ MOD-05B LIVE REGISTRATION â†’ MOD-07 USER TESTING â†’ MOD-08 SUBMISSION`.
    - Updated `SUBMISSION_CHECKLIST.md` and `PROOF.md` with verified test counts (498 tests) and direct explorer links.
 
 ### 2. Verification Evidence
@@ -1213,3 +1213,29 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
 - **Lifecycle State:** `MOD-05A.1 — JUDGE VERIFICATION & DEVREL FEEDBACK CLOSURE COMPLETE — PENDING INDEPENDENT REVIEW`.
+
+
+---
+
+## Phase 25.1 — Module 5A.1-R: Historical Feedback Accuracy & Documentation Reconciliation (MOD-05A.1-R)
+**Date:** 2026-11-08<br/>
+**Baseline Commit:** `fa9fb9ea23a6278e10960c71dc42422311e5fcc4`<br/>
+**Scope:** Historical DevRel feedback context correction, README documentation index alignment, Gitingest snapshot metadata reconciliation, and repository digest generator hardening.
+
+### 1. Summary of Changes
+1. **Historical DevRel Feedback Context Correction (`CELO_DEVREL_FEEDBACK_CLOSURE.md`):**
+   - Corrected historical context to state explicitly that the AskBots review was an early-stage/interim automated repository check conducted when the repository was in an early prototype state, before the full RevertLens platform and its test suite were built.
+   - Clarified that it was not an evaluation of the completed 498-test project or a pre-submission review of the finished implementation.
+   - Documented how subsequent development built the 498-test Vitest suite, explorer evidence matrices, and judge runbooks.
+   - Preserved verbatim feedback, report authoring date, and distinction between CLOSED items and the live demo item still BLOCKED_BY_PUBLIC_DEPLOYMENT.
+2. **README Documentation Index Alignment (`README.md`):**
+   - Updated documentation index line to reference the complete changelog coverage: `Phases 0 through 25 / MOD-05A.1-R`.
+3. **Gitingest Generator Hardening & Snapshot Reconciliation (`scripts/generate_gitingest.mjs`, `MOD_05A_1_EXECUTION_REPORT.md`):**
+   - Added wildcard exclusion `baseName.includes('gitingest')` in snapshot generator to permanently guard against recursive snapshot inclusion.
+   - Reconciled snapshot metadata in `MOD_05A_1_EXECUTION_REPORT.md` against actual artifact `revertlens_mod05a_1_gitingest.txt` (2,193,625 bytes, 46,503 lines, 230 file sections, mtime `2026-11-08T15:12:43.219Z`).
+
+### 2. Verification Evidence
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Relative Markdown Links:** Verified zero `file:///` URLs across all documentation.
+- **Zero-Spend Invariant Enforced:** $0.00 spent across all project phases.
+- **Lifecycle State:** `MOD-05A.1 — DOCUMENTATION ACCEPTANCE CORRECTIONS COMPLETE — PENDING REVIEW`.
