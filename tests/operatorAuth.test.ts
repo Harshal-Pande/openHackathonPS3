@@ -786,3 +786,379 @@ describe('DEF-22B: Concurrent Same-IP Failed Attempts Invariants', () => {
     expect(service.getPendingReservationCount()).toBe(0);
   });
 });
+
+describe('DEF-22C: Same-IP Mixed-Outcome Reservation Safety (MOD-02.4)', () => {
+  const sessionSecret = 'test_session_secret_32_characters_minimum_length';
+
+  function createDeferred<T = boolean>() {
+    let resolve!: (val: T) => void;
+    let reject!: (err: any) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it('Test 1: failure followed by success while another request remains in flight preserves reservation', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    const d1 = createDeferred<boolean>();
+    const d2 = createDeferred<boolean>();
+    const d3 = createDeferred<boolean>();
+    const deferreds = [d1, d2, d3];
+    let callIdx = 0;
+
+    const controlledVerifier = async (_pw: string, _hash: string): Promise<boolean> => {
+      const idx = callIdx++;
+      if (idx < deferreds.length) {
+        return deferreds[idx].promise;
+      }
+      return false; // subsequent calls return invalid password
+    };
+
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 1,
+      passwordVerifier: controlledVerifier
+    });
+    const ipA = '192.168.1.50';
+    const ipB = '192.168.1.99';
+    const now = Date.now();
+
+    // 1. Launch 3 concurrent requests from IP-A
+    const p1 = service.login(ipA, 'attempt-1', now);
+    const p2 = service.login(ipA, 'attempt-2', now);
+    const p3 = service.login(ipA, 'attempt-3', now);
+
+    // Yield to let all 3 acquire reservations and reach verifier
+    await new Promise((r) => setImmediate(r));
+
+    // Verify IP-A has 3 in-flight references and distinct identity count is 1
+    expect(service.getInFlightReservationCount(ipA)).toBe(3);
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // 2. Resolve request 1 as invalid
+    d1.resolve(false);
+    await expect(p1).rejects.toThrow('Invalid operator credentials.');
+
+    // 3. Verify IP-A now has a failed-attempt record, 2 in-flight requests, and distinct count remains 1
+    expect(service.getTrackedIpCount()).toBe(1);
+    expect(service.getInFlightReservationCount(ipA)).toBe(2);
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // 4. Resolve request 2 as valid
+    d2.resolve(true);
+    const res2 = await p2;
+    expect(res2.token).toBeDefined();
+
+    // 5. Verify successful authentication clears failed-attempt record, but in-flight request 3 keeps IP-A tracked!
+    expect(service.getTrackedIpCount()).toBe(0);
+    expect(service.getInFlightReservationCount(ipA)).toBe(1);
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // 6. Attempt login from IP-B while request 3 from IP-A is still verifying:
+    // MUST fail closed with 503 LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED! (DEF-22C core bug prevented)
+    try {
+      await service.login(ipB, 'any-pass', now);
+      expect.unreachable('Should have thrown 503 LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(OperatorAuthError);
+      expect(err.statusCode).toBe(503);
+      expect(err.code).toBe('LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED');
+    }
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // 7. Complete final IP-A request 3 as valid
+    d3.resolve(true);
+    const res3 = await p3;
+    expect(res3.token).toBeDefined();
+
+    // 8. Verify reservations for IP-A are completely released and tracker is now empty
+    expect(service.getInFlightReservationCount(ipA)).toBe(0);
+    expect(service.getPendingReservationCount()).toBe(0);
+    expect(service.getTotalTrackedCount()).toBe(0);
+
+    // 9. IP-B can now be admitted
+    await expect(service.login(ipB, 'wrong', now)).rejects.toThrow('Invalid operator credentials.');
+    expect(service.getTrackedIpCount()).toBe(1);
+    expect(service.getTotalTrackedCount()).toBe(1);
+  });
+
+  it('Test 2: success followed by failure while another request remains in flight', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    const d1 = createDeferred<boolean>();
+    const d2 = createDeferred<boolean>();
+    const d3 = createDeferred<boolean>();
+    const deferreds = [d1, d2, d3];
+    let callIdx = 0;
+
+    const controlledVerifier = async (_pw: string, _hash: string): Promise<boolean> => {
+      const idx = callIdx++;
+      return deferreds[idx].promise;
+    };
+
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 1,
+      passwordVerifier: controlledVerifier
+    });
+    const ipA = '192.168.1.51';
+    const ipB = '192.168.1.98';
+    const now = Date.now();
+
+    const p1 = service.login(ipA, 'attempt-1', now);
+    const p2 = service.login(ipA, 'attempt-2', now);
+    const p3 = service.login(ipA, 'attempt-3', now);
+
+    await new Promise((r) => setImmediate(r));
+    expect(service.getInFlightReservationCount(ipA)).toBe(3);
+
+    // Complete request 1 as SUCCESS first
+    d1.resolve(true);
+    const res1 = await p1;
+    expect(res1.token).toBeDefined();
+    expect(service.getTrackedIpCount()).toBe(0);
+    expect(service.getInFlightReservationCount(ipA)).toBe(2);
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // Complete request 2 as FAILURE next
+    d2.resolve(false);
+    await expect(p2).rejects.toThrow('Invalid operator credentials.');
+    expect(service.getTrackedIpCount()).toBe(1);
+    expect(service.getInFlightReservationCount(ipA)).toBe(1);
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // While request 3 remains pending, attempt IP-B -> must receive 503
+    await expect(service.login(ipB, 'pass', now)).rejects.toSatisfy((err: any) => {
+      return err.statusCode === 503 && err.code === 'LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED';
+    });
+
+    // Complete request 3 as SUCCESS -> clears failed-attempt record
+    d3.resolve(true);
+    const res3 = await p3;
+    expect(res3.token).toBeDefined();
+
+    expect(service.getInFlightReservationCount(ipA)).toBe(0);
+    expect(service.getPendingReservationCount()).toBe(0);
+    expect(service.getTotalTrackedCount()).toBe(0);
+  });
+
+  it('Test 3: existing failed identity with concurrent requests maintains capacity and ref counts', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    const d1 = createDeferred<boolean>();
+    const d2a = createDeferred<boolean>();
+    const d2b = createDeferred<boolean>();
+    const deferreds = [d1, d2a, d2b];
+    let callIdx = 0;
+
+    const controlledVerifier = async (_pw: string, _hash: string): Promise<boolean> => {
+      const idx = callIdx++;
+      return deferreds[idx].promise;
+    };
+
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 1,
+      passwordVerifier: controlledVerifier
+    });
+    const ipA = '192.168.1.52';
+    const now = Date.now();
+
+    // First: create an existing failed-attempt record for IP-A
+    const pInit = service.login(ipA, 'bad-initial', now);
+    await new Promise((r) => setImmediate(r));
+    d1.resolve(false);
+    await expect(pInit).rejects.toThrow('Invalid operator credentials.');
+    expect(service.getTrackedIpCount()).toBe(1);
+    expect(service.getInFlightReservationCount(ipA)).toBe(0);
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // Now start 2 concurrent requests from IP-A
+    const pA = service.login(ipA, 'concurrent-1', now);
+    const pB = service.login(ipA, 'concurrent-2', now);
+
+    await new Promise((r) => setImmediate(r));
+    // Verify each request obtained an in-flight reference
+    expect(service.getInFlightReservationCount(ipA)).toBe(2);
+    // Distinct identity count remains 1 (union cardinality)
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // Complete request A as failure -> increments count from 1 to 2
+    d2a.resolve(false);
+    await expect(pA).rejects.toThrow('Invalid operator credentials.');
+    expect(service.getInFlightReservationCount(ipA)).toBe(1);
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // Complete request B as success -> resets failed attempts
+    d2b.resolve(true);
+    const resB = await pB;
+    expect(resB.token).toBeDefined();
+
+    // After success, failed attempt is cleared and in-flight count is 0
+    expect(service.getTrackedIpCount()).toBe(0);
+    expect(service.getInFlightReservationCount(ipA)).toBe(0);
+    expect(service.getTotalTrackedCount()).toBe(0);
+  });
+
+  it('Test 4: distinct IP capacity invariant holds during mixed outcomes across multiple IPs', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    const d1 = createDeferred<boolean>();
+    const d2 = createDeferred<boolean>();
+    const d3 = createDeferred<boolean>();
+
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 2,
+      passwordVerifier: async (pw: string) => {
+        if (pw === 'ip1') return d1.promise;
+        if (pw === 'ip2') return d2.promise;
+        if (pw === 'ip3') return d3.promise;
+        return false;
+      }
+    });
+    const now = Date.now();
+
+    // Launch IP1 and IP2
+    const p1 = service.login('10.0.0.1', 'ip1', now);
+    const p2 = service.login('10.0.0.2', 'ip2', now);
+
+    await new Promise((r) => setImmediate(r));
+    // At capacity (2)
+    expect(service.getTotalTrackedCount()).toBe(2);
+
+    // IP3 and IP4 attempt login concurrently: must be rejected with 503
+    await expect(service.login('10.0.0.3', 'pass', now)).rejects.toSatisfy((e: any) => e.statusCode === 503);
+    await expect(service.login('10.0.0.4', 'pass', now)).rejects.toSatisfy((e: any) => e.statusCode === 503);
+    expect(service.getTotalTrackedCount()).toBe(2);
+
+    // IP1 fails
+    d1.resolve(false);
+    await expect(p1).rejects.toThrow();
+    // Invariant: totalTrackedCount <= 2
+    expect(service.getTotalTrackedCount()).toBe(2);
+
+    // IP2 succeeds
+    d2.resolve(true);
+    await p2;
+    // IP2 success clears its entry; IP1 failed attempt remains: totalTrackedCount is now 1
+    expect(service.getTotalTrackedCount()).toBe(1);
+
+    // Slot freed! IP3 can now be admitted
+    const p3 = service.login('10.0.0.3', 'ip3', now);
+    await new Promise((r) => setImmediate(r));
+    expect(service.getTotalTrackedCount()).toBe(2);
+    // Complete p3 as failure
+    d3.resolve(false);
+    await expect(p3).rejects.toThrow();
+  });
+
+  it('Test 5: reference-count correctness decreases by exactly one per completed request', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    const d = [createDeferred<boolean>(), createDeferred<boolean>(), createDeferred<boolean>(), createDeferred<boolean>()];
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 5,
+      passwordVerifier: async (pw: string) => {
+        const idx = parseInt(pw.replace('req-', ''), 10);
+        return d[idx].promise;
+      }
+    });
+    const ip = '172.16.0.10';
+    const now = Date.now();
+
+    const p = [
+      service.login(ip, 'req-0', now),
+      service.login(ip, 'req-1', now),
+      service.login(ip, 'req-2', now),
+      service.login(ip, 'req-3', now)
+    ];
+
+    await new Promise((r) => setImmediate(r));
+    expect(service.getInFlightReservationCount(ip)).toBe(4);
+    expect(service.getPendingReservationCount()).toBe(1);
+
+    // Finish 1st
+    d[0].resolve(true);
+    await p[0];
+    expect(service.getInFlightReservationCount(ip)).toBe(3);
+    expect(service.getPendingReservationCount()).toBe(1);
+
+    // Finish 2nd
+    d[1].resolve(false);
+    await expect(p[1]).rejects.toThrow();
+    expect(service.getInFlightReservationCount(ip)).toBe(2);
+    expect(service.getPendingReservationCount()).toBe(1);
+
+    // Finish 3rd
+    d[2].resolve(true);
+    await p[2];
+    expect(service.getInFlightReservationCount(ip)).toBe(1);
+    expect(service.getPendingReservationCount()).toBe(1);
+
+    // Finish 4th
+    d[3].resolve(false);
+    await expect(p[3]).rejects.toThrow();
+    expect(service.getInFlightReservationCount(ip)).toBe(0);
+    expect(service.getPendingReservationCount()).toBe(0);
+  });
+
+  it('Test 6: exception cleanup ensures each throwing request releases its reservation without leaks', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    const d = [createDeferred<boolean>(), createDeferred<boolean>(), createDeferred<boolean>()];
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 5,
+      passwordVerifier: async (pw: string) => {
+        const idx = parseInt(pw.replace('err-', ''), 10);
+        await d[idx].promise;
+        throw new Error(`Verifier crash ${idx}`);
+      }
+    });
+    const ip = '172.16.0.20';
+    const now = Date.now();
+
+    const p = [
+      service.login(ip, 'err-0', now),
+      service.login(ip, 'err-1', now),
+      service.login(ip, 'err-2', now)
+    ];
+
+    await new Promise((r) => setImmediate(r));
+    expect(service.getInFlightReservationCount(ip)).toBe(3);
+
+    // Throw on 1st
+    d[0].resolve(true);
+    await expect(p[0]).rejects.toThrow('Verifier crash 0');
+    expect(service.getInFlightReservationCount(ip)).toBe(2);
+
+    // Throw on 2nd
+    d[1].resolve(true);
+    await expect(p[1]).rejects.toThrow('Verifier crash 1');
+    expect(service.getInFlightReservationCount(ip)).toBe(1);
+
+    // Throw on 3rd
+    d[2].resolve(true);
+    await expect(p[2]).rejects.toThrow('Verifier crash 2');
+    expect(service.getInFlightReservationCount(ip)).toBe(0);
+    expect(service.getPendingReservationCount()).toBe(0);
+    expect(service.getTotalTrackedCount()).toBe(0);
+  });
+});

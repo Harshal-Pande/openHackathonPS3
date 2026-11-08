@@ -604,3 +604,43 @@ An independent security review of the MOD-02.2 Gitingest snapshot identified tha
 - **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
 - **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports.
+
+---
+
+## Phase 14.4 — Module 2.4: Same-IP Mixed-Outcome Reservation Safety (MOD-02.4 / DEF-22C)
+**Date:** 2026-11-08
+**Scope:** Per-request in-flight reservation lifecycle ownership, distinct-identity union cardinality capacity accounting, and mixed-outcome reservation isolation (DEF-22C).
+
+### 1. Summary of Changes
+An independent security review of the MOD-02.3 implementation identified a subtle race condition in same-IP reservation lifecycle accounting under mixed success/failure outcomes:
+
+1. **DEF-22C: Shared In-Flight Reservation Removal Under Mixed Outcomes:**
+   - Problem: In MOD-02.3, `recordFailure()` executed `this.pendingReservations.delete(cleanIp)`, deleting the entire shared reservation map entry upon the first failed request even if multiple concurrent requests from the same IP were still in flight. Furthermore, a concurrent successful login executed `this.failedAttempts.delete(cleanIp)`. As a result, active in-flight requests from the same IP were completely omitted from capacity accounting, allowing new IPs to claim capacity slots and exceed `maxTrackedIps`.
+   - Correction: Implemented rigorous per-request reservation lifecycle accounting in `OperatorAuthService` (`src/server/auth/operatorAuth.ts`):
+     - Every admitted request acquires exactly one reservation reference in `pendingReservations` via `acquireReservation()`.
+     - `recordFailure()` updates `failedAttempts` without touching `pendingReservations`.
+     - Successful authentication clears `failedAttempts` without modifying `pendingReservations`.
+     - Each request unconditionally releases its own reservation reference via `releaseReservation()` in a `try ... finally` block.
+     - `releaseReservation()` decrements the reference count if > 1, and removes the map entry only when the count reaches 1.
+
+2. **Union-Cardinality Distinct Identity Capacity Tracking:**
+   - Updated `getTotalTrackedCount()` to compute the exact cardinality of `union(failedAttempts.keys, pendingReservations.keys)`:
+     `failedAttempts.size + count(pendingReservations keys not present in failedAttempts)`.
+   - Prevents double-counting an IP present in both maps while strictly guaranteeing that an identity remains capacity-accounted as long as it has either a recorded failure or at least one in-flight request.
+   - Enforces the hard invariant `distinctTrackedIdentityCount <= maxTrackedIps` across all intermediate states.
+
+3. **Deterministic Concurrency Test Suite (DEF-22C):**
+   - Added 6 deterministic tests in `tests/operatorAuth.test.ts` (suite expanded to 40 tests, workspace total: 195 tests):
+     - Test 1: Failure followed by success while another request remains in flight preserves reservation and rejects new IPs with HTTP 503.
+     - Test 2: Success followed by failure while another request remains in flight preserves reservation and rejects new IPs with HTTP 503.
+     - Test 3: Existing failed identity with concurrent requests maintains distinct capacity and ref counts.
+     - Test 4: Multi-IP distinct capacity invariant holds across mixed outcomes (`distinctTrackedIdentityCount <= maxTrackedIps`).
+     - Test 5: Reference-count correctness decrements by exactly one per completed request.
+     - Test 6: Exception cleanup ensures each throwing request releases its reservation without leaks.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **18/18 test files, 195/195 tests passing** in 5.21s (100% green; 40/40 tests in `operatorAuth.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports.

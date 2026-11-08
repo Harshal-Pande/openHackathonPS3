@@ -1,7 +1,7 @@
 # RevertLens — Automated Test & Verification Results
 
-**Date/time:** 2026-11-08 14:35:00 UTC
-**Phase:** Module 2.3: Concurrent Login Rate-Limiter Hardening (MOD-02.3 / DEF-22)
+**Date/time:** 2026-11-08 15:15:00 UTC
+**Phase:** Module 2.4: Same-IP Mixed-Outcome Reservation Safety (MOD-02.4 / DEF-22C)
 **Node:** v22.13.0  
 **npm:** 10.9.2  
 **Target Network:** Celo Mainnet (`eip155:42220`)  
@@ -13,7 +13,7 @@
 | Command | Exit Code | Result | Key Output & Notes |
 |:---|:---:|:---:|:---|
 | `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
-| `npm test` | **0** | **`PASS`** | **18 test files passed, 189/189 tests passed** (100% green). |
+| `npm test` | **0** | **`PASS`** | **18 test files passed, 195/195 tests passed** (100% green). |
 | `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430 kB), `vendor-icons` (14.8 kB), `index` (178 kB). **0 warnings**. |
 | `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **28/28 test scenarios passed** across 20 unique Fastify endpoints (including explicit DEF-14 session secret rejection). |
 | `node scripts/verify_live_investigation.mjs` | **0** | **`PASS`** | **14/14 live checks passed** against Celo Mainnet OP Geth node. 5 SHA-256 evidence items verified across OS-isolated child process. |
@@ -21,11 +21,11 @@
 
 ---
 
-## 2. Test Breakdown by File (18 Suites, 189 Tests)
+## 2. Test Breakdown by File (18 Suites, 195 Tests)
 
 | # | Test File | Test Count | Classification | Result |
 |:---:|:---|:---:|:---|:---:|
-| 1 | `tests/operatorAuth.test.ts` | **34** | `LOCAL_INTEGRATION` | **PASS** |
+| 1 | `tests/operatorAuth.test.ts` | **40** | `LOCAL_INTEGRATION` | **PASS** |
 | 2 | `tests/rateLimiter.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
 | 3 | `tests/config.test.ts` | **22** | `LOCAL` | **PASS** |
 | 4 | `tests/databaseReliability.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
@@ -43,7 +43,7 @@
 | 16 | `tests/buySecurity.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
 | 17 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
 | 18 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
-| **Total** | **18 Test Suites** | **189 Tests** | **100% Automated** | **189 PASS** |
+| **Total** | **18 Test Suites** | **195 Tests** | **100% Automated** | **195 PASS** |
 
 ---
 

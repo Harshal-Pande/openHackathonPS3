@@ -67,7 +67,7 @@ export class OperatorAuthService {
    * On success, generates an HMAC-signed session token using SESSION_SECRET.
    * Enforces brute-force rate limiting per client IP (max 5 failed attempts per 15 min).
    * Enforces atomic failed-attempt tracking under concurrency (DEF-22B).
-   * Enforces hard fail-closed capacity on failedAttempts tracker under concurrency (DEF-20 & DEF-22A).
+   * Enforces hard fail-closed capacity on failedAttempts tracker under concurrency (DEF-20, DEF-22A & DEF-22C).
    * Enforces hard session capacity without evicting active sessions (DEF-19).
    */
   public async login(
@@ -101,8 +101,9 @@ export class OperatorAuthService {
       );
     }
 
-    // Atomically reserve capacity before starting asynchronous verification (DEF-22A)
-    const hasReservation = this.acquireReservation(cleanIp, now);
+    // Atomically acquire one in-flight reservation reference for this request (DEF-22A & DEF-22C)
+    // Runs synchronously before async scrypt; throws 503 if distinct identity capacity is exhausted
+    this.acquireReservation(cleanIp, now);
 
     try {
       // Verify password strictly against OPERATOR_PASSWORD_HASH
@@ -113,12 +114,13 @@ export class OperatorAuthService {
       );
 
       if (!isPasswordValid) {
-        // Atomically record failure and transition capacity reservation (DEF-22A & DEF-22B)
+        // Atomically record failure; leaves pendingReservations untouched (DEF-22B & DEF-22C)
         this.recordFailure(cleanIp, now);
         throw new OperatorAuthError('Invalid operator credentials.', 401, 'UNAUTHORIZED');
       }
 
       // Reset failed attempt counter on authenticated success
+      // Does not delete or alter other in-flight reservation references for this IP (DEF-22C)
       this.failedAttempts.delete(cleanIp);
 
       // Prune expired sessions if at capacity before rejecting or creating (DEF-19)
@@ -156,9 +158,8 @@ export class OperatorAuthService {
       this.validSessions.set(sessionId, session);
       return { token, session };
     } finally {
-      if (hasReservation) {
-        this.releaseReservation(cleanIp);
-      }
+      // Every admitted request releases exactly its own in-flight reservation reference (DEF-22C)
+      this.releaseReservation(cleanIp);
     }
   }
 
@@ -267,34 +268,54 @@ export class OperatorAuthService {
     return this.pendingReservations.size;
   }
 
+  /**
+   * Returns the count of distinct identities currently tracked in either
+   * failedAttempts or pendingReservations (cardinality of the union) without double-counting.
+   */
   public getTotalTrackedCount(): number {
-    return this.failedAttempts.size + this.pendingReservations.size;
+    let count = this.failedAttempts.size;
+    for (const ip of this.pendingReservations.keys()) {
+      if (!this.failedAttempts.has(ip)) {
+        count++;
+      }
+    }
+    return count;
   }
 
   /**
-   * Atomically checks capacity and reserves a slot for an untracked IP during asynchronous verification.
-   * Returns true if a reservation was acquired; false if the IP already occupies a slot in failedAttempts.
-   * Throws HTTP 503 LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED if capacity is exhausted.
+   * Returns the total in-flight reservation reference count (for cleanIp, or across all IPs).
    */
-  private acquireReservation(cleanIp: string, now: number): boolean {
-    // If cleanIp already has an active entry in failedAttempts, its capacity slot is already accounted for
-    if (this.failedAttempts.has(cleanIp)) {
-      return false;
+  public getInFlightReservationCount(cleanIp?: string): number {
+    if (cleanIp) {
+      return this.pendingReservations.get(cleanIp) ?? 0;
+    }
+    let total = 0;
+    for (const count of this.pendingReservations.values()) {
+      total += count;
+    }
+    return total;
+  }
+
+  /**
+   * Atomically checks distinct-identity capacity and acquires one in-flight reservation reference.
+   * If the identity is already tracked in failedAttempts or pendingReservations, increments its ref count.
+   * If it is a new identity, verifies that distinct tracked identities (union cardinality) do not exceed maxTrackedIps.
+   * Throws HTTP 503 LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED if capacity is exhausted. (DEF-22A & DEF-22C)
+   */
+  private acquireReservation(cleanIp: string, now: number): void {
+    // If cleanIp already exists in either tracking map, it is already counted in distinct capacity
+    if (this.failedAttempts.has(cleanIp) || this.pendingReservations.has(cleanIp)) {
+      const current = this.pendingReservations.get(cleanIp) ?? 0;
+      this.pendingReservations.set(cleanIp, current + 1);
+      return;
     }
 
-    // If cleanIp already has an in-flight reservation, share the slot via ref count
-    const existingRefCount = this.pendingReservations.get(cleanIp);
-    if (existingRefCount !== undefined) {
-      this.pendingReservations.set(cleanIp, existingRefCount + 1);
-      return true;
-    }
-
-    // Completely new identity: check if capacity is available
-    if (this.failedAttempts.size + this.pendingReservations.size >= this.maxTrackedIps) {
+    // Completely new identity: check if distinct tracked capacity is available
+    if (this.getTotalTrackedCount() >= this.maxTrackedIps) {
       this.pruneExpiredFailedAttempts(now);
     }
 
-    if (this.failedAttempts.size + this.pendingReservations.size >= this.maxTrackedIps) {
+    if (this.getTotalTrackedCount() >= this.maxTrackedIps) {
       throw new OperatorAuthError(
         'Login service temporarily unavailable due to rate limiter capacity. Please try again later.',
         503,
@@ -303,11 +324,12 @@ export class OperatorAuthService {
     }
 
     this.pendingReservations.set(cleanIp, 1);
-    return true;
   }
 
   /**
-   * Releases an in-flight capacity reservation for an untracked IP.
+   * Releases exactly one in-flight reservation reference for cleanIp.
+   * If multiple concurrent requests are in flight for this IP, decrements the reference count.
+   * If this was the last in-flight request, deletes the IP from pendingReservations. (DEF-22C)
    */
   private releaseReservation(cleanIp: string): void {
     const current = this.pendingReservations.get(cleanIp);
@@ -320,8 +342,9 @@ export class OperatorAuthService {
   }
 
   /**
-   * Atomically records a failed attempt and synchronously transfers capacity accounting
-   * from pendingReservations to failedAttempts, guaranteeing total tracked entries never double counts.
+   * Atomically records a failed attempt in failedAttempts.
+   * Does NOT touch pendingReservations; the calling request's reservation reference
+   * is released strictly in its own finally block. (DEF-22B & DEF-22C)
    */
   private recordFailure(cleanIp: string, now: number): void {
     const freshRateInfo = this.failedAttempts.get(cleanIp);
@@ -329,9 +352,6 @@ export class OperatorAuthService {
     if (freshRateInfo && now - freshRateInfo.lastAttempt < this.attemptWindowMs) {
       newCount = freshRateInfo.count + 1;
     }
-
-    // Synchronously delete from pendingReservations as it is inserted into failedAttempts
-    this.pendingReservations.delete(cleanIp);
 
     this.failedAttempts.set(cleanIp, {
       count: newCount,
