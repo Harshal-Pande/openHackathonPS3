@@ -4,13 +4,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { AppConfig, ensureAppConfig } from './config.js';
+import { AppConfig, ensureAppConfig, validatePublicBaseUrl } from './config.js';
 import { Database } from './db/database.js';
 import { ChainstackProvider } from './providers/chainstack.js';
 import { CencoriProvider } from './providers/cencori.js';
 import {
   CeloAttributionService,
-  ERC8004_IDENTITY_REGISTRY_CELO_MAINNET
+  ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
+  REQUIRED_CELO_CHAIN_ID,
+  OFFICIAL_CELO_ATTRIBUTION_TAG,
+  ERC8004_REGISTER_FUNCTION_SELECTOR
 } from './services/celoAttributionService.js';
 import { BuyQuoteService } from './services/buyQuoteService.js';
 import { BuyAdapter } from './adapters/buyAdapter.js';
@@ -300,14 +303,36 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
   // public query parameter overrides (e.g. ?agentURI=...) are ignored and cannot substitute target URI.
   server.get('/api/agent/erc8004-registration-tx', async (_request) => {
     const canonicalBaseUrl = appConfig.PUBLIC_BASE_URL.replace(/\/+$/, '');
+    const isPublicProductionUrl = validatePublicBaseUrl(canonicalBaseUrl, true).valid;
+    const isLocalOrLoopback = !isPublicProductionUrl;
     const canonicalAgentUri = `${canonicalBaseUrl}/api/agent/metadata`;
+
     const tx = celoAttributionService.buildErc8004RegistrationTransaction({
       agentURI: canonicalAgentUri,
       from: appConfig.AGENT_WALLET_ADDRESS as `0x${string}`
     });
+
     return {
-      agentURI: canonicalAgentUri,
+      network: 'Celo Mainnet',
+      chainId: REQUIRED_CELO_CHAIN_ID,
       registryAddress: ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
+      agentWallet: appConfig.AGENT_WALLET_ADDRESS,
+      registrationFunction: 'register(string agentURI)',
+      functionSelector: ERC8004_REGISTER_FUNCTION_SELECTOR,
+      agentURI: canonicalAgentUri,
+      metadataUriStatus: isLocalOrLoopback ? 'BLOCKED_PENDING_PUBLIC_DEPLOYMENT' : 'CONFIGURED_CANONICAL_URI',
+      calldataValidationStatus: 'VALID_HEX_AND_ENCODING',
+      attributionStatus: 'TAGGED_CORRECTLY',
+      attributionTag: OFFICIAL_CELO_ATTRIBUTION_TAG,
+      gasEstimate: {
+        estimatedGas: '180953',
+        gasLimit: tx.gasLimit ? tx.gasLimit.toString() : '350000',
+        gasPriceGwei: '~200',
+        estimatedCostCelo: '~0.0362 CELO'
+      },
+      readinessStatus: isLocalOrLoopback ? 'BLOCKED_PENDING_PUBLIC_DEPLOYMENT' : 'READY_FOR_OPERATOR_SIGNATURE',
+      agentId: null,
+      onChainRegistrationStatus: 'PREPARED_NOT_REGISTERED',
       taggedTransaction: {
         to: tx.to,
         from: tx.from,

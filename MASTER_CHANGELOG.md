@@ -1108,3 +1108,66 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
 - **On-Chain Verification Status:** `PENDING_LIVE_PROOF` (no on-chain transaction has been broadcast yet; deferred to Module 5 registration following Module 6 deployment).
+
+
+---
+
+## Phase 24 — Module 5A: ERC-8004 Registration Preparation, Implementation Audit & Readiness (MOD-05A)
+**Date:** 2026-11-08<br/>
+**Baseline Commit:** `aa7ad7e6d0f1e2c2e40e5fd69657e359bbb6eb97`<br/>
+**Scope:** Complete ERC-8004 contract audit, proxy verification, strict metadata validation, safe preview endpoint, and post-mint receipt verification engine for Celo Mainnet (`eip155:42220`).
+
+### 1. Summary of Changes
+1. **Live On-Chain Contract & Proxy Audit (`LIVE_MAINNET`):**
+   - Verified that canonical registry `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` on Celo Mainnet is an ERC-1967 proxy resolving to implementation `0x7274e874ca62410a93bd8bf61c69d8045e399c02`.
+   - Queried and verified ERC-721 view methods on-chain: `name()` returns `"AgentIdentity"`, `symbol()` returns `"AGENT"`.
+   - Verified canonical function selector for `register(string agentURI)` is strictly `0xf2c298be`.
+   - Identified event topics: `Registered(uint256,string,address)` (`0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a`) and standard ERC-721 `Transfer(address,address,uint256)` (`0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef`).
+
+2. **Strict ERC-8004 Metadata Schema & Generation (`AGY-05-02`):**
+   - Implemented Zod schema `erc8004AgentMetadataSchema` with `.strict()` mode in `src/server/services/celoAttributionService.ts`. Rejects any extra, unapproved, or fabricated properties (such as fabricated `agentId` or `txHash`).
+   - Validated base URL protocols (`http:` and `https:`) in `generateErc8004Metadata()`, guaranteeing safe URI synthesis.
+   - Added `validateErc8004Metadata()` helper and static method on `CeloAttributionService`.
+
+3. **Safe Registration Preview Endpoint (`AGY-05-03`):**
+   - Updated `GET /api/agent/erc8004-registration-tx` in `src/server/app.ts` to output comprehensive preview data:
+     - `network: 'Celo Mainnet'`
+     - `chainId: 42220`
+     - `registryAddress: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'`
+     - `agentWallet: '0x3e1bef07824cd0E076F4907641F0A0EF27898e52'`
+     - `registrationFunction: 'register(string agentURI)'`
+     - `functionSelector: '0xf2c298be'`
+     - `agentURI: canonicalAgentUri`
+     - `metadataUriStatus`: `BLOCKED_PENDING_PUBLIC_DEPLOYMENT` on localhost / loopback; `CONFIGURED_CANONICAL_URI` on public HTTPS URLs.
+     - `readinessStatus`: `BLOCKED_PENDING_PUBLIC_DEPLOYMENT` on localhost / loopback; `READY_FOR_OPERATOR_SIGNATURE` on public HTTPS URLs.
+     - `calldataValidationStatus: 'VALID_HEX_AND_ENCODING'`
+     - `attributionStatus: 'TAGGED_CORRECTLY'`
+     - `attributionTag: 'celo_235f6ef56f5b'`
+     - `gasEstimate`: estimatedGas 180,953, gasLimit 350,000, ~0.0362 CELO.
+     - `agentId: null`
+     - `onChainRegistrationStatus: 'PREPARED_NOT_REGISTERED'`
+     - `taggedTransaction`: full pre-computed transaction payload for backward compatibility.
+
+4. **Forensic Post-Mint Receipt Verification Engine (`AGY-05-04`):**
+   - Implemented `verifyErc8004RegistrationReceipt()` in `src/server/services/celoAttributionService.ts`.
+   - Rigorously validates receipt status: fails with `REVERTED` if status is 0; fails with `INVALID_RECEIPT` if status is not success.
+   - If transaction details provided: verifies `to` matches canonical registry, `from` matches official agent wallet, selector matches `0xf2c298be`, and calldata contains verified attribution tag.
+   - Decodes `Registered` and `Transfer` logs from the registry contract. Verifies `from == 0x0` for minting and verifies token owner matches expected agent wallet.
+   - Rejects missing events (`NO_REGISTRATION_EVENT`) and ambiguous conflicting agent IDs (`AMBIGUOUS_EVENTS`).
+   - Extracts and returns `agentId`, `agentIdBigInt`, `owner`, and `agentURI`.
+
+5. **Automated Test Suite & Governance Runbook:**
+   - Authored `tests/erc8004Registration.test.ts` with 24 comprehensive unit and integration tests covering schema validation, calldata encoding, endpoint readiness states, and receipt verification paths.
+   - Overhauled `ERC8004_REGISTRATION_PREPARATION.md` covering all 18 checklist items from Section 6.
+   - Updated `ANTIGRAVITY_TASK_REGISTER.md` adding tasks `AGY-05-01` through `AGY-05-04`.
+   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence `MOD-04 ACCEPTED → MOD-05A PREPARATION → MOD-06 DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION`.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **22/22 test files, 498/498 tests passing** in ~11.5s (100% green; +24 new tests in `tests/erc8004Registration.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
+- **Preparation Lifecycle State:** `MOD-05A PREPARATION COMPLETE — PENDING INDEPENDENT REVIEW`.

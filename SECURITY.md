@@ -320,3 +320,26 @@ Engineered to resolve DEF-42 and DEF-43:
 - **Strict Calldata Input & Whitespace Rejection (DEF-59):**
   - Eliminated `.trim()` sanitization in `appendAttribution()`.
   - Enforced strict regex validation (`/\s/.test(calldata)`); rejects leading, trailing, and embedded whitespace (spaces, tabs, newlines) with typed `AttributionError('INVALID_CALLDATA')` without mutating inputs.
+
+
+---
+
+## 16. ERC-8004 Identity Registration Preparation & Receipt Integrity (MOD-05A)
+
+- **Strict EIP-8004 Registration Metadata Schema:**
+  - Implemented Zod schema with `.strict()` mode (`erc8004AgentMetadataSchema`).
+  - Rejects unrecognized or fabricated properties (such as premature `agentId` or unverified `txHash`).
+  - Validates `baseUrl` protocol (`http:` or `https:`) preventing malformed or dangerous protocol schemes (`ftp:`, `javascript:`, `data:`).
+- **Environment-Aware Safe Preview Endpoint Guard:**
+  - Endpoint `GET /api/agent/erc8004-registration-tx` evaluates canonical base URL against production socket IP validator.
+  - When hosted on `localhost`, `127.0.0.1`, or private IP ranges, the endpoint explicitly flags `metadataUriStatus: 'BLOCKED_PENDING_PUBLIC_DEPLOYMENT'` and `readinessStatus: 'BLOCKED_PENDING_PUBLIC_DEPLOYMENT'`.
+  - Prohibits premature registration with non-public metadata endpoints that would cause un-resolvable on-chain metadata.
+  - Transitions to `READY_FOR_OPERATOR_SIGNATURE` only when configured with a public, validated HTTPS domain.
+- **Forensic Post-Mint Receipt Verification Engine:**
+  - Implemented `verifyErc8004RegistrationReceipt()` to parse on-chain receipts upon operator broadcast in MOD-05B.
+  - Enforces receipt status `1` (`SUCCESS`), immediately failing with `REVERTED` if status is `0`.
+  - Asserts target contract strictly matches canonical registry `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`.
+  - Asserts sender wallet strictly matches official agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`.
+  - Decodes `Registered` and ERC-721 `Transfer` events, asserting `from == 0x0` for minting and verifying token owner consensus.
+  - Rejects ambiguous receipts with conflicting multiple agent IDs (`AMBIGUOUS_EVENTS`).
+  - Zero private keys or signing capabilities are held in server memory; broadcast requires external operator approval.

@@ -264,7 +264,7 @@ Antigravity re-executed all verification commands in the workspace:
    - Result: **0 errors** across server and client codebases.
 2. **Vitest Automated Suites (`npm test`):**
    - Command: `vitest run`
-   - Result: **21 test files passed, 474/474 tests passed** (100% green; including 104 in `erc8021.test.ts`, 11 in `chainstackProvider.test.ts`, 30 in `config.test.ts`, 11 in `attribution.test.ts`, and 147 in `buySecurity.test.ts`).
+   - Result: **22 test files passed, 498/498 tests passed** (100% green; including 24 in `erc8004Registration.test.ts`, 104 in `erc8021.test.ts`, 11 in `chainstackProvider.test.ts`, 30 in `config.test.ts`, 11 in `attribution.test.ts`, and 147 in `buySecurity.test.ts`).
 3. **Production Build (`npm run build`):**
    - Command: `npm run build:server && npm run build:client`
    - Result: **Clean build**. Compiled server to `dist/server/`, client to `dist/client/`. 0 warnings.
@@ -285,4 +285,5 @@ Antigravity re-executed all verification commands in the workspace:
 - **Hosting Compatibility:** Compatible with Render, Railway, or Fly.io Docker web services with persistent disk attachment.
 - **Production Start Command:** `CMD ["node", "dist/server/index.js"]`.
 - **Health Check Endpoint:** `GET /api/health` returns `200 OK`.
-- **Submission Blockers Remaining:** Cloud deployment, wallet gas funding (~0.05 CELO), on-chain ERC-8004 broadcast, live Buy settlement, 3-minute video recording.
+- **ERC-8004 Registration Status:** MOD-05A Preparation & Audit complete (contract verified, proxy verified, metadata schema strictly validated, preview endpoint and receipt verifier implemented). On-chain mint scheduled for Module 5B post-MOD-06 deployment.
+- **Submission Blockers Remaining:** Cloud deployment (MOD-06), wallet gas funding (~0.1 CELO), on-chain ERC-8004 broadcast (MOD-05B), live Buy settlement, 3-minute video recording.

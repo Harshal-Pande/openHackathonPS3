@@ -37,14 +37,18 @@ This register contains all technical and operational tasks owned and executed di
 | **AGY-07.1** | Mod 3.2 | **P0** | `COMPLETED` | Critical Payment Path Security Remediation (DEF-23 to DEF-30) | `src/server/adapters/buyAdapter.ts`, `src/server/services/buyQuoteService.ts`, `src/server/services/capabilityRegistry.ts`, `src/server/db/database.ts` | AGY-07 |
 | **AGY-07.2** | Mod 3.3 | **P0** | `COMPLETED` | Settlement Integrity & Ambiguous Payment Failure Hardening (DEF-31 to DEF-36) | `src/server/adapters/buyAdapter.ts`, `src/server/db/database.ts`, `tests/buySecurity.test.ts` | AGY-07.1 |
 | **AGY-08** | Mod 3 | **P1** | `BLOCKED_PENDING_OPERATOR_APPROVAL` | Settle Live Cencori AI Quote via Buy CLI & Verify Receipt | `PROOF.md`, `GATE0_RESULTS.md` | AGY-07, USR-08 (Wallet Funding) |
-| **AGY-09** | Mod 4 | **P1** | `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE` | Official ERC-8021 Attribution Engine & Celo SDK Integration | `src/server/services/celoAttributionService.ts`, `src/server/config/attribution.ts` | None |
-| **AGY-04-01** | Mod 4.1 | **P1** | `COMPLETED_PENDING_REVIEW` | Registration URI Substitution Prevention & Base URL Validation (DEF-49) | `src/server/app.ts`, `src/server/config.ts` | AGY-09 |
-| **AGY-04-02** | Mod 4.1 | **P1** | `COMPLETED_PENDING_REVIEW` | RPC Method Allowlist Classification & State-Changing Isolation (DEF-50) | `src/server/services/celoAttributionService.ts` | AGY-09 |
-| **AGY-04-03** | Mod 4.1 | **P1** | `COMPLETED_PENDING_REVIEW` | Calldata Validation Fail-Closed & Attribution Merge Safety (DEF-51, DEF-54) | `src/server/services/celoAttributionService.ts` | AGY-09 |
-| **AGY-04-04** | Mod 4.1 | **P2** | `COMPLETED_PENDING_REVIEW` | Official Agent Wallet Invariant & Structured Read-Only RPC Guard (DEF-52, DEF-53) | `src/server/config/attribution.ts`, `src/server/providers/chainstack.ts` | AGY-09 |
-| **AGY-04-05** | Mod 4.1 | **P2** | `COMPLETED_PENDING_REVIEW` | Comprehensive Regression Verification & Release Evidence (DEF-55) | Governance docs, `tests/erc8021.test.ts` | AGY-04-01..04 |
-| **AGY-10** | Mod 5 | **P1** | `USER_INPUT_REQUIRED` | Update Public Base URL in ERC-8004 Metadata Generation | `src/server/config.ts`, `src/server/services/celoAttributionService.ts` | USR-05 |
-| **AGY-11** | Mod 5 | **P1** | `USER_INPUT_REQUIRED` | Verify Broadcasted ERC-8004 Registration Receipt & Token ID | `PROOF.md`, `GATE0_RESULTS.md` | USR-07 |
+| **AGY-09** | Mod 4 | **P1** | `COMPLETED` | Official ERC-8021 Attribution Engine & Celo SDK Integration | `src/server/services/celoAttributionService.ts`, `src/server/config/attribution.ts` | None |
+| **AGY-04-01** | Mod 4.1 | **P1** | `COMPLETED` | Registration URI Substitution Prevention & Base URL Validation (DEF-49) | `src/server/app.ts`, `src/server/config.ts` | AGY-09 |
+| **AGY-04-02** | Mod 4.1 | **P1** | `COMPLETED` | RPC Method Allowlist Classification & State-Changing Isolation (DEF-50) | `src/server/services/celoAttributionService.ts` | AGY-09 |
+| **AGY-04-03** | Mod 4.1 | **P1** | `COMPLETED` | Calldata Validation Fail-Closed & Attribution Merge Safety (DEF-51, DEF-54) | `src/server/services/celoAttributionService.ts` | AGY-09 |
+| **AGY-04-04** | Mod 4.1 | **P2** | `COMPLETED` | Official Agent Wallet Invariant & Structured Read-Only RPC Guard (DEF-52, DEF-53) | `src/server/config/attribution.ts`, `src/server/providers/chainstack.ts` | AGY-09 |
+| **AGY-04-05** | Mod 4.1 | **P2** | `COMPLETED` | Comprehensive Regression Verification & Release Evidence (DEF-55) | Governance docs, `tests/erc8021.test.ts` | AGY-04-01..04 |
+| **AGY-05-01** | Mod 5A | **P1** | `COMPLETED` | ERC-8004 Contract ABI & Proxy Verification (`0x8004A169...`, `0x7274e874...`) | `src/server/services/celoAttributionService.ts` | AGY-09 |
+| **AGY-05-02** | Mod 5A | **P1** | `COMPLETED` | ERC-8004 Strict Metadata Schema & Generation (`validateErc8004Metadata`) | `src/server/services/celoAttributionService.ts` | AGY-05-01 |
+| **AGY-05-03** | Mod 5A | **P1** | `COMPLETED` | Safe Preview Endpoint & Readiness State Logic (`GET /api/agent/erc8004-registration-tx`) | `src/server/app.ts` | AGY-05-02 |
+| **AGY-05-04** | Mod 5A | **P1** | `COMPLETED` | Post-Mint Receipt Verification Engine & Test Suite (`verifyErc8004RegistrationReceipt`) | `src/server/services/celoAttributionService.ts`, `tests/erc8004Registration.test.ts` | AGY-05-03 |
+| **AGY-10** | Mod 5B | **P1** | `BLOCKED_PENDING_MOD06` | Update Public Base URL in ERC-8004 Metadata Generation | `src/server/config.ts`, `src/server/services/celoAttributionService.ts` | USR-05, AGY-05-04 |
+| **AGY-11** | Mod 5B | **P1** | `BLOCKED_PENDING_MOD06` | Verify Broadcasted ERC-8004 Registration Receipt & Token ID | `PROOF.md`, `GATE0_RESULTS.md` | USR-07, AGY-10 |
 | **AGY-12** | Mod 6 | **P1** | `READY_FOR_IMPLEMENTATION` | Audit Multi-Stage Dockerfile & Container Readiness | `Dockerfile`, `.dockerignore` | AGY-01 to AGY-05 |
 | **AGY-13** | Mod 6 | **P1** | `USER_INPUT_REQUIRED` | Verify Live Public Deployment Endpoints (`/api/health`, `/api/agent/metadata`) | Public URL | USR-05 |
 | **AGY-14** | Mod 7 | **P2** | `USER_INPUT_REQUIRED` | Execute Independent User Testing Suite on Live Domain | `INDEPENDENT_USER_EVIDENCE.md` | AGY-13 |

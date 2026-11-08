@@ -14,22 +14,24 @@ This roadmap defines the sequential engineering modules required to advance Reve
 ```mermaid
 flowchart TD
     M1["Module 1: Core Reliability<br/>(WAL, SPA Routing, Bounds, Chunks)"] --> M2["Module 2: Security Hardening<br/>(Auth Separation & Invariant Audit)"]
-    M2 --> M4["Module 4: Attribution Engine<br/>(IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE)"]
-    M4 --> M4_1["Module 4.1: Attribution Security Remediation<br/>(IMPLEMENTED_PENDING_INDEPENDENT_REVIEW)"]
-    M4_1 --> M6["Module 6: Cloud Deployment<br/>(Render/Railway Docker + Storage)"]
-    M6 --> M5["Module 5: ERC-8004 Registration<br/>(Public Metadata URI + Mint Tx)"]
-    M6 --> M3["Module 3: Build with Buy Proof<br/>(Live Cencori Settle via buy CLI)"]
-    M5 --> M7["Module 7: Independent User Testing<br/>(Live Domain Walkthrough & Video)"]
-    M3 --> M7
+    M2 --> M3["Module 3: Build with Buy Integration<br/>(Hardened Settlement, Invariants & Zero-Spend)"]
+    M3 --> M4["Module 4: Attribution Engine & Hardening<br/>(ACCEPTED — MOD-04.1/4.2 Closed)"]
+    M4 --> M5A["Module 5A: ERC-8004 Identity Preparation<br/>(COMPLETED — Contract Audit, Metadata, Verifier)"]
+    M5A --> M6["Module 6: Cloud Deployment<br/>(Render/Railway Docker + Storage)"]
+    M6 --> M5B["Module 5B: Live ERC-8004 Registration<br/>(Public Canonical URI + Mint Tx)"]
+    M6 --> M3_LIVE["Module 3 Live: Buy Settlement Proof<br/>(Live Funded Cencori Settle via Buy CLI)"]
+    M5B --> M7["Module 7: Independent User Testing<br/>(Live Domain Walkthrough & Video)"]
+    M3_LIVE --> M7
     M7 --> M8["Module 8: Final Submission<br/>(GitHub Sync & DoraHacks Entry)"]
 
     style M1 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M2 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M3 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M4 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
-    style M4_1 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
-    style M5 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
+    style M5A fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M6 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
+    style M5B fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
+    style M3_LIVE fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M7 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M8 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
 ```
@@ -217,15 +219,36 @@ flowchart TD
 
 ---
 
-### MODULE 5 — ERC-8004 Agent Identity Registration
-- **Module ID:** `MOD-05`
+### MODULE 5A — ERC-8004 Agent Identity Registration Preparation & Audit
+- **Module ID:** `MOD-05A`
+- **Status:** `COMPLETED (MOD-05A PREPARATION COMPLETE — PENDING INDEPENDENT REVIEW)`
+- **Objective:** Audit on-chain ERC-8004 contract interface, implement strict metadata schema, expose canonical metadata and transaction-builder routes, and build automated receipt verification engine.
+- **Hackathon Relevance:** Ensures that once deployed to cloud in MOD-06, live registration in MOD-05B executes flawlessly with verified ABI, calldata, attribution suffix, and post-mint parsing.
+- **Exact Tasks:**
+  1. `AGY-05-01`: Verify canonical ERC-8004 Identity Registry proxy (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`) and implementation (`0x7274e874ca62410a93bd8bf61c69d8045e399c02`) on Celo Mainnet (`LIVE_MAINNET`). [COMPLETED]
+  2. `AGY-05-02`: Define strict EIP-8004 metadata schema (`erc8004AgentMetadataSchema`) rejecting fabricated keys or invalid URLs. [COMPLETED]
+  3. `AGY-05-03`: Implement safe registration preview endpoint `GET /api/agent/erc8004-registration-tx` returning `BLOCKED_PENDING_PUBLIC_DEPLOYMENT` on localhost and `READY_FOR_OPERATOR_SIGNATURE` on public URLs. [COMPLETED]
+  4. `AGY-05-04`: Build forensic receipt verification engine `verifyErc8004RegistrationReceipt()` and comprehensive test suite (`tests/erc8004Registration.test.ts`). [COMPLETED]
+- **User Dependencies:** None (100% Antigravity automated verification).
+- **Files Changed:** `src/server/services/celoAttributionService.ts`, `src/server/app.ts`, `tests/erc8004Registration.test.ts`, `ERC8004_REGISTRATION_PREPARATION.md`.
+- **Prerequisites:** `MOD-04` Accepted.
+- **Acceptance Criteria:**
+  - 24/24 unit/integration tests in `tests/erc8004Registration.test.ts` pass. [VERIFIED]
+  - Overall suite passes (22 files, 498 tests, 0 failures). [VERIFIED]
+  - Build and route verification scripts pass with zero errors. [VERIFIED]
+
+---
+
+### MODULE 5B — Live ERC-8004 Agent Identity Registration
+- **Module ID:** `MOD-05B`
+- **Status:** `BLOCKED_PENDING_MOD06` (Prerequisite: MOD-06 Cloud Deployment)
 - **Objective:** Broadcast the tagged ERC-8004 agent registration transaction on Celo Mainnet and record on-chain Agent ID.
 - **Hackathon Relevance:** Demonstrates autonomous agent registration under ERC-8004 standard with official ERC-8021 attribution on Celo Mainnet.
 - **Exact Tasks:**
-  1. User funds agent wallet `0x3e1bef...` with 0.05 CELO gas (`USR-06`).
+  1. Operator funds agent wallet `0x3e1bef...` with ~0.1 CELO for gas (`USR-06`).
   2. `AGY-10`: Align `PUBLIC_BASE_URL` in metadata generator with the verified live deployment URL.
-  3. User broadcasts registration transaction via wallet (`USR-07`).
-  4. `AGY-11`: Parse registration receipt on Celoscan, extract minted ERC-721 token ID, and record in `PROOF.md` and database.
+  3. Operator broadcasts registration transaction via wallet (`USR-07`).
+  4. `AGY-11`: Parse registration receipt via `verifyErc8004RegistrationReceipt`, extract minted ERC-721 token ID, and record in `PROOF.md` and database.
 - **User Dependencies:** `USR-06` (gas funding), `USR-07` (broadcast tx).
 - **Antigravity Tasks:** `AGY-10`, `AGY-11`.
 - **Files Expected to Change:** `PROOF.md`, `GATE0_RESULTS.md`, `MASTER_CHANGELOG.md`.
@@ -233,13 +256,10 @@ flowchart TD
 - **Prerequisites:** `MOD-06` (live URL must exist to serve valid metadata).
 - **Acceptance Criteria:**
   - Transaction confirmed on Celoscan with status `Success`.
-  - Event log decodes `Registered(uint256 agentId, string agentURI)`.
+  - Event log decodes `Registered(uint256 agentId, string agentURI)` and `Transfer(address(0), ...)`.
   - Calldata includes verified attribution tag `celo_235f6ef56f5b`.
-- **Verification Commands:** Celoscan transaction lookup and read-only RPC receipt query.
-- **Evidence Required:** Celoscan transaction link and emitted Agent ID.
-- **Est. Implementation Time:** 20 minutes.
-- **Est. User Time:** 10 minutes.
-- **Blockers:** Gas funding and human transaction broadcast.
+- **Verification Commands:** Celoscan transaction lookup and read-only RPC receipt query via `verifyErc8004RegistrationReceipt`.
+- **Evidence Required:** Celoscan transaction link and emitted Agent ID recorded in `PROOF.md`.
 
 ---
 

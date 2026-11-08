@@ -1,7 +1,7 @@
 # RevertLens — Automated Test & Verification Results
 
-**Date/time:** 2026-11-08 19:55:00 UTC
-**Phase:** Module 4.2: Read-Only Provider Enforcement & Final Attribution Hardening (MOD-04.2 / DEF-56 through DEF-59)
+**Date/time:** 2026-11-08 20:15:00 UTC
+**Phase:** Module 5A: ERC-8004 Registration Preparation, Implementation Audit & Readiness (MOD-05A)
 **Node:** v22.14.0
 **npm:** 11.6.1
 **Target Network:** Celo Mainnet (`eip155:42220`)
@@ -14,13 +14,14 @@
 
 | Command | Exit Code | Result | Key Output & Notes |
 |:---|:---:|:---:|:---|
-| `npx vitest run tests/chainstackProvider.test.ts` | **0** | **`PASS`** | **11/11 tests passed** (100% green; DEF-56 strict read-only RPC method allowlist before fetch, state-changing/unknown method rejection, marker injection rejection). |
-| `npx vitest run tests/config.test.ts` | **0** | **`PASS`** | **30/30 tests passed** (100% green; DEF-57 complete non-public IP validation covering loopbacks, bracketed IPv6, IPv4-mapped IPv6, public domain/IP acceptance). |
-| `npx vitest run tests/erc8021.test.ts` | **0** | **`PASS`** | **104/104 tests passed** (100% green; DEF-58 classification decision architecture, REJECT_UNKNOWN policy, assertOperationDispatchable, DEF-59 whitespace rejection without trim). |
+| `npx vitest run tests/erc8004Registration.test.ts` | **0** | **`PASS`** | **24/24 tests passed** (100% green; strict EIP-8004 metadata schema, calldata builder, safe preview endpoint, and forensic receipt verification). |
+| `npx vitest run tests/erc8021.test.ts` | **0** | **`PASS`** | **104/104 tests passed** (100% green; attribution tagging, SDK integration, schema validation, classification). |
+| `npx vitest run tests/config.test.ts` | **0** | **`PASS`** | **30/30 tests passed** (100% green; IP validation, URL protocol, agent wallet invariant). |
 | `npx vitest run tests/attribution.test.ts` | **0** | **`PASS`** | **11/11 tests passed** (100% green). |
+| `npx vitest run tests/chainstackProvider.test.ts` | **0** | **`PASS`** | **11/11 tests passed** (100% green; strict read-only RPC method allowlist). |
 | `npx vitest run tests/buySecurity.test.ts` | **0** | **`PASS`** | **147/147 tests passed** (100% green). |
 | `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
-| `npm test` | **0** | **`PASS`** | **21 test files passed, 474/474 tests passed** (100% green). |
+| `npm test` | **0** | **`PASS`** | **22 test files passed, 498/498 tests passed** (100% green). |
 | `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430.4 kB), `vendor-icons` (15.7 kB), `index` (189.6 kB). **0 warnings**. |
 | `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **36/36 test scenarios passed** across 25 unique Fastify endpoints (including agent metadata and canonical tagged ERC-8004 preparation). |
 | `node scripts/browser_e2e_cdp.mjs` | **0** | **`PASS`** | Real Chrome DevTools Protocol automated testing: Desktop (1280x800) and Mobile (375x812) viewports fully validated with exit code 0. |
@@ -28,7 +29,7 @@
 
 ---
 
-## 2. Test Breakdown by File (21 Suites, 474 Tests)
+## 2. Test Breakdown by File (22 Suites, 498 Tests)
 
 | # | Test File | Test Count | Classification | Result |
 |:---:|:---|:---:|:---|:---:|
@@ -46,14 +47,15 @@
 | 12 | `tests/cencoriProvider.test.ts` | **3** | `LOCAL` | **PASS** |
 | 13 | `tests/attribution.test.ts` | **11** | `LOCAL` | **PASS** |
 | 14 | `tests/erc8021.test.ts` | **104** | `LOCAL_INTEGRATION` | **PASS** |
-| 15 | `tests/health.test.ts` | **4** | `LOCAL` | **PASS** |
-| 16 | `tests/regressionEdgeCases.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| 17 | `tests/buySecurity.test.ts` | **147** | `LOCAL_INTEGRATION` | **PASS** |
-| 18 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| 19 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
-| 20 | `tests/buyAdapter.test.ts` | **9** | `LOCAL_INTEGRATION` | **PASS** |
-| 21 | `tests/paymentLifecycle.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| **Total** | **21 Test Suites** | **474 Tests** | **100% Automated** | **474 PASS** |
+| 15 | `tests/erc8004Registration.test.ts` | **24** | `LOCAL_INTEGRATION` | **PASS** |
+| 16 | `tests/health.test.ts` | **4** | `LOCAL` | **PASS** |
+| 17 | `tests/regressionEdgeCases.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| 18 | `tests/buySecurity.test.ts` | **147** | `LOCAL_INTEGRATION` | **PASS** |
+| 19 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| 20 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
+| 21 | `tests/buyAdapter.test.ts` | **9** | `LOCAL_INTEGRATION` | **PASS** |
+| 22 | `tests/paymentLifecycle.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| **Total** | **22 Test Suites** | **498 Tests** | **100% Automated** | **498 PASS** |
 
 ---
 
@@ -82,13 +84,13 @@
 [PASS] GET /api/operator/buy-health -> Status 200 (Buy Health Authenticated)
 [PASS] GET /api/operator/purchases -> Status 401 (List Purchases Unauthenticated)
 [PASS] GET /api/operator/purchases -> Status 200 (List Purchases Authenticated)
-[PASS] GET /api/operator/purchases/:id -> Status 404 (Get Purchase Not Found)
+[PASS] GET /api/operator/purchases/non-existent-attempt-id -> Status 404 (Get Purchase Not Found)
 [PASS] GET /api/operator/audit-events -> Status 200 (List Audit Events Authenticated)
 [PASS] POST /api/operator/quotes/:id/execute -> Status 401 (Execute Quote Unauthenticated)
 [PASS] POST /api/operator/quotes/:id/execute -> Status 400 (Execute Quote Missing Approval ID)
 [PASS] POST /api/operator/logout -> Status 200 (Operator Logout)
 [PASS] GET / -> Status 200 (Serve SPA Index HTML)
-[PASS] GET /assets/* -> Status 200 (Serve Static JS Asset)
+[PASS] GET /assets/index-CHTHUcsN.js -> Status 200 (Serve Static JS Asset)
 [PASS] GET /assets/../package.json -> Status 404 (Path Traversal Guard on Assets)
 [PASS] GET /history -> Status 302 (SPA Clean Route Redirect (/history))
 [PASS] GET /about -> Status 302 (SPA Clean Route Redirect (/about))
@@ -100,48 +102,10 @@
 
 ---
 
-## 4. Browser CDP E2E Automation Results
+## 4. Security & Zero-Spend Audit Invariants
 
-```
-✓ Fastify server started on http://127.0.0.1:3020
-✓ Chrome connected: Chrome/156.0.8078.80
-
---- PHASE A: DESKTOP VIEWPORT TESTING (1280x800) ---
-  ✓ Page Title: "Your Celo transaction failed. Find out why."
-  ✓ Wordmark: "RevertLens"
-  ✓ Screenshot verified: screenshots/e2e_desktop_home.png (58171 bytes)
-  ✓ Screenshot verified: screenshots/after/desktop_home.png (58171 bytes)
-  ✓ Validation Error Rendered: "Enter a 0x-prefixed, 64-character hexadecimal transaction hash."
-  ✓ Screenshot verified: screenshots/e2e_desktop_invalid_input.png (62825 bytes)
-  ✓ Input populated with: 0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445
-  ✓ Loading Panel displayed: true
-  ✓ Diagnosis Headline: "Nested Call Failure at Depth 1: execution reverted"
-  ✓ Status Chip: "Reverted"
-  ✓ Trace rows contain "Failure propagated": true
-  ✓ Trace rows contain "Failing frame": true
-  ✓ Evidence row E-01 present: true
-  ✓ Evidence row E-02 present: true
-  ✓ AI and Payment panels honesty assertions passed
-  ✓ Screenshot verified: screenshots/e2e_desktop_investigation_result.png (76862 bytes)
-  ✓ Screenshot verified: screenshots/after/desktop_investigation_result.png (76862 bytes)
-  ✓ JSON Export verified: contains 5 evidence items and matches candidate tx
-  ✓ Export Toast Rendered: "Exported revertlens-0xb90bcca5.json"
-  ✓ Re-hydrated Report Headline after reload: "Nested Call Failure at Depth 1: execution reverted"
-  ✓ Persisted AI panel state verified on page reload
-  ✓ History page contains candidate tx row: true
-  ✓ Screenshot verified: screenshots/after/history_page.png (44130 bytes)
-
---- PHASE B: MOBILE VIEWPORT TESTING (375x812) ---
-  ✓ Screenshot verified: screenshots/e2e_mobile_home.png (145117 bytes)
-  ✓ Screenshot verified: screenshots/after/mobile_home.png (145117 bytes)
-  ✓ Mobile Home page has no horizontal overflow: true
-  ✓ Mobile Report Headline: "Nested Call Failure at Depth 1: execution reverted"
-  ✓ Mobile Report page has no horizontal overflow: true
-  ✓ Mobile Frame Inspector Drawer opened: false
-  ✓ Screenshot verified: screenshots/e2e_mobile_investigation_result.png (101517 bytes)
-  ✓ Screenshot verified: screenshots/after/mobile_investigation_result.png (101517 bytes)
-
-=================================================================
- ALL BROWSER E2E ASSERTIONS & SCREENSHOTS PASSED (EXIT CODE 0)
-=================================================================
-```
+- **Zero-Spend Invariant Enforced:** No funds transferred or spent. Project balance remains 0 CELO / 0 USDC.
+- **Official Payer Address Inviolability:** Locked to `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`.
+- **Official Attribution Tag Inviolability:** Pinned to `celo_235f6ef56f5b`.
+- **Target Network Inviolability:** Pinned to Celo Mainnet (`eip155:42220`).
+- **Identity Registry Target:** Canonical Celo Mainnet contract `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`.

@@ -5,7 +5,8 @@ import {
   verifyTx,
   ERC_8021_MARKER
 } from '@celo/attribution-tags';
-import { encodeFunctionData, isAddress, type Hex } from 'viem';
+import { encodeFunctionData, decodeAbiParameters, isAddress, getAddress, type Hex } from 'viem';
+import { z } from 'zod';
 import {
   OFFICIAL_CELO_ATTRIBUTION_TAG,
   REQUIRED_CELO_CHAIN_ID,
@@ -38,10 +39,64 @@ export const ERC8004_IDENTITY_REGISTRY_ABI = [
     inputs: [{ internalType: 'string', name: 'agentURI', type: 'string' }],
     name: 'register',
     outputs: [{ internalType: 'uint256', name: 'agentId', type: 'uint256' }],
-    stateMutability: 'external',
+    stateMutability: 'nonpayable',
     type: 'function'
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'agentId', type: 'uint256' }],
+    name: 'tokenURI',
+    outputs: [{ internalType: 'string', name: '', type: 'string' }],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'tokenId', type: 'uint256' }],
+    name: 'ownerOf',
+    outputs: [{ internalType: 'address', name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [],
+    name: 'name',
+    outputs: [{ internalType: 'string', name: '', type: 'string' }],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [],
+    name: 'symbol',
+    outputs: [{ internalType: 'string', name: '', type: 'string' }],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'uint256', name: 'agentId', type: 'uint256' },
+      { indexed: false, internalType: 'string', name: 'agentURI', type: 'string' },
+      { indexed: true, internalType: 'address', name: 'owner', type: 'address' }
+    ],
+    name: 'Registered',
+    type: 'event'
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'address', name: 'from', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'to', type: 'address' },
+      { indexed: true, internalType: 'uint256', name: 'tokenId', type: 'uint256' }
+    ],
+    name: 'Transfer',
+    type: 'event'
   }
 ] as const;
+
+export const ERC8004_REGISTER_FUNCTION_SELECTOR = '0xf2c298be' as const;
+export const ERC8004_REGISTERED_EVENT_TOPIC =
+  '0xca52e62c367d81bb2e328eb795f7c7ba24afb478408a26c0e201d155c449bc4a' as const;
+export const ERC721_TRANSFER_EVENT_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef' as const;
 
 export type OperationCategory =
   | 'CATEGORY_A_OUTGOING_TX'
@@ -240,21 +295,89 @@ export interface OnChainVerificationResult {
   reason?: string;
 }
 
-export interface Erc8004AgentMetadata {
-  type: string;
-  name: string;
-  description: string;
-  image?: string;
-  network: string;
-  chainId: number;
-  agentWallet: `0x${string}`;
+export const erc8004AgentMetadataSchema = z
+  .object({
+    type: z.literal('https://eips.ethereum.org/EIPS/eip-8004#registration-v1'),
+    name: z.literal('RevertLens'),
+    description: z.string().min(10),
+    image: z.string().url().optional(),
+    network: z.literal('Celo Mainnet'),
+    chainId: z.literal(REQUIRED_CELO_CHAIN_ID),
+    agentWallet: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+    attributionTag: z.literal(OFFICIAL_CELO_ATTRIBUTION_TAG),
+    services: z
+      .array(
+        z.object({
+          name: z.string().min(1),
+          endpoint: z.string().url(),
+          version: z.string().min(1)
+        })
+      )
+      .min(1),
+    supportedTrust: z.array(z.string()).min(1)
+  })
+  .strict();
+
+export type Erc8004AgentMetadata = z.infer<typeof erc8004AgentMetadataSchema>;
+
+export function validateErc8004Metadata(data: unknown): {
+  valid: boolean;
+  data?: Erc8004AgentMetadata;
+  reason?: string;
+} {
+  const result = erc8004AgentMetadataSchema.safeParse(data);
+  if (!result.success) {
+    const errorDetails = result.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ');
+    return { valid: false, reason: `Invalid ERC-8004 metadata: ${errorDetails}` };
+  }
+  return { valid: true, data: result.data };
+}
+
+export interface RegistrationReceiptVerificationParams {
+  receipt: {
+    transactionHash: string;
+    blockNumber?: number | string | bigint | null;
+    status: number | string | 'SUCCESS' | 'REVERTED' | 'UNKNOWN';
+    logs?: Array<{
+      address: string;
+      topics: string[];
+      data: string;
+    }>;
+  };
+  transaction?: {
+    hash?: string;
+    from?: string;
+    to?: string | null;
+    input?: string;
+  };
+  expectedWallet?: string;
+  expectedRegistry?: string;
+  expectedAttributionTag?: string;
+  expectedCanonicalUri?: string;
+}
+
+export interface RegistrationReceiptVerificationResult {
+  verified: boolean;
+  agentId: string | null;
+  agentIdBigInt: bigint | null;
+  owner: string | null;
+  agentURI: string | null;
+  registryAddress: string;
+  transactionHash: string;
+  blockNumber: number;
   attributionTag: string;
-  services: Array<{
-    name: string;
-    endpoint: string;
-    version: string;
-  }>;
-  supportedTrust: string[];
+  hasExpectedAttribution: boolean;
+  status:
+    | 'VERIFIED'
+    | 'REVERTED'
+    | 'INVALID_TARGET'
+    | 'INVALID_SENDER'
+    | 'MISSING_ATTRIBUTION'
+    | 'INVALID_CALLDATA'
+    | 'NO_REGISTRATION_EVENT'
+    | 'AMBIGUOUS_EVENTS'
+    | 'INVALID_RECEIPT';
+  reason?: string;
 }
 
 export class AttributionError extends Error {
@@ -559,7 +682,7 @@ export class CeloAttributionService {
       data: taggedData,
       chainId: REQUIRED_CELO_CHAIN_ID,
       gasLimit: gasLimitBigInt,
-      attributionTag: this.officialTag,
+      attributionTag: this.officialTag as typeof OFFICIAL_CELO_ATTRIBUTION_TAG,
       dataSuffix: this.createAttributionSuffix(),
       verifiedCodes: check.codes
     };
@@ -610,17 +733,34 @@ export class CeloAttributionService {
       throw new AttributionError(`Invalid agent wallet address: '${params.agentWallet}'.`, 'INVALID_AGENT_WALLET');
     }
 
-    const cleanBaseUrl = params.baseUrl.replace(/\/+$/, '');
+    if (!params.baseUrl || typeof params.baseUrl !== 'string') {
+      throw new AttributionError(`Base URL is required for ERC-8004 metadata.`, 'INVALID_BASE_URL');
+    }
 
-    return {
+    let cleanBaseUrl: string;
+    try {
+      const parsedUrl = new URL(params.baseUrl);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        throw new Error('Protocol must be http or https');
+      }
+      cleanBaseUrl = params.baseUrl.replace(/\/+$/, '');
+    } catch {
+      throw new AttributionError(
+        `Invalid baseUrl '${params.baseUrl}': must be a valid HTTP/HTTPS URL.`,
+        'INVALID_BASE_URL'
+      );
+    }
+
+    const metadata: Erc8004AgentMetadata = {
       type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
       name: 'RevertLens',
-      description: 'Evidence-backed forensic investigation of failed Celo transactions, including execution traces, revert reasons, causal propagation analysis and evidence-led reports.',
+      description:
+        'Evidence-backed forensic investigation of failed Celo transactions, including execution traces, revert reasons, causal propagation analysis and evidence-led reports.',
       image: `${cleanBaseUrl}/assets/revertlens-banner.png`,
       network: 'Celo Mainnet',
       chainId: REQUIRED_CELO_CHAIN_ID,
-      agentWallet: params.agentWallet,
-      attributionTag: this.officialTag,
+      agentWallet: getAddress(params.agentWallet) as `0x${string}`,
+      attributionTag: this.officialTag as typeof OFFICIAL_CELO_ATTRIBUTION_TAG,
       services: [
         {
           name: 'RevertLens Investigation API',
@@ -640,6 +780,16 @@ export class CeloAttributionService {
       ],
       supportedTrust: ['erc8004-identity-v1']
     };
+
+    const validation = validateErc8004Metadata(metadata);
+    if (!validation.valid) {
+      throw new AttributionError(
+        `Generated ERC-8004 metadata failed schema validation: ${validation.reason}`,
+        'INVALID_METADATA'
+      );
+    }
+
+    return metadata;
   }
 
   /**
@@ -789,4 +939,390 @@ export class CeloAttributionService {
   public static assertOperationDispatchable(operation: string): RequestClassification {
     return assertOperationDispatchable(operation);
   }
+
+  /**
+   * Validates ERC-8004 agent metadata against strict EIP-8004 schema.
+   */
+  public static validateErc8004Metadata(data: unknown) {
+    return validateErc8004Metadata(data);
+  }
+
+  /**
+   * Verifies ERC-8004 registration receipt against expected invariants.
+   */
+  public verifyErc8004RegistrationReceipt(
+    params: RegistrationReceiptVerificationParams
+  ): RegistrationReceiptVerificationResult {
+    return verifyErc8004RegistrationReceipt({
+      ...params,
+      expectedAttributionTag: params.expectedAttributionTag || this.officialTag
+    });
+  }
+
+  /**
+   * Static helper verifying ERC-8004 registration receipt.
+   */
+  public static verifyErc8004RegistrationReceipt(
+    params: RegistrationReceiptVerificationParams
+  ): RegistrationReceiptVerificationResult {
+    return verifyErc8004RegistrationReceipt(params);
+  }
+}
+
+/**
+ * Verifies an ERC-8004 agent registration transaction and receipt on Celo Mainnet.
+ *
+ * Strict Validations:
+ * 1. Receipt must exist and indicate success (status 1). Fails with REVERTED if status 0.
+ * 2. If transaction details provided:
+ *    - Destination 'to' must match the official ERC-8004 Identity Registry (0x8004A169FB4a3325136EB29fA0ceB6D2e539a432).
+ *    - Sender 'from' must match the official agent wallet (0x3e1bef07824cd0E076F4907641F0A0EF27898e52).
+ *    - Input selector must match register(string) (0xf2c298be).
+ *    - Input calldata must be cryptographically tagged with official attribution tag ('celo_235f6ef56f5b').
+ * 3. Logs inspection:
+ *    - Decodes Registered(uint256,string,address) and Transfer(0x0,owner,tokenId).
+ *    - Rejects receipts containing zero registration events (NO_REGISTRATION_EVENT).
+ *    - Rejects receipts containing ambiguous/multiple conflicting agent IDs (AMBIGUOUS_EVENTS).
+ *    - Verifies that minted token owner strictly equals expected agent wallet.
+ *    - Extracts agentId, owner, and agentURI safely.
+ */
+export function verifyErc8004RegistrationReceipt(
+  params: RegistrationReceiptVerificationParams
+): RegistrationReceiptVerificationResult {
+  const targetRegistry = getAddress(params.expectedRegistry || ERC8004_IDENTITY_REGISTRY_CELO_MAINNET);
+  const expectedWallet = getAddress(params.expectedWallet || OFFICIAL_AGENT_WALLET_ADDRESS);
+  const expectedTag = params.expectedAttributionTag || OFFICIAL_CELO_ATTRIBUTION_TAG;
+
+  if (!params || !params.receipt) {
+    return {
+      verified: false,
+      agentId: null,
+      agentIdBigInt: null,
+      owner: null,
+      agentURI: null,
+      registryAddress: targetRegistry,
+      transactionHash: '',
+      blockNumber: 0,
+      attributionTag: expectedTag,
+      hasExpectedAttribution: false,
+      status: 'INVALID_RECEIPT',
+      reason: 'Missing receipt parameter.'
+    };
+  }
+
+  const { receipt, transaction } = params;
+  const txHash = typeof receipt.transactionHash === 'string' ? receipt.transactionHash.trim() : '';
+
+  if (!/^0[xX][0-9a-fA-F]{64}$/.test(txHash)) {
+    return {
+      verified: false,
+      agentId: null,
+      agentIdBigInt: null,
+      owner: null,
+      agentURI: null,
+      registryAddress: targetRegistry,
+      transactionHash: txHash,
+      blockNumber: 0,
+      attributionTag: expectedTag,
+      hasExpectedAttribution: false,
+      status: 'INVALID_RECEIPT',
+      reason: `Invalid transactionHash in receipt: '${txHash}'. Must be 32-byte hex hash.`
+    };
+  }
+
+  // Parse block number safely
+  let blockNumber = 0;
+  if (receipt.blockNumber !== null && receipt.blockNumber !== undefined) {
+    try {
+      blockNumber = Number(BigInt(receipt.blockNumber));
+    } catch {
+      blockNumber = 0;
+    }
+  }
+
+  // Check receipt status
+  const statusRaw = receipt.status;
+  if (
+    statusRaw === 0 ||
+    statusRaw === '0' ||
+    statusRaw === '0x0' ||
+    statusRaw === 'REVERTED'
+  ) {
+    return {
+      verified: false,
+      agentId: null,
+      agentIdBigInt: null,
+      owner: null,
+      agentURI: null,
+      registryAddress: targetRegistry,
+      transactionHash: txHash,
+      blockNumber,
+      attributionTag: expectedTag,
+      hasExpectedAttribution: false,
+      status: 'REVERTED',
+      reason: 'Transaction reverted on-chain (status 0).'
+    };
+  }
+
+  if (
+    statusRaw !== 1 &&
+    statusRaw !== '1' &&
+    statusRaw !== '0x1' &&
+    statusRaw !== 'SUCCESS'
+  ) {
+    return {
+      verified: false,
+      agentId: null,
+      agentIdBigInt: null,
+      owner: null,
+      agentURI: null,
+      registryAddress: targetRegistry,
+      transactionHash: txHash,
+      blockNumber,
+      attributionTag: expectedTag,
+      hasExpectedAttribution: false,
+      status: 'INVALID_RECEIPT',
+      reason: `Transaction receipt status is ambiguous or unsuccessful: '${String(statusRaw)}'.`
+    };
+  }
+
+  let hasExpectedAttribution = false;
+
+  // Transaction checks if provided
+  if (transaction) {
+    if (transaction.to) {
+      if (!isAddress(transaction.to) || getAddress(transaction.to) !== targetRegistry) {
+        return {
+          verified: false,
+          agentId: null,
+          agentIdBigInt: null,
+          owner: null,
+          agentURI: null,
+          registryAddress: targetRegistry,
+          transactionHash: txHash,
+          blockNumber,
+          attributionTag: expectedTag,
+          hasExpectedAttribution: false,
+          status: 'INVALID_TARGET',
+          reason: `Transaction recipient ('${transaction.to}') does not match expected ERC-8004 Identity Registry ('${targetRegistry}').`
+        };
+      }
+    }
+
+    if (transaction.from) {
+      if (!isAddress(transaction.from) || getAddress(transaction.from) !== expectedWallet) {
+        return {
+          verified: false,
+          agentId: null,
+          agentIdBigInt: null,
+          owner: null,
+          agentURI: null,
+          registryAddress: targetRegistry,
+          transactionHash: txHash,
+          blockNumber,
+          attributionTag: expectedTag,
+          hasExpectedAttribution: false,
+          status: 'INVALID_SENDER',
+          reason: `Transaction sender ('${transaction.from}') does not match expected official agent wallet ('${expectedWallet}').`
+        };
+      }
+    }
+
+    if (transaction.input) {
+      const input = transaction.input.trim();
+      if (!input.startsWith('0x') || input.length < 10) {
+        return {
+          verified: false,
+          agentId: null,
+          agentIdBigInt: null,
+          owner: null,
+          agentURI: null,
+          registryAddress: targetRegistry,
+          transactionHash: txHash,
+          blockNumber,
+          attributionTag: expectedTag,
+          hasExpectedAttribution: false,
+          status: 'INVALID_CALLDATA',
+          reason: `Transaction input calldata is too short or malformed.`
+        };
+      }
+
+      const selector = input.slice(0, 10).toLowerCase();
+      if (selector !== ERC8004_REGISTER_FUNCTION_SELECTOR.toLowerCase()) {
+        return {
+          verified: false,
+          agentId: null,
+          agentIdBigInt: null,
+          owner: null,
+          agentURI: null,
+          registryAddress: targetRegistry,
+          transactionHash: txHash,
+          blockNumber,
+          attributionTag: expectedTag,
+          hasExpectedAttribution: false,
+          status: 'INVALID_CALLDATA',
+          reason: `Transaction function selector '${selector}' does not match register(string) ('${ERC8004_REGISTER_FUNCTION_SELECTOR}').`
+        };
+      }
+
+      const attrChecker = new CeloAttributionService(expectedTag);
+      const attrCheck = attrChecker.hasExpectedAttribution(input as `0x${string}`);
+      if (attrCheck.status !== 'TAGGED_CORRECTLY') {
+        return {
+          verified: false,
+          agentId: null,
+          agentIdBigInt: null,
+          owner: null,
+          agentURI: null,
+          registryAddress: targetRegistry,
+          transactionHash: txHash,
+          blockNumber,
+          attributionTag: expectedTag,
+          hasExpectedAttribution: false,
+          status: 'MISSING_ATTRIBUTION',
+          reason: `Transaction input data does not contain expected attribution tag '${expectedTag}'. Status: ${attrCheck.status}`
+        };
+      }
+      hasExpectedAttribution = true;
+    }
+  }
+
+  // Logs analysis
+  const logs = Array.isArray(receipt.logs) ? receipt.logs : [];
+  const agentIds = new Set<string>();
+  const agentOwners = new Set<string>();
+  const agentUris = new Set<string>();
+
+  for (const log of logs) {
+    if (!log || !log.address || !isAddress(log.address)) {
+      continue;
+    }
+    if (getAddress(log.address) !== targetRegistry) {
+      continue;
+    }
+    if (!Array.isArray(log.topics) || log.topics.length === 0) {
+      continue;
+    }
+
+    const topic0 = log.topics[0].toLowerCase();
+
+    // Check Registered(uint256 indexed agentId, string agentURI, address indexed owner)
+    if (topic0 === ERC8004_REGISTERED_EVENT_TOPIC.toLowerCase()) {
+      if (log.topics.length >= 3) {
+        try {
+          const id = BigInt(log.topics[1]).toString();
+          agentIds.add(id);
+
+          const ownerRaw = log.topics[2];
+          if (ownerRaw && ownerRaw.length >= 26) {
+            const ownerAddr = getAddress('0x' + ownerRaw.slice(-40));
+            agentOwners.add(ownerAddr);
+          }
+
+          if (log.data && log.data !== '0x') {
+            const decoded = decodeAbiParameters([{ type: 'string' }], log.data as Hex);
+            if (typeof decoded[0] === 'string') {
+              agentUris.add(decoded[0]);
+            }
+          }
+        } catch {
+          // Log decode error
+        }
+      }
+    }
+
+    // Check Transfer(address indexed from, address indexed to, uint256 indexed tokenId)
+    if (topic0 === ERC721_TRANSFER_EVENT_TOPIC.toLowerCase()) {
+      if (log.topics.length >= 4) {
+        try {
+          const fromRaw = log.topics[1];
+          const toRaw = log.topics[2];
+          const idRaw = log.topics[3];
+
+          const fromAddr = fromRaw && fromRaw.length >= 26 ? getAddress('0x' + fromRaw.slice(-40)) : null;
+          const toAddr = toRaw && toRaw.length >= 26 ? getAddress('0x' + toRaw.slice(-40)) : null;
+
+          // For minting, fromAddr MUST be the zero address
+          if (fromAddr === '0x0000000000000000000000000000000000000000') {
+            const id = BigInt(idRaw).toString();
+            agentIds.add(id);
+            if (toAddr) {
+              agentOwners.add(toAddr);
+            }
+          }
+        } catch {
+          // Log decode error
+        }
+      }
+    }
+  }
+
+  if (agentIds.size === 0) {
+    return {
+      verified: false,
+      agentId: null,
+      agentIdBigInt: null,
+      owner: null,
+      agentURI: null,
+      registryAddress: targetRegistry,
+      transactionHash: txHash,
+      blockNumber,
+      attributionTag: expectedTag,
+      hasExpectedAttribution,
+      status: 'NO_REGISTRATION_EVENT',
+      reason: 'No valid ERC-8004 Registered or ERC-721 mint event found in registry logs.'
+    };
+  }
+
+  if (agentIds.size > 1) {
+    return {
+      verified: false,
+      agentId: null,
+      agentIdBigInt: null,
+      owner: null,
+      agentURI: null,
+      registryAddress: targetRegistry,
+      transactionHash: txHash,
+      blockNumber,
+      attributionTag: expectedTag,
+      hasExpectedAttribution,
+      status: 'AMBIGUOUS_EVENTS',
+      reason: `Multiple distinct agent IDs found in registry logs: [${Array.from(agentIds).join(', ')}].`
+    };
+  }
+
+  const resolvedAgentId = Array.from(agentIds)[0];
+  const resolvedOwner = Array.from(agentOwners)[0] || null;
+  const resolvedUri = Array.from(agentUris)[0] || null;
+
+  if (resolvedOwner && resolvedOwner !== expectedWallet) {
+    return {
+      verified: false,
+      agentId: resolvedAgentId,
+      agentIdBigInt: BigInt(resolvedAgentId),
+      owner: resolvedOwner,
+      agentURI: resolvedUri,
+      registryAddress: targetRegistry,
+      transactionHash: txHash,
+      blockNumber,
+      attributionTag: expectedTag,
+      hasExpectedAttribution,
+      status: 'INVALID_SENDER',
+      reason: `Minted token owner ('${resolvedOwner}') does not match expected agent wallet ('${expectedWallet}').`
+    };
+  }
+
+  return {
+    verified: true,
+    agentId: resolvedAgentId,
+    agentIdBigInt: BigInt(resolvedAgentId),
+    owner: resolvedOwner || expectedWallet,
+    agentURI: resolvedUri,
+    registryAddress: targetRegistry,
+    transactionHash: txHash,
+    blockNumber,
+    attributionTag: expectedTag,
+    hasExpectedAttribution: transaction?.input ? hasExpectedAttribution : true,
+    status: 'VERIFIED'
+  };
 }
