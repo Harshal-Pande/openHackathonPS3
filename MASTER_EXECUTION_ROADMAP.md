@@ -17,7 +17,8 @@ flowchart TD
     M2 --> M3["Module 3: Build with Buy Integration<br/>(Hardened Settlement, Invariants & Zero-Spend)"]
     M3 --> M4["Module 4: Attribution Engine & Hardening<br/>(ACCEPTED — MOD-04.1/4.2 Closed)"]
     M4 --> M5A["Module 5A: ERC-8004 Identity Preparation<br/>(COMPLETED — Contract Audit, Metadata, Verifier)"]
-    M5A --> M6["Module 6: Cloud Deployment<br/>(Render/Railway Docker + Storage)"]
+    M5A --> M5A_1["Module 5A.1: Judge Readiness & DevRel Closure<br/>(COMPLETED — Fresh-Clone Guides, Evidence Links)"]
+    M5A_1 --> M6["Module 6: Cloud Deployment<br/>(Render/Railway Docker + Storage)"]
     M6 --> M5B["Module 5B: Live ERC-8004 Registration<br/>(Public Canonical URI + Mint Tx)"]
     M6 --> M3_LIVE["Module 3 Live: Buy Settlement Proof<br/>(Live Funded Cencori Settle via Buy CLI)"]
     M5B --> M7["Module 7: Independent User Testing<br/>(Live Domain Walkthrough & Video)"]
@@ -29,6 +30,7 @@ flowchart TD
     style M3 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M4 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M5A fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
+    style M5A_1 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M6 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M5B fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M3_LIVE fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
@@ -236,6 +238,29 @@ flowchart TD
   - 24/24 unit/integration tests in `tests/erc8004Registration.test.ts` pass. [VERIFIED]
   - Overall suite passes (22 files, 498 tests, 0 failures). [VERIFIED]
   - Build and route verification scripts pass with zero errors. [VERIFIED]
+
+---
+
+### MODULE 5A.1 — Judge Verification, Fresh-Clone Reproducibility & Celo DevRel Closure
+- **Module ID:** `MOD-05A.1`
+- **Status:** `COMPLETED (MOD-05A.1 VERIFIED — PENDING INDEPENDENT REVIEW)`
+- **Objective:** Address all feedback from Celo DevRel automated hands-on review, rebuild README with prominent test execution and fresh-clone instructions, link on-chain explorer evidence for contracts and sample transactions, provide judge local runbook, and verify complete offline test execution.
+- **Hackathon Relevance:** Guarantees that hackathon judges and evaluation bots can clone, verify, test (498 tests), build, and run RevertLens with zero friction and zero credentials.
+- **Exact Tasks:**
+  1. Systematic closure of all 5 Celo DevRel suggestions in `CELO_DEVREL_FEEDBACK_CLOSURE.md`. [COMPLETED]
+  2. Complete rewrite of `README.md` for judges with clear links, architecture diagrams, step-by-step installation, automated test section, and real transaction walkthrough. [COMPLETED]
+  3. Authoring of `JUDGE_LOCAL_RUNBOOK.md` enabling self-contained evaluation in under 3 minutes. [COMPLETED]
+  4. Authoring of `DEPLOYMENT_READINESS.md` detailing multi-stage Docker containerization and cloud deployment for MOD-06. [COMPLETED]
+  5. Specification of Node.js engine `>=22.0.0` in `package.json` and addition of immutable defaults in `.env.example`. [COMPLETED]
+  6. Full execution and verification: `npm ci`, `npm run typecheck`, `npm test` (498/498 pass), `npm run build`, `verify_all_routes.mjs` (36/36 pass), `browser_e2e_cdp.mjs` (100% pass), `git diff --check`. [COMPLETED]
+- **User Dependencies:** None (100% Antigravity automated verification).
+- **Files Created / Changed:** `README.md`, `CELO_DEVREL_FEEDBACK_CLOSURE.md`, `JUDGE_LOCAL_RUNBOOK.md`, `DEPLOYMENT_READINESS.md`, `package.json`, `.env.example`, `SUBMISSION_CHECKLIST.md`, `PROOF.md`, `MASTER_EXECUTION_ROADMAP.md`, `MASTER_CHANGELOG.md`.
+- **Prerequisites:** `MOD-05A` Complete.
+- **Acceptance Criteria:**
+  - Fresh-clone workflow passes cleanly from lockfile (`npm ci`). [VERIFIED]
+  - 498/498 tests pass in Vitest across 22 suites. [VERIFIED]
+  - All Windows `file:///` links eliminated from README and governance documents. [VERIFIED]
+  - Verified on-chain transaction `0xb90bcca5...` linked to Celoscan and Blockscout. [VERIFIED]
 
 ---
 

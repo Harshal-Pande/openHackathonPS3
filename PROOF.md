@@ -9,9 +9,9 @@ This document records real, verified blockchain transactions, live RPC trace res
 
 The following transactions have been independently verified on Celo Mainnet (`eip155:42220`) for testing and demonstration purposes:
 
-| Transaction Hash | Block | Status | From | To | Revert Data / Reason | Verification Source |
+| Transaction Hash | Block | Status | From | To | Revert Data / Reason | Verification & Explorer Links |
 |---|---|---|---|---|---|---|
-| `0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445` | 52460432 | Execution Reverted | `0x6bFc49bAd93465d272E9EF2aFb4960245B62b5Ea` | `0xd0Bebd199e4a115C4Ddd04351e57913B2fE9b6a0` | `Error(string)`: `"Swap reverted"` | Chainstack Celo Global Node + Blockscout |
+| `0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445` | 52460432 | Execution Reverted | `0x6bFc49bAd93465d272E9EF2aFb4960245B62b5Ea` | `0xd0Bebd199e4a115C4Ddd04351e57913B2fE9b6a0` | `Error(string)`: `"Swap reverted"` | [Celoscan Tx](https://celoscan.io/tx/0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445) / [Blockscout Tx](https://explorer.celo.org/mainnet/tx/0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445) |
 
 ---
 
@@ -75,3 +75,14 @@ Per hackathon rules in `docs/09_HACKATHON_COMPLIANCE.md`, users and investigatio
 - **Unverified Users:** 0.
 
 *Note: These cohorts will never be combined or misrepresented as organic volume.*
+
+---
+
+## 5. Verified Celo Protocol Addresses & Verification Links
+
+| Entity | Address | Network | Explorer Link |
+|---|---|---|---|
+| **Canonical ERC-8004 Identity Registry** | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` | Celo Mainnet (`42220`) | [Celoscan Contract](https://celoscan.io/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432) |
+| **ERC-1967 Proxy Implementation** | `0x7274e874ca62410a93bd8bf61c69d8045e399c02` | Celo Mainnet (`42220`) | [Celoscan Implementation](https://celoscan.io/address/0x7274e874ca62410a93bd8bf61c69d8045e399c02) |
+| **Official Agent Wallet** | `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` | Celo Mainnet (`42220`) | [Celoscan Address](https://celoscan.io/address/0x3e1bef07824cd0E076F4907641F0A0EF27898e52) |
+| **Official Attribution Tag** | `celo_235f6ef56f5b` | ERC-8021 Schema 0 | Verified in automated tests |

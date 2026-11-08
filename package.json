@@ -4,6 +4,9 @@
   "description": "Celo transaction failure investigation with evidence and transparent service-payment proof",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite",

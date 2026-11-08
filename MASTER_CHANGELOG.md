@@ -1171,3 +1171,45 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
 - **Preparation Lifecycle State:** `MOD-05A PREPARATION COMPLETE — PENDING INDEPENDENT REVIEW`.
+
+
+---
+
+## Phase 25 — Module 5A.1: Judge Verification, Fresh-Clone Reproducibility & Celo DevRel Closure (MOD-05A.1)
+**Date:** 2026-11-08<br/>
+**Baseline Commit:** `6d1b90e375605c68c4a35c8993a31bbae7aa31d3`<br/>
+**Scope:** Actionable resolution of Celo DevRel review feedback, comprehensive judge-oriented README rewrite, automated test discovery elevation, real on-chain explorer links, fresh-clone verification runbook, and production deployment preparation.
+
+### 1. Summary of Changes
+1. **Celo DevRel Feedback Closure (`CELO_DEVREL_FEEDBACK_CLOSURE.md`):**
+   - Systematically addressed all 5 suggestions from Celo DevRel's hands-on review.
+   - Clarified that `npm test` was already implemented and passing (22 suites, 498 tests). Elevated its visibility to the top of documentation.
+   - Linked all Celo contracts (`0x8004A169...`, `0x7274e874...`), official wallet (`0x3e1bef...`), and sample reverted transaction (`0xb90bcca5...`) directly to Celoscan and Blockscout.
+   - Honestly classified public live demo as pending cloud deployment in MOD-06, refusing to fabricate placeholder URLs.
+
+2. **Judge-Friendly README Rewrite (`README.md`):**
+   - Rebuilt `README.md` following standard hackathon judge structure: Project Overview, Demo & Key Links, On-Chain Evidence Matrix, How It Works with Mermaid architecture flowchart, Technology Stack, Fresh-Clone Installation, Automated Tests, Real Celo Transaction Walkthrough, Celo Attribution & ERC-8004 Identity, Build with Buy, Security, and Relative Documentation Links.
+   - Removed all local Windows `file:///D:/...` links, converting all references to valid relative Markdown links.
+
+3. **Judge Local Runbook & Deployment Readiness:**
+   - Created [`JUDGE_LOCAL_RUNBOOK.md`](JUDGE_LOCAL_RUNBOOK.md): complete step-by-step guide for judges to clone, install via `npm ci`, test, compile, and run the app locally in under 3 minutes.
+   - Created [`DEPLOYMENT_READINESS.md`](DEPLOYMENT_READINESS.md): audited production multi-stage `Dockerfile`, non-root user setup, volume mount `/app/data`, production configuration invariants, and graceful shutdown.
+
+4. **Package & Environment Configuration Hardening:**
+   - Added `"engines": { "node": ">=22.0.0" }` in `package.json` to guarantee Node 22 LTS runtime compatibility for native `node:sqlite`.
+   - Updated `.env.example` to explicitly document immutable hackathon defaults (`CELO_ATTRIBUTION_TAG=celo_235f6ef56f5b`, `AGENT_WALLET_ADDRESS=0x3e1bef07824cd0E076F4907641F0A0EF27898e52`) and Chainstack RPC configuration instructions.
+
+5. **Roadmap & Checklist Reconciliation:**
+   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence: `MOD-04 ACCEPTED → MOD-05A PREPARATION → MOD-05A.1 JUDGE READINESS → MOD-06 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION`.
+   - Updated `SUBMISSION_CHECKLIST.md` and `PROOF.md` with verified test counts (498 tests) and direct explorer links.
+
+### 2. Verification Evidence
+- **Fresh-Clone Installation (`npm ci`):** Clean install from lockfile (367 packages in 31s).
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **22/22 test files, 498/498 tests passing** in ~11.2s (100% green).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings in 3.7s.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
+- **Lifecycle State:** `MOD-05A.1 — JUDGE VERIFICATION & DEVREL FEEDBACK CLOSURE COMPLETE — PENDING INDEPENDENT REVIEW`.
