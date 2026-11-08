@@ -1195,7 +1195,7 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
       };
       const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, expectedPayer);
       expect(res.verified).toBe(false);
-      expect(res.reason).toContain('No matching ERC-20 Transfer log found');
+      expect(res.reason).toContain('invalid topic count');
     });
 
     it('rejects receipt when sender topic is malformed (< 64 hex chars)', () => {
@@ -1811,7 +1811,8 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
       const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
       const health = await adapter.getHealth();
       expect(health.ready).toBe(false);
-      expect(health.account).toBe('UNCONFIGURED');
+      expect(health.account).toBe('UNKNOWN');
+      expect(health.configuredPayer).toBe('UNCONFIGURED');
     });
 
     it('getHealth reports UNAVAILABLE or UNCONFIGURED in catch/fallback when CLI throws and no address configured', async () => {
@@ -1820,7 +1821,8 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
       const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
       const health = await adapter.getHealth();
       expect(health.ready).toBe(false);
-      expect(['UNAVAILABLE', 'UNCONFIGURED']).toContain(health.account);
+      expect(health.account).toBe('UNAVAILABLE');
+      expect(health.configuredPayer).toBe('UNCONFIGURED');
     });
 
     it('getHealth flags payerMismatch and ready=false when CLI account differs from configured address', async () => {
@@ -2613,6 +2615,494 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
       const res = await svc.resolvePurchaseSettlement({ attemptId: attempt.id, isOperatorAuthenticated: true });
       expect(res.resolved).toBe(true);
       expect(res.status).toBe('SETTLED');
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-42: Mandatory Payer Configuration for Readiness & Dispatch Guard
+  // =========================================================================
+  describe('DEFECT-42: Mandatory Payer Configuration for Readiness & Dispatch Guard', () => {
+    const validAddress1 = '0x3e1bef07824cd0e076f4907641f0a0ef27898e52';
+    const validAddress2 = '0x1111111111111111111111111111111111111111';
+
+    it('CLI account present, payer configuration missing -> ready=false, configuredPayer=UNCONFIGURED, payerMismatch=true', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: '' };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ account: validAddress1, balances: { USDC: '10' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe(validAddress1);
+      expect(health.configuredPayer).toBe('UNCONFIGURED');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('CLI account unknown, payer configured -> ready=false, account=UNKNOWN, payerMismatch=true', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validAddress1 };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return { stdout: 'no address here\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNKNOWN');
+      expect(health.configuredPayer).toBe(validAddress1);
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Both identities present and matching -> ready=true, payerMismatch=false', async () => {
+      const cfg = {
+        ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }),
+        AGENT_WALLET_ADDRESS: validAddress1.toUpperCase() // Case-insensitive matching
+      };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ payingAddress: validAddress1.toLowerCase(), balances: { USDC: '5' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(true);
+      expect(health.account).toBe(validAddress1.toLowerCase());
+      expect(health.configuredPayer).toBe(validAddress1.toLowerCase());
+      expect(health.payerMismatch).toBe(false);
+    });
+
+    it('Both identities present but mismatched -> ready=false, payerMismatch=true', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validAddress1 };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ account: validAddress2, balances: { USDC: '5' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe(validAddress2);
+      expect(health.configuredPayer).toBe(validAddress1);
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Invalid configured payer -> ready=false, configuredPayer=UNCONFIGURED', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: 'invalid-address-format' };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ account: validAddress1, balances: { USDC: '5' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.configuredPayer).toBe('UNCONFIGURED');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Missing CLI account (whoami exitCode !== 0) -> ready=false, account=UNAVAILABLE', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validAddress1 };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return { stdout: '', stderr: 'whoami failed: network error', exitCode: 1 };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNAVAILABLE');
+      expect(health.configuredPayer).toBe(validAddress1);
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Verify no paid CLI dispatch occurs with invalid payer configuration', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: '' };
+      const cliSpy = vi.fn().mockResolvedValue({ stdout: '{}', stderr: '', exitCode: 0 });
+      const adapter = new BuyAdapter({ cliRunner: cliSpy }, db, cfg as any);
+      const svc = new BuyQuoteService(db, cfg as any, adapter);
+
+      const quoteParams = {
+        investigationId: 'inv-payer-guard',
+        capabilityId: 'cencori.v1.chat.completions',
+        url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+        method: 'POST',
+        exactBody: JSON.stringify({ model: 'maximo-atlas-1.3', messages: [{ role: 'user', content: 'test prompt' }] }),
+        tokenSymbol: 'USDC',
+        tokenContract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amountAtomic: '10000',
+        amountDisplay: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+        chainId: 42220,
+        ttlSeconds: 900
+      };
+
+      const quote = await svc.createQuote(quoteParams);
+      db.reserveBudgetAtomic(
+        quote.quoteId,
+        quote.investigationId,
+        quote.amountAtomic,
+        { dailyBudgetAtomic: 100000n, perInvestigationCapAtomic: 20000n }
+      );
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'operator',
+        isOperatorAuthenticated: true
+      });
+
+      const result = await adapter.executeApprovedRequest(quote.quoteId, approval.approvalId, 'operator');
+
+      expect(result.status).toBe('FAILED');
+      expect(result.errorMessage).toContain('Agent payer wallet address is not configured or invalid');
+      // Subprocess / CLI was NEVER dispatched
+      expect(cliSpy).not.toHaveBeenCalled();
+      // Budget reservation was cleanly released
+      const updatedQuote = db.getQuote(quote.quoteId);
+      expect(updatedQuote?.status).toBe('FAILED');
+      const reservation = db.getBudgetReservation(quote.quoteId);
+      expect(reservation?.status).toBe('RELEASED');
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-43: Reject Malformed ERC-20 Transfer Logs
+  // =========================================================================
+  describe('DEFECT-43: Strict Rejection of Malformed ERC-20 Transfer Logs', () => {
+    const validQuote = {
+      token_contract: '0x765de816845861e75a25fca122bb6898b8b1282a',
+      recipient: '0x2117973f04192eb5971a81f0571060e2b7f49e6f',
+      amount_atomic: '10000'
+    };
+    const validTxHash = '0x' + 'a'.repeat(64);
+    const validPayer = '0x3e1bef07824cd0e076f4907641f0a0ef27898e52';
+
+    const validTransferTopicSender = '0x' + '0'.repeat(24) + validPayer.replace('0x', '');
+    const validTransferTopicRecipient = '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '');
+    const validAmountData = '0x' + BigInt(10000).toString(16).padStart(64, '0');
+
+    it('Valid Transfer event -> passes verification', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+      expect(res.payer).toBe(validPayer);
+    });
+
+    it('Transfer event with one topic -> rejects with invalid topic count', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Transfer event on payment token has invalid topic count: expected exactly 3 topics, found 1');
+    });
+
+    it('Transfer event with two topics -> rejects with invalid topic count', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Transfer event on payment token has invalid topic count: expected exactly 3 topics, found 2');
+    });
+
+    it('Transfer event with four topics -> rejects with invalid topic count', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              validTransferTopicSender,
+              validTransferTopicRecipient,
+              '0x' + '9'.repeat(64)
+            ],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Transfer event on payment token has invalid topic count: expected exactly 3 topics, found 4');
+    });
+
+    it('Missing sender (malformed hex length) -> rejects', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, '0x1234', validTransferTopicRecipient],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid or missing sender topic (topics[1]): must be 32-byte hex');
+    });
+
+    it('Missing recipient (malformed hex characters) -> rejects', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, '0x' + 'z'.repeat(64)],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid or missing recipient topic (topics[2]): must be 32-byte hex');
+    });
+
+    it('Invalid sender padding (non-zero high 12 bytes) -> rejects', () => {
+      const badSenderTopic = '0x000000000000000000000001' + validPayer.replace('0x', '');
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, badSenderTopic, validTransferTopicRecipient],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid non-zero address padding in sender topic (topics[1])');
+    });
+
+    it('Invalid recipient padding (non-zero high 12 bytes) -> rejects', () => {
+      const badRecipientTopic = '0x100000000000000000000000' + validQuote.recipient.replace('0x', '');
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, badRecipientTopic],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid non-zero address padding in recipient topic (topics[2])');
+    });
+
+    it('Invalid amount data (not 32-byte uint256 hex word) -> rejects', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: '0x1234' // Too short, not 32 bytes
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('must be exactly one 32-byte uint256 word hex');
+    });
+
+    it('Malformed Transfer plus valid exact transfer in the same receipt -> rejects immediately (not concealed)', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          // Valid exact transfer first
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: validAmountData
+          },
+          // Followed by a malformed transfer event on the quoted token
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, '0xbad'],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid topic count');
+    });
+
+    it('Unrelated valid event type (e.g. Approval on payment token) -> passes (cleanly ignored)', () => {
+      const APPROVAL_EVENT_TOPIC = '0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925';
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          // Unrelated Approval event
+          {
+            address: validQuote.token_contract,
+            topics: [APPROVAL_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: validAmountData
+          },
+          // Valid Transfer event
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+    });
+
+    it('Unrelated token contract -> passes (cleanly ignored)', () => {
+      const UNRELATED_TOKEN = '0x0000000000000000000000000000000000000001';
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          // Transfer on unrelated token contract (even if malformed or different amounts)
+          {
+            address: UNRELATED_TOKEN,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, '0x123'],
+            data: '0xabc'
+          },
+          // Valid Transfer event on quoted token contract
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: validAmountData
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+    });
+
+    it('Exact aggregate payment (split transfers summing to exact amount) -> passes', () => {
+      const split1 = '0x' + BigInt(6000).toString(16).padStart(64, '0');
+      const split2 = '0x' + BigInt(4000).toString(16).padStart(64, '0');
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: split1
+          },
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: split2
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+    });
+
+    it('Overpayment -> rejects with amount inequality', () => {
+      const overAmount = '0x' + BigInt(15000).toString(16).padStart(64, '0');
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: overAmount
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Total transferred amount 15000 does not equal quoted atomic amount 10000');
+    });
+
+    it('Underpayment -> rejects with amount inequality', () => {
+      const underAmount = '0x' + BigInt(5000).toString(16).padStart(64, '0');
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+            data: underAmount
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Total transferred amount 5000 does not equal quoted atomic amount 10000');
     });
   });
 });

@@ -227,3 +227,22 @@ Engineered to resolve DEF-37 through DEF-41:
 - **Removal of Arbitrary CLI Stdout Hash Extraction (DEF-40):** Eliminates unconstrained stdout regex fallback searching for 32-byte hex strings. Parses only documented structured `paymentResponse.txHash` and `settlementTxHash` validated against `/^0x[0-9a-fA-F]{64}$/`. Transitions to `SETTLEMENT_UNKNOWN` and preserves budget reservation when valid structured references are absent.
 - **Strict CLI Receipt-Resolution Execution & Validation (DEF-41):** `resolveSettlement()` requires `exitCode === 0` before parsing CLI stdout. Catches timeouts and errors, returning unresolved and preserving budget reservation. Validates output strictly as JSON array and requires strong unique associations, forbidding recipient-only matching.
 
+---
+
+## 12. Final Readiness and Malformed Receipt Guard (MOD-03.5)
+
+Engineered to resolve DEF-42 and DEF-43:
+- **Mandatory Payer Readiness & Pre-Dispatch Guard (DEF-42):**
+  - `getHealth()` strictly requires an explicitly configured, valid `AGENT_WALLET_ADDRESS` (`/^0x[0-9a-fA-F]{40}$/`), successful Buy CLI `whoami` (`exitCode === 0`), valid CLI-reported paying address, case-insensitive match, and inactive kill switch to return `ready: true`.
+  - Configured payer is never used as a substitute for the CLI account.
+  - Reports `UNAVAILABLE` or `UNKNOWN` for CLI account and `UNCONFIGURED` for missing or invalid payer configuration.
+  - `ready` is false for every missing, malformed, unknown, or mismatched identity.
+  - Pre-dispatch guard in `executeApprovedRequest()` validates payer configuration before dispatch, releasing budget reservation and setting quote `FAILED` before subprocess invocation.
+- **Strict Rejection of Malformed ERC-20 Transfer Logs (DEF-43):**
+  - Requires exactly 3 topics for every ERC-20 Transfer event on the quoted token contract; never silently skips malformed Transfer logs.
+  - Rejects missing or malformed sender and recipient topics, non-hex characters, invalid lengths, and non-zero high 12-byte address padding.
+  - Rejects malformed Transfer event data unless it is exactly one 32-byte uint256 hex word.
+  - Fails closed immediately on any malformed Transfer event on the quoted token so that valid adjacent transfers cannot conceal defects.
+  - Continues cleanly ignoring unrelated valid event types (e.g. Approval) and logs from unrelated token contracts.
+  - Preserves exact BigInt mathematical aggregate equality (`totalTransferred === expectedAmount`).
+

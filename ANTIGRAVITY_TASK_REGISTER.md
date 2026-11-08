@@ -148,3 +148,13 @@ This register contains all technical and operational tasks owned and executed di
 - **Required Tests:** `tests/buySecurity.test.ts` (109/109 passed; +45 new tests), `tests/buyAdapter.test.ts` (9/9 passed).
 - **Acceptance Criteria:** 100% test pass rate across all 5 defect categories; zero hardcoded payer fallbacks, zero arbitrary stdout regex extraction, all-or-nothing database rollbacks, and preserved budget reservations.
 - **Evidence:** 319/319 passing tests across all 20 test files in `npm test`.
+
+### TASK AGY-07.4: Final Readiness and Malformed Receipt Guard (DEF-42 to DEF-43)
+- **Objective:** Make payer configuration strictly mandatory for readiness and pre-dispatch guard, and eliminate silent skipping of malformed ERC-20 Transfer logs.
+- **Files Involved:** `src/server/adapters/buyAdapter.ts`, `tests/buySecurity.test.ts`
+- **Implementation & Hardening:**
+  - DEF-42 (Mandatory Payer Configuration for Readiness & Dispatch Guard): Enforced in `getHealth()` that `ready: true` is strictly conditional on explicit, valid `AGENT_WALLET_ADDRESS` (`/^0x[0-9a-fA-F]{40}$/`), successful CLI `whoami` (`exitCode === 0`), valid CLI-reported paying address, case-insensitive match between CLI account and configured payer, and absence of emergency kill switch. Configured payer is never substituted for the CLI account. Reports `UNAVAILABLE` or `UNKNOWN` for CLI identity and `UNCONFIGURED` for missing or invalid payer configuration. `ready` is false for every missing, malformed, unknown, or mismatched identity. Added immediate pre-dispatch payer validation in `executeApprovedRequest()` releasing budget reservations and marking quotes `FAILED` before subprocess dispatch.
+  - DEF-43 (Strict Rejection of Malformed ERC-20 Transfer Logs): Enforced in `verifyReceiptTransferLogs()` that every log on the quoted token identifying as ERC-20 Transfer (`topics[0] === ERC20_TRANSFER_EVENT_TOPIC`) must have exactly 3 topics, 32-byte hex format and 12-byte zero padding on sender and recipient topics, and exactly one 32-byte uint256 hex word data field. Rejects immediately on any malformed Transfer event on the quoted token so that adjacent valid transfers cannot conceal defects, while continuing to cleanly ignore unrelated valid event types (e.g. Approval) and logs from unrelated token contracts.
+- **Required Tests:** `tests/buySecurity.test.ts` (131/131 passed; +22 new tests covering DEF-42 and DEF-43), `tests/buyAdapter.test.ts` (9/9 passed).
+- **Acceptance Criteria:** 100% test pass rate; zero paid dispatches with invalid payer configuration; strict receipt rejection on malformed Transfer logs; zero silent skipping.
+- **Evidence:** 341/341 passing tests across all 20 test files in `npm test`.

@@ -275,3 +275,31 @@ Following an independent source audit of the MOD-03.3 settlement verification pi
    - `resolveSettlement()` requires `exitCode === 0` before parsing CLI stdout for receipt candidates.
    - Catches CLI execution errors or timeouts, returning unresolved and retaining budget reservation.
    - Validates stdout strictly as JSON array, validates candidate schemas, requires strong unique associations (quote ID, purchase attempt ID, or payment reference), strictly forbids recipient-only matching, and requires exactly 1 unique candidate hash.
+
+---
+
+## 9. Final Readiness and Malformed Receipt Guard (MOD-03.5 / DEF-42 & DEF-43)
+
+Following independent audit of the MOD-03.4 snapshot, two final integrity guards were implemented:
+
+1. **Mandatory Payer Configuration for Readiness & Dispatch Guard (DEF-42):**
+   - `getHealth()` strictly requires:
+     - `AGENT_WALLET_ADDRESS` explicitly configured matching `/^0x[0-9a-fA-F]{40}$/`.
+     - Buy CLI `whoami` succeeds with `exitCode === 0`.
+     - CLI-reported paying address is valid EVM address format.
+     - Case-insensitive equality between CLI paying address and configured payer.
+     - Absence of emergency kill switch.
+   - Never substitutes configured payer for CLI-reported account.
+   - Reports `UNAVAILABLE` or `UNKNOWN` for CLI account and `UNCONFIGURED` for missing/invalid payer configuration.
+   - Sets `ready: false` for every missing, malformed, unknown, or mismatched identity.
+   - Pre-dispatch guard in `executeApprovedRequest()` validates payer configuration before subprocess dispatch, releasing budget reservation and setting quote `FAILED` immediately if invalid.
+
+2. **Strict Rejection of Malformed ERC-20 Transfer Logs (DEF-43):**
+   - For all receipt logs on quoted token identifying as ERC-20 Transfer (`topics[0] === ERC20_TRANSFER_EVENT_TOPIC`):
+     - Requires exactly 3 topics (rejects 1, 2, or 4 topics; never silently skips).
+     - Rejects missing or malformed sender (`topics[1]`) or recipient (`topics[2]`) topics.
+     - Strictly enforces 32-byte hex and 12-byte zero padding (`000000000000000000000000`).
+     - Rejects malformed Transfer event data unless it is exactly one 32-byte uint256 hex word.
+     - Fails closed immediately on any malformed Transfer event on quoted token so that adjacent valid transfers cannot conceal defects.
+     - Continues cleanly ignoring unrelated valid event types (e.g. Approval) and logs from unrelated token contracts.
+     - Preserves exact BigInt mathematical aggregate equality (`totalTransferred === expectedAmount`).

@@ -135,15 +135,27 @@ export function verifyReceiptTransferLogs(
     if (!log || typeof log !== 'object') continue;
 
     const logAddress = (log.address || '').toLowerCase();
-    // Only inspect logs from the quoted payment token contract
+    // Only inspect logs from the quoted payment token contract (DEFECT-43 Requirement 7)
     if (logAddress !== expectedToken) continue;
 
-    // Check if this log claims to be an ERC-20 Transfer
-    if (!Array.isArray(log.topics) || log.topics.length < 3) continue;
+    if (!Array.isArray(log.topics) || log.topics.length === 0) continue;
     const topic0 = (log.topics[0] || '').toLowerCase();
+
+    // Ignore unrelated valid event types on the token contract (DEFECT-43 Requirement 7)
     if (topic0 !== ERC20_TRANSFER_EVENT_TOPIC) continue;
 
-    // It is an ERC-20 Transfer on our payment token: enforce strict topic requirements (DEF-38)
+    // From this point, topics[0] identifies an ERC-20 Transfer on the quoted token contract.
+    // DEFECT-43: Must NOT silently skip malformed Transfer events from the quoted token contract!
+
+    // Requirement 2 & 3: Require exactly three topics
+    if (log.topics.length !== 3) {
+      return {
+        verified: false,
+        reason: `Transfer event on payment token has invalid topic count: expected exactly 3 topics, found ${log.topics.length}.`
+      };
+    }
+
+    // Requirement 4: Sender topic validation (topics[1])
     const senderTopic = log.topics[1];
     if (!senderTopic || typeof senderTopic !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(senderTopic)) {
       return {
@@ -158,6 +170,7 @@ export function verifyReceiptTransferLogs(
       };
     }
 
+    // Requirement 4: Recipient topic validation (topics[2])
     const recipientTopic = log.topics[2];
     if (!recipientTopic || typeof recipientTopic !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(recipientTopic)) {
       return {
@@ -172,15 +185,23 @@ export function verifyReceiptTransferLogs(
       };
     }
 
+    // Requirement 5: Event data validation (must be exactly one 32-byte uint256 word)
+    if (typeof log.data !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(log.data)) {
+      return {
+        verified: false,
+        reason: 'Transfer log contains malformed or un-decodable data amount: must be exactly one 32-byte uint256 word hex.'
+      };
+    }
+
     const logSender = '0x' + senderTopic.slice(26).toLowerCase();
     const logRecipient = '0x' + recipientTopic.slice(26).toLowerCase();
 
-    // If recipient is NOT our expected recipient, this is an unrelated transfer on the same token (e.g. part of a multi-transfer transaction)
+    // If recipient is NOT our expected recipient, this is an unrelated transfer on the quoted token
     if (logRecipient !== expectedRecipient) {
       continue;
     }
 
-    // Now this log claims to transfer to our recipient: verify payer and amount
+    // Requirement 9: Relevant transfer to our expected recipient: must match expected payer
     if (normalizedExpectedPayer && logSender !== normalizedExpectedPayer) {
       return {
         verified: false,
@@ -188,13 +209,6 @@ export function verifyReceiptTransferLogs(
       };
     }
 
-    // Decode amount from data (DEFECT MOD03.3-04)
-    if (typeof log.data !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(log.data)) {
-      return {
-        verified: false,
-        reason: 'Transfer log contains malformed or un-decodable data amount: must be 32-byte hex.'
-      };
-    }
     const logAmount = decodeUint256FromData(log.data);
 
     totalTransferredAmount += logAmount;
@@ -306,7 +320,7 @@ export class BuyAdapter {
     private appConfig: AppConfig
   ) {
     const rawWallet = this.appConfig?.AGENT_WALLET_ADDRESS;
-    if (rawWallet && typeof rawWallet === 'string' && /^0x[0-9a-fA-F]{40}$/.test(rawWallet.trim())) {
+    if (rawWallet && typeof rawWallet === 'string' && /^0[xX][0-9a-fA-F]{40}$/.test(rawWallet.trim())) {
       this.payingAddress = rawWallet.trim().toLowerCase();
     } else {
       this.payingAddress = '';
@@ -397,12 +411,19 @@ export class BuyAdapter {
 
   /**
    * Reads the health and wallet identity of the Buy CLI environment (read-only).
-   * DEFECT-37: Exposes unavailable/unconfigured account rather than fabricating an identity.
-   * Compares configured payer identity against CLI account and reports mismatch as health failure.
+   * DEFECT-42: Mandatory payer configuration for readiness.
+   * Never substitutes configured payer for CLI account.
+   * Reports UNAVAILABLE/UNKNOWN for CLI account and UNCONFIGURED for missing/invalid payer.
+   * ready is false for every missing, malformed, unknown, or mismatched identity.
    */
   public async getHealth(): Promise<BuyHealthStatus> {
     const killSwitchActive = this.db.getKillSwitch();
     const now = new Date().toISOString();
+
+    const hasValidConfiguredPayer = Boolean(
+      this.payingAddress && /^0x[0-9a-fA-F]{40}$/.test(this.payingAddress)
+    );
+    const configuredPayer = hasValidConfiguredPayer ? this.payingAddress : 'UNCONFIGURED';
 
     try {
       // Check version
@@ -411,53 +432,87 @@ export class BuyAdapter {
 
       // Check account & balance
       const whoamiRes = await this.runCli(['--json', 'whoami']);
-      let account = 'unknown';
+      let rawCliAccount = '';
       const balances: Record<string, string> = {};
 
-      try {
-        const parsed = JSON.parse(whoamiRes.stdout);
-        if (parsed.payingAddress) account = parsed.payingAddress;
-        else if (parsed.account) account = parsed.account;
-        if (parsed.balances && typeof parsed.balances === 'object') {
-          Object.assign(balances, parsed.balances);
-        }
-      } catch {
-        // Fallback to text parsing
-      }
-
-      if (account === 'unknown') {
-        const lines = whoamiRes.stdout.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          const match = trimmed.match(/0x[0-9a-fA-F]{40}/);
-          if (match && account === 'unknown') {
-            account = match[0];
+      if (whoamiRes.exitCode === 0) {
+        try {
+          const parsed = JSON.parse(whoamiRes.stdout);
+          if (parsed.payingAddress && typeof parsed.payingAddress === 'string') {
+            rawCliAccount = parsed.payingAddress;
+          } else if (parsed.account && typeof parsed.account === 'string') {
+            rawCliAccount = parsed.account;
           }
-          if (trimmed.includes('balances')) {
-            const balanceStr = trimmed.replace(/.*balances\s*/i, '').trim();
-            const parts = balanceStr.split(',').map((p) => p.trim());
-            for (const p of parts) {
-              const [val, tok] = p.split(' ');
-              if (val && tok) balances[tok] = val;
+          if (parsed.balances && typeof parsed.balances === 'object') {
+            Object.assign(balances, parsed.balances);
+          }
+        } catch {
+          // Fallback to text parsing
+        }
+
+        if (!rawCliAccount) {
+          const lines = whoamiRes.stdout.split('\n');
+          for (const line of lines) {
+            const trimmed = line.trim();
+            const match = trimmed.match(/0x[0-9a-fA-F]{40}/);
+            if (match && !rawCliAccount) {
+              rawCliAccount = match[0];
+            }
+            if (trimmed.includes('balances')) {
+              const balanceStr = trimmed.replace(/.*balances\s*/i, '').trim();
+              const parts = balanceStr.split(',').map((p) => p.trim());
+              for (const p of parts) {
+                const [val, tok] = p.split(' ');
+                if (val && tok) balances[tok] = val;
+              }
             }
           }
         }
       }
 
+      // DEFECT-42:
+      // 2. Do not use configured payer as substitute for CLI-reported account
+      // 3. If CLI identity is unknown, report UNAVAILABLE or UNKNOWN
+      let account: string;
+      if (whoamiRes.exitCode !== 0) {
+        account = 'UNAVAILABLE';
+      } else if (rawCliAccount && /^0x[0-9a-fA-F]{40}$/.test(rawCliAccount.trim())) {
+        account = rawCliAccount.trim().toLowerCase();
+      } else {
+        account = 'UNKNOWN';
+      }
+
+      const hasValidCliAccount = account !== 'UNKNOWN' && account !== 'UNAVAILABLE' && /^0x[0-9a-fA-F]{40}$/.test(account);
       const isFunded = Object.values(balances).some((v) => parseFloat(v) > 0);
-      const configuredPayer = this.payingAddress || undefined;
-      const payerMismatch = Boolean(
-        configuredPayer &&
-        account !== 'unknown' &&
-        account.toLowerCase() !== configuredPayer.toLowerCase()
+
+      const identitiesMatch = Boolean(
+        hasValidConfiguredPayer &&
+        hasValidCliAccount &&
+        account.toLowerCase() === this.payingAddress.toLowerCase()
       );
 
-      const isReady = whoamiRes.exitCode === 0 && !payerMismatch && account !== 'unknown';
+      const payerMismatch = Boolean(
+        (hasValidConfiguredPayer || hasValidCliAccount) && !identitiesMatch
+      );
+
+      // DEFECT-42: getHealth must NEVER return ready: true unless:
+      // 1. AGENT_WALLET_ADDRESS is explicitly configured
+      // 2. It matches exactly 0x plus 40 hexadecimal characters
+      // 3. Buy CLI whoami succeeds (exitCode === 0)
+      // 4. The CLI-reported paying address is valid
+      // 5. The CLI address matches configured payer case-insensitively
+      // 6. Kill switch is not active
+      const isReady =
+        whoamiRes.exitCode === 0 &&
+        hasValidConfiguredPayer &&
+        hasValidCliAccount &&
+        identitiesMatch &&
+        !killSwitchActive;
 
       return {
         ready: isReady,
         cliVersion,
-        account: account === 'unknown' ? (configuredPayer || 'UNCONFIGURED') : account,
+        account,
         network: 'celo',
         funded: isFunded,
         balances,
@@ -470,14 +525,14 @@ export class BuyAdapter {
       return {
         ready: false,
         cliVersion: 'unavailable',
-        account: this.payingAddress || 'UNAVAILABLE',
+        account: 'UNAVAILABLE',
         network: 'celo',
         funded: false,
         balances: {},
         killSwitchActive,
         timestamp: now,
-        configuredPayer: this.payingAddress || undefined,
-        payerMismatch: false
+        configuredPayer,
+        payerMismatch: hasValidConfiguredPayer
       };
     }
   }
@@ -501,6 +556,19 @@ export class BuyAdapter {
     const quote = this.db.getQuote(quoteId);
     if (!quote) {
       throw new Error(`Quote "${quoteId}" not found.`);
+    }
+
+    // DEFECT-42: Mandatory payer configuration validation before dispatch
+    if (!this.payingAddress || !/^0x[0-9a-fA-F]{40}$/.test(this.payingAddress)) {
+      this.db.releaseBudgetReservation(quote.id, 'Agent payer wallet address is not configured or invalid.');
+      this.db.updateQuoteStatus(quote.id, 'FAILED');
+      return {
+        purchaseAttemptId: '',
+        quoteId: quote.id,
+        status: 'FAILED',
+        errorMessage: 'Execution rejected: Agent payer wallet address is not configured or invalid.',
+        isSettled: false
+      };
     }
 
     // 1. Re-validate quote against authoritative capability registry

@@ -861,3 +861,47 @@ Following an independent audit of the MOD-03.3 settlement and payment proof path
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
+
+---
+
+## Phase 19 — Module 3.5: Final Readiness and Malformed Receipt Guard (MOD-03.5 / DEF-42 & DEF-43)
+**Date:** 2026-11-08
+**Scope:** Mandatory payer configuration for Buy health readiness; prohibition of substituting configured payer into CLI-reported account; fail-closed health reporting on unconfigured, unknown, or mismatched identities; immediate pre-dispatch payer configuration guard in `executeApprovedRequest()`; and strict ERC-20 Transfer receipt log validation requiring exactly three topics, 32-byte and 12-byte zero-padded address topics, and exactly one 32-byte uint256 hex word data field with immediate fail-closed rejection on any malformed Transfer event from the quoted token contract.
+
+### 1. Summary of Changes
+Following an independent audit of the MOD-03.4 snapshot, two critical integrity guards were implemented:
+
+1. **DEF-42: Mandatory Payer Configuration for Readiness & Dispatch Guard (P1):**
+   - Enforced in `BuyAdapter.getHealth()` (`src/server/adapters/buyAdapter.ts`) that `ready: true` is strictly conditional on:
+     - `AGENT_WALLET_ADDRESS` explicitly configured and matching `/^0[xX][0-9a-fA-F]{40}$/`.
+     - Buy CLI `whoami` succeeds with `exitCode === 0`.
+     - CLI-reported paying address is a valid 20-byte EVM address.
+     - CLI address matches the configured payer case-insensitively.
+     - Emergency kill switch is inactive.
+   - Prohibited using the configured payer as a substitute for the CLI-reported account:
+     - If CLI identity is unknown, reports `UNAVAILABLE` (on CLI error) or `UNKNOWN` (on missing address in stdout).
+     - If payer configuration is missing or invalid, reports `UNCONFIGURED` for `configuredPayer`.
+     - `ready` evaluates to `false` for every missing, malformed, unknown, or mismatched identity.
+   - Added immediate pre-dispatch validation in `executeApprovedRequest()`: if `this.payingAddress` is unconfigured or invalid, execution aborts before subprocess dispatch, atomically releases budget reservations, and transitions quote to `FAILED`.
+   - Guaranteed receipt verification remains strictly fail-closed.
+
+2. **DEF-43: Strict Rejection of Malformed ERC-20 Transfer Logs (P1):**
+   - Enforced in `verifyReceiptTransferLogs()` (`src/server/adapters/buyAdapter.ts`) that for every log from the quoted token contract where `topics[0]` identifies an ERC-20 `Transfer` event:
+     - Requires exactly 3 topics; rejects logs with 1, 2, or 4 topics without silently skipping.
+     - Validates that sender (`topics[1]`) and recipient (`topics[2]`) topics are 32-byte hex strings with leading 12 bytes zero-padded (`000000000000000000000000`).
+     - Validates that log `data` is exactly one 32-byte uint256 hex word (`/^0x[0-9a-fA-F]{64}$/`).
+     - Fails closed immediately on any malformed Transfer event from the quoted token contract, guaranteeing that an adjacent valid matching transfer cannot conceal a malformed event in the same receipt.
+     - Continues cleanly ignoring unrelated valid event types (e.g. `Approval`) and logs from unrelated token contracts.
+     - Preserves exact BigInt mathematical aggregate equality (`totalTransferred === expectedAmount`).
+
+### 2. Verification Evidence
+- **Targeted Vitest Suites:**
+  - `npx vitest run tests/buySecurity.test.ts` passed **131/131 tests** (+22 new tests covering DEF-42 and DEF-43).
+  - `npx vitest run tests/buyAdapter.test.ts` passed **9/9 tests**.
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Full Vitest Automated Suite:** `npm test` passed with **20/20 test files, 341/341 tests passing** in ~11.4s (100% green).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
