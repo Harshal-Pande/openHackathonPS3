@@ -1,4 +1,5 @@
 import { toDataSuffix, fromDataSuffix, ERC_8021_MARKER } from '@celo/attribution-tags';
+import { getAddress, isAddress } from 'viem';
 
 /**
  * Official Hackathon Attribution Configuration
@@ -48,6 +49,36 @@ export function validateAttributionTag(tag: unknown): { valid: boolean; reason?:
     };
   }
   return { valid: true };
+}
+
+/**
+ * Validates and checksums the configured agent wallet address (DEF-53).
+ * In production, strictly enforces exact case-insensitive match to OFFICIAL_AGENT_WALLET_ADDRESS.
+ */
+export function validateAgentWalletAddress(
+  address: unknown,
+  isProduction: boolean = false
+): { valid: boolean; checksummed?: `0x${string}`; reason?: string } {
+  if (typeof address !== 'string' || address.trim().length === 0) {
+    return { valid: false, reason: 'Agent wallet address must be a non-empty string.' };
+  }
+  const trimmed = address.trim();
+  if (!isAddress(trimmed)) {
+    return { valid: false, reason: `Agent wallet address '${address}' is not a valid 20-byte EVM address.` };
+  }
+  const checksummed = getAddress(trimmed);
+  const expectedChecksummed = getAddress(OFFICIAL_AGENT_WALLET_ADDRESS);
+
+  if (isProduction) {
+    if (checksummed.toLowerCase() !== expectedChecksummed.toLowerCase()) {
+      return {
+        valid: false,
+        reason: `Agent wallet address in production must match official hackathon wallet '${OFFICIAL_AGENT_WALLET_ADDRESS}'. Got '${address}'.`
+      };
+    }
+  }
+
+  return { valid: true, checksummed };
 }
 
 /**

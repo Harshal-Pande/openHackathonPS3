@@ -288,22 +288,25 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
 
   // GET /api/agent/metadata - Public ERC-8004 agent registration metadata
   server.get('/api/agent/metadata', async () => {
+    const canonicalBaseUrl = appConfig.PUBLIC_BASE_URL.replace(/\/+$/, '');
     return celoAttributionService.generateErc8004Metadata({
       agentWallet: appConfig.AGENT_WALLET_ADDRESS as `0x${string}`,
-      baseUrl: appConfig.PUBLIC_BASE_URL
+      baseUrl: canonicalBaseUrl
     });
   });
 
   // GET /api/agent/erc8004-registration-tx - Prepares tagged ERC-8004 registration transaction payload
-  server.get('/api/agent/erc8004-registration-tx', async (request) => {
-    const query = (request.query || {}) as { agentURI?: string };
-    const agentURI = query.agentURI || `${appConfig.PUBLIC_BASE_URL}/api/agent/metadata`;
+  // Security Hardening (DEF-49): Strictly uses canonical metadata URI from validated configuration;
+  // public query parameter overrides (e.g. ?agentURI=...) are ignored and cannot substitute target URI.
+  server.get('/api/agent/erc8004-registration-tx', async (_request) => {
+    const canonicalBaseUrl = appConfig.PUBLIC_BASE_URL.replace(/\/+$/, '');
+    const canonicalAgentUri = `${canonicalBaseUrl}/api/agent/metadata`;
     const tx = celoAttributionService.buildErc8004RegistrationTransaction({
-      agentURI,
+      agentURI: canonicalAgentUri,
       from: appConfig.AGENT_WALLET_ADDRESS as `0x${string}`
     });
     return {
-      agentURI,
+      agentURI: canonicalAgentUri,
       registryAddress: ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
       taggedTransaction: {
         to: tx.to,

@@ -173,6 +173,7 @@ describe('Production Security Invariants', () => {
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
       OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
+      PUBLIC_BASE_URL: 'https://revertlens.example.com',
       BUY_ENABLED: 'false',
       CENCORI_ENABLED: 'false'
     });
@@ -236,7 +237,8 @@ describe('Production Security Invariants', () => {
         ? loadConfig({
             NODE_ENV: env,
             SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-            OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH
+            OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
+            PUBLIC_BASE_URL: 'https://revertlens.example.com'
           })
         : loadConfig({ NODE_ENV: env });
       expect(cfg.BUY_ENABLED).toBe(false);
@@ -249,7 +251,8 @@ describe('Production Security Invariants', () => {
         ? loadConfig({
             NODE_ENV: env,
             SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-            OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH
+            OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
+            PUBLIC_BASE_URL: 'https://revertlens.example.com'
           })
         : loadConfig({ NODE_ENV: env });
       expect(cfg.CENCORI_ENABLED).toBe(false);

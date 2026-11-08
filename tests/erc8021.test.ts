@@ -10,7 +10,8 @@ import {
   validateAttributionTag,
   getConfiguredAttributionTag,
   classifyOperation,
-  AttributionError
+  AttributionError,
+  ERC8004_IDENTITY_REGISTRY_ABI
 } from '../src/server/services/celoAttributionService.js';
 import {
   toDataSuffix,
@@ -20,9 +21,12 @@ import {
   codeFromRepo,
   codeFromHostname
 } from '@celo/attribution-tags';
-import { encodeFunctionData, parseAbi, concat, createWalletClient, custom, type Hex } from 'viem';
+import { encodeFunctionData, decodeFunctionData, parseAbi, concat, createWalletClient, custom, type Hex } from 'viem';
 import { celo } from 'viem/chains';
-import { loadConfig } from '../src/server/config.js';
+import { loadConfig, validatePublicBaseUrl } from '../src/server/config.js';
+import { validateAgentWalletAddress } from '../src/server/config/attribution.js';
+import { buildApp } from '../src/server/app.js';
+import { ChainstackProvider } from '../src/server/providers/chainstack.js';
 
 describe('MOD-04: ERC-8021 Attribution Engine & Celo SDK Integration', () => {
   const service = new CeloAttributionService();
@@ -278,16 +282,24 @@ describe('MOD-04: ERC-8021 Attribution Engine & Celo SDK Integration', () => {
       expect(doubleDecoded?.codes.length).toBe(2);
     });
 
-    it('preserves Schema 2 role-based attribution without destroying it', () => {
+    it('refuses to silently omit official tag when input has Schema 2 role-based attribution without tag (DEF-54)', () => {
       const s2Suffix = toRoleDataSuffix({ app: 'test_app', wallet: 'test_wallet' });
       const original = '0xa9059cbb11223344' + s2Suffix.slice(2);
 
-      const tagged = service.appendAttribution(original);
+      expect(() => service.appendAttribution(original)).toThrowError(
+        /Cannot merge Schema 0 hackathon tag/
+      );
+    });
 
-      // Schema 2 attribution is preserved
+    it('preserves Schema 2 role-based attribution if it already contains the official hackathon tag', () => {
+      const s2Suffix = toRoleDataSuffix({ app: 'celo_235f6ef56f5b', wallet: 'test_wallet' });
+      const original = ('0xa9059cbb11223344' + s2Suffix.slice(2)) as `0x${string}`;
+
+      const tagged = service.appendAttribution(original);
+      expect(tagged).toBe(original);
       const decoded = fromDataSuffix(tagged);
       expect(decoded?.schemaId).toBe(2);
-      expect(decoded?.codes).toEqual(['test_app', 'test_wallet']);
+      expect(decoded?.codes).toContain('celo_235f6ef56f5b');
     });
   });
 
@@ -602,6 +614,391 @@ describe('MOD-04: ERC-8021 Attribution Engine & Celo SDK Integration', () => {
       const config = loadConfig({ NODE_ENV: 'test' });
       expect(config.AGENT_WALLET_ADDRESS).toBe(OFFICIAL_AGENT_WALLET_ADDRESS);
       expect(config.AGENT_WALLET_ADDRESS).toBe('0x3e1bef07824cd0E076F4907641F0A0EF27898e52');
+    });
+  });
+
+  // =========================================================================
+  // 11. DEF-49: Registration URI Substitution Prevention & Base URL Security
+  // =========================================================================
+  describe('11. DEF-49: Registration URI Hardening & Base URL Validation', () => {
+    const testConfig = loadConfig({
+      NODE_ENV: 'test',
+      PUBLIC_BASE_URL: 'http://localhost:3000'
+    });
+    const testApp = buildApp(testConfig);
+
+    it('returns canonical metadata URI and ignores attacker-provided query parameters', async () => {
+      const response = await testApp.inject({
+        method: 'GET',
+        url: '/api/agent/erc8004-registration-tx?agentURI=https://attacker.example/metadata'
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      // The returned agentURI must strictly be the canonical URL, NOT the attacker URL
+      expect(body.data.agentURI).toBe('http://localhost:3000/api/agent/metadata');
+      expect(body.data.agentURI).not.toContain('attacker.example');
+
+      // Calldata verification: decode register(string) argument to ensure attacker URL is not encoded
+      const calldata = body.data.taggedTransaction.data;
+      // Strip ERC-8021 suffix (35 bytes = 70 hex chars) before ABI decoding register(string)
+      const baseCalldata = calldata.slice(0, calldata.length - 70);
+      const decoded = decodeFunctionData({
+        abi: ERC8004_IDENTITY_REGISTRY_ABI,
+        data: baseCalldata as `0x${string}`
+      });
+      expect(decoded.args[0]).toBe('http://localhost:3000/api/agent/metadata');
+      expect(decoded.args[0]).not.toContain('attacker.example');
+    });
+
+    it('verifies that metadata endpoint and registration URI are in exact agreement', async () => {
+      const regResponse = await testApp.inject({
+        method: 'GET',
+        url: '/api/agent/erc8004-registration-tx'
+      });
+      const metaResponse = await testApp.inject({
+        method: 'GET',
+        url: '/api/agent/metadata'
+      });
+
+      const regBody = JSON.parse(regResponse.body);
+      const metaBody = JSON.parse(metaResponse.body);
+
+      expect(regBody.data.agentURI).toBe('http://localhost:3000/api/agent/metadata');
+      const metaEndpointService = metaBody.data.services.find(
+        (s: { name: string }) => s.name === 'RevertLens Agent Metadata'
+      );
+      expect(metaEndpointService).toBeDefined();
+      expect(metaEndpointService.endpoint).toBe(regBody.data.agentURI);
+    });
+
+    it('validates public base URL in production: requires HTTPS', () => {
+      const result = validatePublicBaseUrl('http://revertlens.example.com', true);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('must use https: protocol');
+    });
+
+    it('validates public base URL in production: rejects embedded credentials', () => {
+      const result = validatePublicBaseUrl('https://admin:secret@revertlens.example.com', true);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('must not contain embedded username or password');
+    });
+
+    it('validates public base URL in production: rejects localhost and loopback', () => {
+      expect(validatePublicBaseUrl('https://localhost:3000', true).valid).toBe(false);
+      expect(validatePublicBaseUrl('https://127.0.0.1:3000', true).valid).toBe(false);
+      expect(validatePublicBaseUrl('https://[::1]:3000', true).valid).toBe(false);
+    });
+
+    it('validates public base URL in production: rejects private network IP addresses', () => {
+      expect(validatePublicBaseUrl('https://10.0.0.1/api', true).valid).toBe(false);
+      expect(validatePublicBaseUrl('https://192.168.1.100', true).valid).toBe(false);
+      expect(validatePublicBaseUrl('https://172.16.0.5', true).valid).toBe(false);
+      expect(validatePublicBaseUrl('https://169.254.169.254', true).valid).toBe(false);
+    });
+
+    it('validates public base URL: allows localhost in development and test environments', () => {
+      expect(validatePublicBaseUrl('http://localhost:3000', false).valid).toBe(true);
+      expect(validatePublicBaseUrl('http://127.0.0.1:3000', false).valid).toBe(true);
+    });
+
+    it('normalizes trailing slashes safely without creating double slashes', () => {
+      const result = validatePublicBaseUrl('https://revertlens.example.com///', true);
+      expect(result.valid).toBe(true);
+      expect(result.normalized).toBe('https://revertlens.example.com');
+    });
+  });
+
+  // =========================================================================
+  // 12. DEF-50: Explicit RPC Method Classification Matrix
+  // =========================================================================
+  describe('12. DEF-50: Explicit RPC Method Classification & Isolation', () => {
+    it('classifies state-mutating EVM transaction methods as CATEGORY_A_OUTGOING_TX', () => {
+      const stateChangingMethods = [
+        'sendTransaction',
+        'writeContract',
+        'eth_sendTransaction',
+        'eth_sendRawTransaction',
+        'wallet_sendCalls',
+        'eth_signTransaction',
+        'personal_sendTransaction',
+        'prepareTaggedTransaction',
+        'buildErc8004RegistrationTransaction',
+        'native_transfer',
+        'erc20_transfer'
+      ];
+
+      for (const method of stateChangingMethods) {
+        const result = classifyOperation(method);
+        expect(result.category).toBe('CATEGORY_A_OUTGOING_TX');
+        expect(result.shouldAddAttribution).toBe(true);
+      }
+    });
+
+    it('classifies read-only RPC query methods as CATEGORY_B_READ_ONLY_RPC', () => {
+      const readOnlyMethods = [
+        'eth_call',
+        'eth_getTransactionReceipt',
+        'eth_getTransactionByHash',
+        'eth_getBlockByNumber',
+        'eth_getBlockByHash',
+        'eth_blockNumber',
+        'eth_chainId',
+        'eth_getBalance',
+        'eth_getCode',
+        'eth_getStorageAt',
+        'eth_getLogs',
+        'eth_estimateGas',
+        'eth_gasPrice',
+        'eth_maxPriorityFeePerGas',
+        'eth_feeHistory',
+        'eth_getTransactionCount',
+        'debug_traceTransaction',
+        'debug_traceBlockByNumber',
+        'debug_traceBlockByHash',
+        'debug_traceCall',
+        'ChainstackProvider'
+      ];
+
+      for (const method of readOnlyMethods) {
+        const result = classifyOperation(method);
+        expect(result.category).toBe('CATEGORY_B_READ_ONLY_RPC');
+        expect(result.shouldAddAttribution).toBe(false);
+      }
+    });
+
+    it('does NOT use broad eth_* or debug_* prefix rules to misclassify state-changing calls', () => {
+      // Prior bug misclassified eth_sendTransaction as read-only because of startsWith('eth_')
+      expect(classifyOperation('eth_sendTransaction').category).toBe('CATEGORY_A_OUTGOING_TX');
+      expect(classifyOperation('eth_sendRawTransaction').category).toBe('CATEGORY_A_OUTGOING_TX');
+      expect(classifyOperation('eth_sendTransaction').shouldAddAttribution).toBe(true);
+      expect(classifyOperation('eth_sendRawTransaction').shouldAddAttribution).toBe(true);
+    });
+
+    it('classifies HTTP 402 / Buy payment lifecycle operations as CATEGORY_C_HTTP_PAYMENT', () => {
+      const buyOps = [
+        'buy_cli',
+        'buy_whoami',
+        'x402_payment',
+        'cencori_chat_completions',
+        'cencori_quote',
+        'cencori_execute',
+        'http_402_challenge'
+      ];
+
+      for (const op of buyOps) {
+        const result = classifyOperation(op);
+        expect(result.category).toBe('CATEGORY_C_HTTP_PAYMENT');
+        expect(result.shouldAddAttribution).toBe(false);
+      }
+    });
+
+    it('classifies unknown operations as CATEGORY_UNKNOWN with no assumption of safety', () => {
+      const unknownOps = ['eth_customExtensionMethod', 'unknown_rpc_query', 'arbitrary_operation'];
+      for (const op of unknownOps) {
+        const result = classifyOperation(op);
+        expect(result.category).toBe('CATEGORY_UNKNOWN');
+        expect(result.shouldAddAttribution).toBe(false);
+        expect(result.description).toContain('Unknown operation');
+      }
+    });
+  });
+
+  // =========================================================================
+  // 13. DEF-51 & DEF-54: Calldata Validation Fail-Closed & Attribution Merge Safety
+  // =========================================================================
+  describe('13. DEF-51 & DEF-54: Calldata Validation & Attribution Merge Integrity', () => {
+    it('accepts undefined calldata and safely produces bare suffix', () => {
+      const tagged = service.appendAttribution(undefined);
+      expect(tagged).toBe(EXPECTED_ATTRIBUTION_SUFFIX_HEX);
+    });
+
+    it('accepts empty string and 0x and produces bare suffix', () => {
+      expect(service.appendAttribution('')).toBe(EXPECTED_ATTRIBUTION_SUFFIX_HEX);
+      expect(service.appendAttribution('0x')).toBe(EXPECTED_ATTRIBUTION_SUFFIX_HEX);
+    });
+
+    it('preserves valid calldata prefix byte-for-byte', () => {
+      const calldata = '0x12345678';
+      const tagged = service.appendAttribution(calldata);
+      expect(tagged.startsWith(calldata)).toBe(true);
+      expect(tagged.endsWith(EXPECTED_ATTRIBUTION_SUFFIX_HEX.slice(2))).toBe(true);
+    });
+
+    it('rejects calldata missing the 0x prefix (DEF-51 fail closed)', () => {
+      expect(() => service.appendAttribution('12345678')).toThrow(AttributionError);
+      expect(() => service.appendAttribution('12345678')).toThrowError(/must start with '0x' prefix/);
+    });
+
+    it('rejects odd-length hexadecimal calldata (DEF-51 fail closed)', () => {
+      expect(() => service.appendAttribution('0x123')).toThrow(AttributionError);
+      expect(() => service.appendAttribution('0x123')).toThrowError(/odd hexadecimal length/);
+    });
+
+    it('rejects non-hexadecimal characters in calldata (DEF-51 fail closed)', () => {
+      expect(() => service.appendAttribution('0x1234zz')).toThrow(AttributionError);
+      expect(() => service.appendAttribution('0x1234zz')).toThrowError(/non-hexadecimal characters/);
+    });
+
+    it('handles mixed-case hexadecimal calldata correctly', () => {
+      const mixed = '0xAbCdEf01';
+      const tagged = service.appendAttribution(mixed);
+      expect(tagged.toLowerCase().startsWith('0xabcdef01')).toBe(true);
+    });
+
+    it('handles large calldata payloads safely without corruption', () => {
+      const largePayload = ('0x' + 'aa'.repeat(5000)) as `0x${string}`;
+      const tagged = service.appendAttribution(largePayload);
+      expect(tagged.startsWith(largePayload)).toBe(true);
+      expect(service.hasExpectedAttribution(tagged).hasExpectedTag).toBe(true);
+    });
+
+    it('rejects calldata ending with ERC-8021 marker but having malformed suffix (MALFORMED_SUFFIX)', () => {
+      // 16-byte marker attached to invalid/corrupted length and schema bytes
+      const corrupted = ('0x12345678' + '9999' + ERC_8021_MARKER.slice(2)) as `0x${string}`;
+      expect(() => service.appendAttribution(corrupted)).toThrow(AttributionError);
+      expect(() => service.appendAttribution(corrupted)).toThrowError(/malformed ERC-8021 attribution suffix/);
+    });
+
+    it('merges multiple Schema 0 attribution tags without duplicating official tag', () => {
+      const otherTag = 'celo_otherapp123';
+      const firstTagged = service.appendAttribution('0x11223344');
+      const decodedFirst = fromDataSuffix(firstTagged);
+      expect(decodedFirst?.codes).toEqual(['celo_235f6ef56f5b']);
+
+      // Double-append on already-tagged calldata is idempotent
+      const secondTagged = service.appendAttribution(firstTagged);
+      expect(secondTagged).toBe(firstTagged);
+    });
+
+    it('refuses to merge Schema 0 hackathon tag into Schema 2 role-based attribution without tag (DEF-54)', () => {
+      const s2Suffix = toRoleDataSuffix({ app: 'partner_app', wallet: 'partner_wallet' });
+      const original = '0x12345678' + s2Suffix.slice(2);
+
+      expect(() => service.appendAttribution(original)).toThrow(AttributionError);
+      expect(() => service.appendAttribution(original)).toThrowError(
+        /Cannot merge Schema 0 hackathon tag 'celo_235f6ef56f5b' into existing Schema 2 role-based attribution/
+      );
+    });
+  });
+
+  // =========================================================================
+  // 14. DEF-52: Structured Read-Only RPC Parameter Guard & Provider Boundary
+  // =========================================================================
+  describe('14. DEF-52: Structured Read-Only RPC Guard & Boundary Enforcement', () => {
+    it('detects attribution marker in direct string payload', () => {
+      const tainted = '0x1234' + ERC_8021_MARKER;
+      expect(() => CeloAttributionService.assertReadOnlyRpcUntagged('eth_call', tainted)).toThrowError(
+        /Attempted to inject attribution data suffix into read-only RPC method/
+      );
+    });
+
+    it('detects attribution marker in nested array parameter', () => {
+      const nestedArray = ['0x123456', ['0xabcdef', '0x9999' + ERC_8021_MARKER]];
+      expect(() => CeloAttributionService.assertReadOnlyRpcUntagged('eth_call', nestedArray)).toThrowError(
+        /Attempted to inject attribution data suffix into read-only RPC method/
+      );
+    });
+
+    it('detects attribution marker in nested object parameter', () => {
+      const nestedObject = {
+        to: '0xd0bebd199e4a115c4ddd04351e57913b2fe9b6a0',
+        data: '0x12345678' + ERC_8021_MARKER
+      };
+      expect(() => CeloAttributionService.assertReadOnlyRpcUntagged('eth_call', nestedObject)).toThrowError(
+        /Attempted to inject attribution data suffix into read-only RPC method/
+      );
+    });
+
+    it('detects mixed-case attribution marker case-insensitively', () => {
+      const mixedCaseMarker = ERC_8021_MARKER.slice(2).toUpperCase();
+      const payload = { call: { data: '0x1234' + mixedCaseMarker } };
+      expect(() => CeloAttributionService.assertReadOnlyRpcUntagged('debug_traceTransaction', payload)).toThrowError(
+        /Attempted to inject attribution data suffix into read-only RPC method/
+      );
+    });
+
+    it('fails closed on circular reference objects in read-only RPC payloads', () => {
+      const circular: any = { method: 'test' };
+      circular.self = circular;
+      expect(() => CeloAttributionService.assertReadOnlyRpcUntagged('eth_call', circular)).toThrowError(
+        /Circular reference detected/
+      );
+    });
+
+    it('fails closed on excessively deep payload traversal', () => {
+      let deep: any = { val: 'safe' };
+      for (let i = 0; i < 15; i++) {
+        deep = { child: deep };
+      }
+      expect(() => CeloAttributionService.assertReadOnlyRpcUntagged('eth_call', deep)).toThrowError(
+        /exceeded maximum traversal depth/
+      );
+    });
+
+    it('does not mutate the investigated payload object', () => {
+      const original = { to: '0xd0bebd199e4a115c4ddd04351e57913b2fe9b6a0', data: '0x12345678' };
+      const originalCopy = JSON.stringify(original);
+      CeloAttributionService.assertReadOnlyRpcUntagged('eth_call', original);
+      expect(JSON.stringify(original)).toBe(originalCopy);
+    });
+
+    it('enforces read-only RPC isolation at ChainstackProvider.callRpc gateway boundary', async () => {
+      const provider = new ChainstackProvider({ rpcUrl: 'https://rpc.example.com' });
+      const taintedParams = [{ data: '0x1234' + ERC_8021_MARKER }];
+
+      await expect(
+        provider.callRpc('eth_call', taintedParams)
+      ).rejects.toThrowError(/Attempted to inject attribution data suffix into read-only RPC method/);
+    });
+  });
+
+  // =========================================================================
+  // 15. DEF-53: Official Agent Wallet Invariant & Production Validation
+  // =========================================================================
+  describe('15. DEF-53: Official Agent Wallet Address Inviolability', () => {
+    it('accepts exact official checksummed agent wallet address', () => {
+      const result = validateAgentWalletAddress(OFFICIAL_AGENT_WALLET_ADDRESS, true);
+      expect(result.valid).toBe(true);
+      expect(result.checksummed).toBe(OFFICIAL_AGENT_WALLET_ADDRESS);
+    });
+
+    it('accepts lowercase representation of official address and normalizes to checksum', () => {
+      const lower = OFFICIAL_AGENT_WALLET_ADDRESS.toLowerCase();
+      const result = validateAgentWalletAddress(lower, true);
+      expect(result.valid).toBe(true);
+      expect(result.checksummed).toBe(OFFICIAL_AGENT_WALLET_ADDRESS);
+    });
+
+    it('rejects different valid EVM addresses in production', () => {
+      const differentAddress = '0xd0bebd199e4a115c4ddd04351e57913b2fe9b6a0';
+      const result = validateAgentWalletAddress(differentAddress, true);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('must match official hackathon wallet');
+    });
+
+    it('rejects malformed or non-EVM addresses in all environments', () => {
+      expect(validateAgentWalletAddress('not-an-address', false).valid).toBe(false);
+      expect(validateAgentWalletAddress('0x123', false).valid).toBe(false);
+      expect(validateAgentWalletAddress('', false).valid).toBe(false);
+    });
+
+    it('enforces official wallet address invariant during production configuration load', () => {
+      expect(() =>
+        loadConfig({
+          NODE_ENV: 'production',
+          SESSION_SECRET: 'a'.repeat(64),
+          OPERATOR_PASSWORD_HASH:
+            'scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=',
+          RATE_LIMIT_INVESTIGATIONS_MAX: '50',
+          RATE_LIMIT_INVESTIGATIONS_WINDOW_MS: '60000',
+          DATABASE_PATH: './test.sqlite',
+          CORS_ORIGIN: 'https://example.com',
+          PUBLIC_BASE_URL: 'https://revertlens.example.com',
+          AGENT_WALLET_ADDRESS: '0xd0bebd199e4a115c4ddd04351e57913b2fe9b6a0' // Different address
+        })
+      ).toThrowError(/AGENT_WALLET_ADDRESS is invalid: Agent wallet address in production must match official hackathon wallet/);
     });
   });
 });

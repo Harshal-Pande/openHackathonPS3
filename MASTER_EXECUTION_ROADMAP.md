@@ -14,8 +14,9 @@ This roadmap defines the sequential engineering modules required to advance Reve
 ```mermaid
 flowchart TD
     M1["Module 1: Core Reliability<br/>(WAL, SPA Routing, Bounds, Chunks)"] --> M2["Module 2: Security Hardening<br/>(Auth Separation & Invariant Audit)"]
-    M2 --> M4["Module 4: Attribution Verification<br/>(Tag celo_235f6ef56f5b & Wallet Audit)"]
-    M4 --> M6["Module 6: Cloud Deployment<br/>(Render/Railway Docker + Storage)"]
+    M2 --> M4["Module 4: Attribution Engine<br/>(IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE)"]
+    M4 --> M4_1["Module 4.1: Attribution Security Remediation<br/>(IMPLEMENTED_PENDING_INDEPENDENT_REVIEW)"]
+    M4_1 --> M6["Module 6: Cloud Deployment<br/>(Render/Railway Docker + Storage)"]
     M6 --> M5["Module 5: ERC-8004 Registration<br/>(Public Metadata URI + Mint Tx)"]
     M6 --> M3["Module 3: Build with Buy Proof<br/>(Live Cencori Settle via buy CLI)"]
     M5 --> M7["Module 7: Independent User Testing<br/>(Live Domain Walkthrough & Video)"]
@@ -26,6 +27,7 @@ flowchart TD
     style M2 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M3 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M4 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
+    style M4_1 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M5 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M6 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
     style M7 fill:#122733,stroke:#CDF545,stroke-width:2px,color:#fff
@@ -110,17 +112,13 @@ flowchart TD
 
 ### MODULE 4 — Official Attribution & Agent Wallet Verification
 - **Module ID:** `MOD-04`
-- **Status:** `COMPLETED` (Tasks AGY-09, AGY-10, AGY-11, AGY-12, AGY-13 complete; 420/420 passing tests across 21 suites)
+- **Status:** `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE` (Initial MOD-04 implementation complete; findings DEF-49 through DEF-55 remediated under MOD-04.1 pending independent review)
 - **Objective:** Cryptographically verify the assigned hackathon attribution tag (`celo_235f6ef56f5b`) and wallet configuration (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`) across all transaction preparation paths, centralize configuration, enforce request classification, and verify SDK Schema 0 wire format.
 - **Hackathon Relevance:** Track requirement: every state-mutating transaction must carry the official ERC-8021 data suffix with assigned tag `celo_235f6ef56f5b`.
 - **Exact Tasks:**
   1. `AGY-09`: Source and specification audit of `@celo/attribution-tags@0.5.0`, repo-derived code comparison, and complete transaction path classification. [COMPLETED]
-  2. `AGY-10`: Centralize attribution configuration in `src/server/config/attribution.ts` and implement complete SDK wrapper in `CeloAttributionService` with idempotent code merging and Schema 2 role preservation. [COMPLETED]
-  3. `AGY-11`: Implement authoritative operation classifier `classifyOperation()` separating Category A (Outgoing EVM transactions) from Category B (Read-only RPC), Category C (HTTP x402 payments), and Category D (Internal operations). Enforce `assertReadOnlyRpcUntagged()`. [COMPLETED]
-  4. `AGY-12`: Comprehensive test suite in `tests/erc8021.test.ts` (63 tests) and `tests/attribution.test.ts` (11 tests) validating tag validation, wire format vectors, calldata preservation, idempotency, viem client extensions, and on-chain verification. [COMPLETED]
-  5. `AGY-13`: Update governance registers, documentation, master changelog, Git commit/push, and fresh Gitingest snapshot. [COMPLETED]
 - **User Dependencies:** None (100% automated software integration).
-- **Antigravity Tasks:** `AGY-09`, `AGY-10`, `AGY-11`, `AGY-12`, `AGY-13`.
+- **Antigravity Tasks:** `AGY-09`.
 - **Files Changed:** `src/server/config/attribution.ts`, `src/server/config.ts`, `src/server/services/celoAttributionService.ts`, `tests/erc8021.test.ts`, `tests/attribution.test.ts`.
 - **Security Impact:** Closes DEF-46, DEF-47, and DEF-48; guarantees zero transaction construction bypasses the hackathon attribution tag, ensures calldata preservation and caller immutability, and strictly isolates read-only RPC and HTTP payment requests.
 - **Prerequisites:** `MOD-02`.
@@ -128,13 +126,38 @@ flowchart TD
   - 100% of outgoing state-mutating calldata contains decodable `celo_235f6ef56f5b` suffix. [VERIFIED]
   - Wire format matches exact Schema 0 vector `0x63656c6f5f323335663665663536663562110080218021802180218021802180218021`. [VERIFIED]
   - Read-only RPC calls and HTTP payment requests are strictly untagged. [VERIFIED]
-  - 420/420 tests passing in `npm test`. [VERIFIED]
-- **Verification Commands:** `npx vitest run tests/erc8021.test.ts`, `npm test`, `npm run typecheck`, `npm run build`. [ALL PASS]
-- **Evidence Required:** Decoded calldata assertions, wire format verification, and request classification matrix. [VERIFIED]
-- **Est. Implementation Time:** 30 minutes. (Actual: 25 minutes)
-- **Est. User Time:** 0 minutes.
-- **Blockers:** None.
-- **Completion Definition:** All criteria met, 420 passing tests, clean build, clean git diff. [COMPLETED]
+  - 420/420 tests passing in initial `npm test`. [VERIFIED]
+
+---
+
+### MODULE 4.1 — Attribution Security Remediation & Release Gate
+- **Module ID:** `MOD-04.1`
+- **Status:** `IMPLEMENTED_PENDING_INDEPENDENT_REVIEW` (Tasks AGY-04-01 through AGY-04-05 implemented; 458/458 passing tests across 21 suites)
+- **Objective:** Remediate 7 independent review findings: remove public arbitrary `agentURI` query overrides (DEF-49), replace naive RPC prefix matching with explicit allowlists (DEF-50), enforce fail-closed calldata validation on malformed inputs (DEF-51), implement recursive bounded inspection on structured read-only RPC parameters (DEF-52), enforce official agent wallet invariant in production (DEF-53), prevent silent omission of hackathon tag during attribution merge with strict Schema 2 refusal (DEF-54), and reconcile task register and module sequencing (DEF-55).
+- **Hackathon Relevance:** Guarantees strict security boundaries for agent registration payloads, fail-closed calldata processing, and uncompromised attribution integrity.
+- **Exact Tasks:**
+  1. `AGY-04-01`: Registration URI substitution hardening and `validatePublicBaseUrl()` validation in `app.ts` and `config.ts` (DEF-49). [COMPLETED]
+  2. `AGY-04-02`: Explicit allowlist classification for state-changing EVM transactions, read-only RPC, HTTP payment, and internal operations in `celoAttributionService.ts` (DEF-50). [COMPLETED]
+  3. `AGY-04-03`: Fail-closed calldata validation (odd hex, non-hex, missing prefix) and strict Schema 2 refusal (`SCHEMA_2_MERGE_PROHIBITED`) in `celoAttributionService.ts` (DEF-51, DEF-54). [COMPLETED]
+  4. `AGY-04-04`: Official agent wallet validation (`validateAgentWalletAddress()`) and recursive read-only RPC guard wired into `ChainstackProvider.callRpc()` boundary (DEF-52, DEF-53). [COMPLETED]
+  5. `AGY-04-05`: Full verification matrix (458 tests), route audit, CDP browser E2E, and governance synchronization (DEF-55). [COMPLETED]
+- **User Dependencies:** None (100% automated software remediation).
+- **Antigravity Tasks:** `AGY-04-01`, `AGY-04-02`, `AGY-04-03`, `AGY-04-04`, `AGY-04-05`.
+- **Files Changed:** `src/server/app.ts`, `src/server/config.ts`, `src/server/config/attribution.ts`, `src/server/services/celoAttributionService.ts`, `src/server/providers/chainstack.ts`, `tests/erc8021.test.ts`, `tests/config.test.ts`, governance documents.
+- **Security Impact:** Closes DEF-49, DEF-50, DEF-51, DEF-52, DEF-53, DEF-54, DEF-55. Fails closed on malformed calldata, prevents registration URI substitution, enforces strict read-only RPC isolation, and eliminates wallet drift.
+- **Prerequisites:** `MOD-04`.
+- **Downstream Dependency Chain:** `MOD-04 → MOD-04.1 → MOD-06 → MOD-05 → MOD-07 → MOD-08`. (MOD-03 live settlement is a separate branch dependent on deployment and operator funding/approval).
+- **Acceptance Criteria:**
+  - Public `GET /api/agent/erc8004-registration-tx` strictly uses canonical metadata URL; ignores `?agentURI=...`. [VERIFIED]
+  - `classifyOperation()` explicitly categorizes `eth_sendTransaction` and `eth_sendRawTransaction` as `CATEGORY_A_OUTGOING_TX`. [VERIFIED]
+  - Malformed calldata throws `INVALID_CALLDATA` or `MALFORMED_SUFFIX`. [VERIFIED]
+  - Schema 2 role calldata without hackathon tag throws `SCHEMA_2_MERGE_PROHIBITED`. [VERIFIED]
+  - `ChainstackProvider.callRpc()` intercepts read-only RPC methods with attribution markers. [VERIFIED]
+  - `validateAgentWalletAddress()` strictly rejects non-official wallet in production. [VERIFIED]
+  - 458/458 tests pass across 21 suites. [VERIFIED]
+- **Verification Commands:** `npx vitest run tests/erc8021.test.ts`, `npm test`, `npm run typecheck`, `npm run build`, `node scripts/verify_all_routes.mjs`, `node scripts/browser_e2e_cdp.mjs`. [ALL PASS]
+- **Evidence Required:** Terminal outputs, test logs, and clean Git status. [VERIFIED]
+- **Completion Definition:** All criteria met, 458 passing tests, clean build, clean git diff. [IMPLEMENTED_PENDING_INDEPENDENT_REVIEW]
 
 ---
 

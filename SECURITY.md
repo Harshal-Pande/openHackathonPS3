@@ -263,3 +263,33 @@ Engineered to resolve DEF-42 and DEF-43:
   - Prevents incidental addresses in warning messages, diagnostics, or unrelated properties from being adopted as the paying account.
   - Preserves strict case-insensitive equality check between CLI identity and configured `AGENT_WALLET_ADDRESS`.
 
+---
+
+## 14. Attribution & Registration Payload Security Hardening (MOD-04.1 / DEF-49 through DEF-55)
+
+- **Registration URI Substitution Prevention (DEF-49):**
+  - Public arbitrary `agentURI` query overrides are eliminated on `GET /api/agent/erc8004-registration-tx`.
+  - Canonical metadata URI is strictly constructed from validated configuration: `${PUBLIC_BASE_URL}/api/agent/metadata`.
+  - Public base URL is strictly validated via `validatePublicBaseUrl()`: requires absolute HTTPS protocol in production, rejects embedded credentials, and rejects `localhost`, loopback, and private network IPv4/IPv6 ranges in production.
+- **Explicit JSON-RPC Method Classification (DEF-50):**
+  - Broad prefix checking (`op.startsWith('eth_')`) is eliminated.
+  - Explicit allowlists classify state-changing EVM transactions (`eth_sendTransaction`, `eth_sendRawTransaction`, `wallet_sendCalls`, `writeContract`, etc.) into `CATEGORY_A_OUTGOING_TX` with `shouldAddAttribution: true`.
+  - Read-only RPC queries (`eth_call`, `eth_getTransactionReceipt`, `debug_traceTransaction`, etc.) are explicitly classified into `CATEGORY_B_READ_ONLY_RPC` with `shouldAddAttribution: false`.
+  - Unrecognized methods fail closed to `CATEGORY_UNKNOWN` with no assumption of safety.
+- **Fail-Closed Calldata Validation (DEF-51):**
+  - Calldata input is strictly validated: non-empty strings must start with `0x`, have even hexadecimal length, and contain valid hex characters.
+  - Malformed inputs throw typed `AttributionError` (`INVALID_CALLDATA`) without silent normalization or truncation.
+- **Recursive Bounded Read-Only RPC Guard (DEF-52):**
+  - `assertReadOnlyRpcUntagged()` performs recursive bounded inspection of JSON-RPC parameters up to depth 10 and 500 nodes.
+  - Detects `ERC_8021_MARKER` case-insensitively in nested structures, detects circular references, and fails closed.
+  - Wired directly into the `ChainstackProvider.callRpc()` boundary.
+- **Official Agent Wallet Address Inviolability (DEF-53):**
+  - `validateAgentWalletAddress()` validates checksum format and enforces exact case-insensitive equality to `OFFICIAL_AGENT_WALLET_ADDRESS` (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`) in production mode, preventing silent wallet drift.
+- **Strict Attribution Merging & Schema 2 Refusal (DEF-54):**
+  - Attribution merge errors are treated as hard failures; never silently returns untagged calldata.
+  - If existing calldata contains Schema 2 role-based attribution without the official hackathon tag, `appendAttribution()` throws typed `SCHEMA_2_MERGE_PROHIBITED`, refusing to silently omit the assigned hackathon tag or corrupt the Schema 2 role structure.
+  - Verified via `hasExpectedAttribution()` before returning.
+- **Governance Task Sequencing Integrity (DEF-55):**
+  - Dedicated identifiers `AGY-04-01` through `AGY-04-05` assigned for MOD-04.1 remediation.
+  - Strict dependency sequencing enforced: `MOD-04 → MOD-04.1 → MOD-06 → MOD-05 → MOD-07 → MOD-08`.
+

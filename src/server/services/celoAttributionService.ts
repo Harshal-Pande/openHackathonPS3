@@ -46,7 +46,8 @@ export type OperationCategory =
   | 'CATEGORY_A_OUTGOING_TX'
   | 'CATEGORY_B_READ_ONLY_RPC'
   | 'CATEGORY_C_HTTP_PAYMENT'
-  | 'CATEGORY_D_INTERNAL';
+  | 'CATEGORY_D_INTERNAL'
+  | 'CATEGORY_UNKNOWN';
 
 export interface RequestClassification {
   operation: string;
@@ -58,14 +59,25 @@ export interface RequestClassification {
 /**
  * Authoritative operation classifier separating state-mutating EVM transactions
  * from read-only RPC calls, HTTP payment requests, and internal operations.
+ *
+ * Security Invariants (DEF-50):
+ * - Explicit allowlists for each category; never uses broad prefix wildcards (e.g. eth_*).
+ * - Outgoing state-mutating EVM transactions have shouldAddAttribution: true.
+ * - Read-only RPC, HTTP payment, and internal operations have shouldAddAttribution: false.
+ * - Unrecognized operations are classified as CATEGORY_UNKNOWN with no assumption of safety.
  */
 export function classifyOperation(operation: string): RequestClassification {
   const op = operation.trim();
 
-  // Category A: Actual outgoing EVM transactions
+  // Category A: Actual outgoing state-mutating EVM transactions
   const categoryAOps = [
     'sendTransaction',
     'writeContract',
+    'eth_sendTransaction',
+    'eth_sendRawTransaction',
+    'wallet_sendCalls',
+    'eth_signTransaction',
+    'personal_sendTransaction',
     'prepareTaggedTransaction',
     'buildErc8004RegistrationTransaction',
     'native_transfer',
@@ -80,23 +92,31 @@ export function classifyOperation(operation: string): RequestClassification {
     };
   }
 
-  // Category B: Read-only RPC requests
+  // Category B: Read-only RPC requests (explicit allowlist; never use prefix checks)
   const categoryBOps = [
     'eth_call',
     'eth_getTransactionReceipt',
     'eth_getTransactionByHash',
     'eth_getBlockByNumber',
     'eth_getBlockByHash',
-    'debug_traceTransaction',
-    'eth_chainId',
     'eth_blockNumber',
+    'eth_chainId',
     'eth_getBalance',
     'eth_getCode',
+    'eth_getStorageAt',
     'eth_getLogs',
     'eth_estimateGas',
+    'eth_gasPrice',
+    'eth_maxPriorityFeePerGas',
+    'eth_feeHistory',
+    'eth_getTransactionCount',
+    'debug_traceTransaction',
+    'debug_traceBlockByNumber',
+    'debug_traceBlockByHash',
+    'debug_traceCall',
     'ChainstackProvider'
   ];
-  if (categoryBOps.includes(op) || op.startsWith('eth_') || op.startsWith('debug_')) {
+  if (categoryBOps.includes(op)) {
     return {
       operation: op,
       category: 'CATEGORY_B_READ_ONLY_RPC',
@@ -115,7 +135,7 @@ export function classifyOperation(operation: string): RequestClassification {
     'cencori_execute',
     'http_402_challenge'
   ];
-  if (categoryCOps.includes(op) || op.startsWith('buy_') || op.startsWith('cencori_') || op.startsWith('x402_')) {
+  if (categoryCOps.includes(op)) {
     return {
       operation: op,
       category: 'CATEGORY_C_HTTP_PAYMENT',
@@ -125,11 +145,34 @@ export function classifyOperation(operation: string): RequestClassification {
   }
 
   // Category D: Internal application operations
+  const categoryDOps = [
+    'sqlite_persist',
+    'sqlite_write',
+    'password_scrypt',
+    'session_hmac',
+    'report_generate',
+    'report_export',
+    'export_csv',
+    'auth_rate_limit',
+    'operator_login',
+    'investigation_cache',
+    'internal_api'
+  ];
+  if (categoryDOps.includes(op)) {
+    return {
+      operation: op,
+      category: 'CATEGORY_D_INTERNAL',
+      shouldAddAttribution: false,
+      description: 'Internal backend/frontend operation (SQLite persistence, report formatting, exports); untagged.'
+    };
+  }
+
+  // Unknown operations fail closed to CATEGORY_UNKNOWN with no assumption of safety
   return {
     operation: op,
-    category: 'CATEGORY_D_INTERNAL',
+    category: 'CATEGORY_UNKNOWN',
     shouldAddAttribution: false,
-    description: 'Internal backend/frontend operation (SQLite persistence, report formatting, exports); untagged.'
+    description: `Unknown operation '${op}'; not recognized in allowlists, no safety assumption.`
   };
 }
 
@@ -334,45 +377,109 @@ export class CeloAttributionService {
 
   /**
    * Appends the official attribution suffix to calldata safely and idempotently.
-   * - Preserves original calldata prefix byte-for-byte.
-   * - If existing Schema 0 suffix is present, merges codes idempotently without duplication.
-   * - If existing Schema 2 or non-Schema-0 suffix is present, preserves existing attribution as per SDK.
+   *
+   * Security Invariants:
+   * - DEF-51: Fails closed on malformed calldata (odd length, non-hex, missing 0x prefix).
+   *   Accepts undefined only where no calldata is intended (normalized to '0x').
+   *   Never silently truncates or normalizes away invalid calldata.
+   * - DEF-54: Hard failure on any merge error; never silently omits the official tag.
+   *   If existing calldata contains Schema 2 role-based attribution without the official tag,
+   *   refuses with typed AttributionError (SCHEMA_2_MERGE_PROHIBITED) to prevent silent omission.
+   *   Verifies the final calldata via hasExpectedAttribution() before returning.
    */
   public appendAttribution(calldata?: string): `0x${string}` {
-    const base = typeof calldata === 'string' && calldata.startsWith('0x') ? calldata : '0x';
+    let base: `0x${string}`;
+
+    if (calldata === undefined) {
+      base = '0x';
+    } else if (typeof calldata !== 'string') {
+      throw new AttributionError('Calldata must be a string or undefined.', 'INVALID_CALLDATA');
+    } else {
+      const trimmed = calldata.trim();
+      if (trimmed === '' || trimmed === '0x') {
+        base = '0x';
+      } else {
+        if (!trimmed.startsWith('0x')) {
+          throw new AttributionError("Calldata must start with '0x' prefix.", 'INVALID_CALLDATA');
+        }
+        if (trimmed.length % 2 !== 0) {
+          throw new AttributionError(
+            `Calldata '${trimmed}' has odd hexadecimal length (${trimmed.length - 2} nibbles).`,
+            'INVALID_CALLDATA'
+          );
+        }
+        if (!/^0x[0-9a-fA-F]+$/.test(trimmed)) {
+          throw new AttributionError('Calldata contains non-hexadecimal characters.', 'INVALID_CALLDATA');
+        }
+        base = trimmed as `0x${string}`;
+      }
+    }
+
     const existing = this.decodeAttributionData(base);
+    let result: `0x${string}`;
 
     if (!existing) {
+      // Check if data ends with the 16-byte ERC-8021 marker to detect malformed existing suffixes
+      const markerHex = ERC_8021_MARKER.slice(2).toLowerCase();
+      if (base.length >= 34 && base.toLowerCase().endsWith(markerHex)) {
+        throw new AttributionError(
+          'Calldata contains a malformed ERC-8021 attribution suffix.',
+          'MALFORMED_SUFFIX'
+        );
+      }
       const suffix = this.createAttributionSuffix();
-      return (base + suffix.slice(2)) as `0x${string}`;
+      result = (base + suffix.slice(2)) as `0x${string}`;
+    } else if (existing.schemaId !== 0) {
+      // Non-Schema-0 (e.g. Schema 2 role-based attribution):
+      // If it already includes the official hackathon tag, it is already valid and compliant.
+      if (existing.codes.includes(this.officialTag)) {
+        result = base;
+      } else {
+        // In accordance with DEF-54 and official ERC-8021 specification:
+        // Schema 2 immutability prevents silent omission or corruption of hackathon tag.
+        throw new AttributionError(
+          `Cannot merge Schema 0 hackathon tag '${this.officialTag}' into existing Schema ${existing.schemaId} role-based attribution; Schema ${existing.schemaId} immutability prevents silent omission or corruption.`,
+          'SCHEMA_2_MERGE_PROHIBITED'
+        );
+      }
+    } else {
+      // Schema 0: idempotent code merge
+      if (existing.codes.length === 1 && existing.codes[0] === this.officialTag) {
+        result = base;
+      } else if (existing.codes.includes(this.officialTag)) {
+        result = base;
+      } else {
+        const merged = [...existing.codes, this.officialTag];
+        const markerBytes = 16;
+        const existingBytes = existing.codes.join(',').length + 1 + 1 + markerBytes;
+        if (base.length < 2 + existingBytes * 2) {
+          throw new AttributionError(
+            'Calldata length is shorter than decoded existing attribution suffix.',
+            'INVALID_CALLDATA'
+          );
+        }
+        const stripped = base.slice(0, base.length - existingBytes * 2);
+        let newSuffix: string;
+        try {
+          newSuffix = toDataSuffix(merged);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          throw new AttributionError(`Failed to generate merged attribution suffix: ${msg}`, 'MERGE_FAILED');
+        }
+        result = (stripped + newSuffix.slice(2)) as `0x${string}`;
+      }
     }
 
-    // Non-Schema-0 (e.g. Schema 2 role-based attribution): preserve existing as per SDK specification
-    if (existing.schemaId !== 0) {
-      return base as `0x${string}`;
+    // Verify tag presence in final calldata before returning (DEF-54)
+    const check = this.hasExpectedAttribution(result);
+    if (!check.hasExpectedTag) {
+      throw new AttributionError(
+        `Attribution verification failed on result calldata: ${check.reason || 'official tag missing'}`,
+        'TAG_VERIFICATION_FAILED'
+      );
     }
 
-    // Schema 0: idempotent code merge
-    const merged = [...existing.codes];
-    if (!merged.includes(this.officialTag)) {
-      merged.push(this.officialTag);
-    } else if (existing.codes.length === 1 && existing.codes[0] === this.officialTag) {
-      // Already has exactly this tag; return base unchanged (idempotent)
-      return base as `0x${string}`;
-    }
-
-    // Strip existing Schema 0 suffix bytes and re-encode with merged codes:
-    // Suffix byte length = code string length + 1 byte length + 1 byte schemaId + 16 bytes marker = length + 18 bytes
-    const markerBytes = 16;
-    const existingBytes = existing.codes.join(',').length + 1 + 1 + markerBytes;
-    const stripped = base.slice(0, base.length - existingBytes * 2);
-
-    try {
-      const newSuffix = toDataSuffix(merged);
-      return (stripped + newSuffix.slice(2)) as `0x${string}`;
-    } catch {
-      return base as `0x${string}`;
-    }
+    return result;
   }
 
   /**
@@ -570,29 +677,75 @@ export class CeloAttributionService {
   }
 
   /**
-   * Asserts that read-only RPC requests are strictly protected from modification.
-   * Throws an error if any caller attempts to apply attribution tags to read-only RPC calls.
+   * Asserts that read-only RPC requests are strictly protected from attribution suffix injection.
+   *
+   * Security Hardening (DEF-52):
+   * - Performs recursive, bounded inspection of JSON-RPC parameters (objects, arrays, strings).
+   * - Detects the ERC-8021 marker case-insensitively anywhere in nested structures.
+   * - Detects and fails closed on circular references and excessive traversal depth.
+   * - Never mutates the examined payload.
    */
   public static assertReadOnlyRpcUntagged(method: string, payload: unknown): void {
-    const readOnlyMethods = [
-      'eth_call',
-      'eth_getBalance',
-      'eth_getCode',
-      'eth_getTransactionByHash',
-      'eth_getTransactionReceipt',
-      'eth_blockNumber',
-      'eth_chainId',
-      'debug_traceTransaction'
-    ];
+    const classification = classifyOperation(method);
+    if (classification.category !== 'CATEGORY_B_READ_ONLY_RPC') {
+      return;
+    }
 
-    if (readOnlyMethods.includes(method)) {
-      if (typeof payload === 'string' && payload.includes(ERC_8021_MARKER)) {
+    const markerHex = ERC_8021_MARKER.slice(2).toLowerCase();
+    const MAX_DEPTH = 10;
+    const MAX_NODES = 500;
+    let nodeCount = 0;
+    const visited = new Set<object>();
+
+    function inspect(value: unknown, depth: number): void {
+      if (depth > MAX_DEPTH) {
         throw new AttributionError(
-          `Violation: Attempted to inject attribution data suffix into read-only RPC method '${method}'.`,
-          'ILLEGAL_READ_ONLY_TAGGING'
+          `Payload inspection exceeded maximum traversal depth (${MAX_DEPTH}) for read-only RPC method '${method}'.`,
+          'PAYLOAD_INSPECTION_LIMIT_EXCEEDED'
         );
       }
+      nodeCount++;
+      if (nodeCount > MAX_NODES) {
+        throw new AttributionError(
+          `Payload inspection exceeded maximum node count (${MAX_NODES}) for read-only RPC method '${method}'.`,
+          'PAYLOAD_INSPECTION_LIMIT_EXCEEDED'
+        );
+      }
+
+      if (typeof value === 'string') {
+        if (value.toLowerCase().includes(markerHex)) {
+          throw new AttributionError(
+            `Violation: Attempted to inject attribution data suffix into read-only RPC method '${method}'.`,
+            'ILLEGAL_READ_ONLY_TAGGING'
+          );
+        }
+        return;
+      }
+
+      if (value === null || typeof value !== 'object') {
+        return;
+      }
+
+      if (visited.has(value)) {
+        throw new AttributionError(
+          `Circular reference detected in payload for read-only RPC method '${method}'.`,
+          'CIRCULAR_REFERENCE_DETECTED'
+        );
+      }
+      visited.add(value);
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          inspect(item, depth + 1);
+        }
+      } else {
+        for (const key of Object.keys(value)) {
+          inspect((value as Record<string, unknown>)[key], depth + 1);
+        }
+      }
     }
+
+    inspect(payload, 0);
   }
 
   /**

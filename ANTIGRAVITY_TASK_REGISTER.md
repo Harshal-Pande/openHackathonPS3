@@ -37,7 +37,12 @@ This register contains all technical and operational tasks owned and executed di
 | **AGY-07.1** | Mod 3.2 | **P0** | `COMPLETED` | Critical Payment Path Security Remediation (DEF-23 to DEF-30) | `src/server/adapters/buyAdapter.ts`, `src/server/services/buyQuoteService.ts`, `src/server/services/capabilityRegistry.ts`, `src/server/db/database.ts` | AGY-07 |
 | **AGY-07.2** | Mod 3.3 | **P0** | `COMPLETED` | Settlement Integrity & Ambiguous Payment Failure Hardening (DEF-31 to DEF-36) | `src/server/adapters/buyAdapter.ts`, `src/server/db/database.ts`, `tests/buySecurity.test.ts` | AGY-07.1 |
 | **AGY-08** | Mod 3 | **P1** | `BLOCKED_PENDING_OPERATOR_APPROVAL` | Settle Live Cencori AI Quote via Buy CLI & Verify Receipt | `PROOF.md`, `GATE0_RESULTS.md` | AGY-07, USR-08 (Wallet Funding) |
-| **AGY-09** | Mod 4 | **P1** | `READY_FOR_IMPLEMENTATION` | Audit & Re-verify ERC-8021 Attribution Suffix Construction | `src/server/services/celoAttributionService.ts` | None |
+| **AGY-09** | Mod 4 | **P1** | `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE` | Official ERC-8021 Attribution Engine & Celo SDK Integration | `src/server/services/celoAttributionService.ts`, `src/server/config/attribution.ts` | None |
+| **AGY-04-01** | Mod 4.1 | **P1** | `COMPLETED_PENDING_REVIEW` | Registration URI Substitution Prevention & Base URL Validation (DEF-49) | `src/server/app.ts`, `src/server/config.ts` | AGY-09 |
+| **AGY-04-02** | Mod 4.1 | **P1** | `COMPLETED_PENDING_REVIEW` | RPC Method Allowlist Classification & State-Changing Isolation (DEF-50) | `src/server/services/celoAttributionService.ts` | AGY-09 |
+| **AGY-04-03** | Mod 4.1 | **P1** | `COMPLETED_PENDING_REVIEW` | Calldata Validation Fail-Closed & Attribution Merge Safety (DEF-51, DEF-54) | `src/server/services/celoAttributionService.ts` | AGY-09 |
+| **AGY-04-04** | Mod 4.1 | **P2** | `COMPLETED_PENDING_REVIEW` | Official Agent Wallet Invariant & Structured Read-Only RPC Guard (DEF-52, DEF-53) | `src/server/config/attribution.ts`, `src/server/providers/chainstack.ts` | AGY-09 |
+| **AGY-04-05** | Mod 4.1 | **P2** | `COMPLETED_PENDING_REVIEW` | Comprehensive Regression Verification & Release Evidence (DEF-55) | Governance docs, `tests/erc8021.test.ts` | AGY-04-01..04 |
 | **AGY-10** | Mod 5 | **P1** | `USER_INPUT_REQUIRED` | Update Public Base URL in ERC-8004 Metadata Generation | `src/server/config.ts`, `src/server/services/celoAttributionService.ts` | USR-05 |
 | **AGY-11** | Mod 5 | **P1** | `USER_INPUT_REQUIRED` | Verify Broadcasted ERC-8004 Registration Receipt & Token ID | `PROOF.md`, `GATE0_RESULTS.md` | USR-07 |
 | **AGY-12** | Mod 6 | **P1** | `READY_FOR_IMPLEMENTATION` | Audit Multi-Stage Dockerfile & Container Readiness | `Dockerfile`, `.dockerignore` | AGY-01 to AGY-05 |
@@ -173,42 +178,46 @@ This register contains all technical and operational tasks owned and executed di
 
 ## MODULE 4 — Official Attribution Engine & Celo SDK Integration (MOD-04)
 
-### TASK AGY-09: Official Specification and Source Audit
-- **Objective:** Complete source audit of `@celo/attribution-tags`, ERC-8021 specification, assigned tag `celo_235f6ef56f5b`, and complete transaction path classification.
-- **Findings:**
-  - Pinned SDK: `@celo/attribution-tags@0.5.0` (latest published).
-  - Assigned tag: `celo_235f6ef56f5b`. Documented that `codeFromRepo('Harshal-Pande/openHackathonPS3')` yields `celo_655a3d2b2db2` due to standard repo hash derivation; assigned hackathon registration tag remains strictly authoritative.
-  - Architecture verified: RevertLens has zero outgoing transaction sender or wallet broadcast mechanisms; read-only investigator architecture strictly preserved.
-  - Identified DEF-46 (naive suffix concatenation without idempotency), DEF-47 (decentralized configuration), and DEF-48 (incomplete SDK wrapper methods).
-- **Status:** COMPLETED.
-
-### TASK AGY-10: Official SDK Integration and Attribution Utility
-- **Objective:** Centralize attribution configuration and implement complete SDK wrapper utility with Schema 0 wire format determinism and calldata preservation.
-- **Files Involved:** `src/server/config/attribution.ts`, `src/server/config.ts`, `src/server/services/celoAttributionService.ts`.
+### TASK AGY-09: Official Specification, SDK Integration & Request Classification
+- **Objective:** Complete source audit of `@celo/attribution-tags`, ERC-8021 specification, assigned tag `celo_235f6ef56f5b`, centralized attribution configuration, and request classification.
+- **Files Involved:** `src/server/config/attribution.ts`, `src/server/services/celoAttributionService.ts`, `tests/erc8021.test.ts`.
 - **Implementation:**
-  - Created `src/server/config/attribution.ts` declaring `OFFICIAL_CELO_ATTRIBUTION_TAG`, `EXPECTED_ATTRIBUTION_SUFFIX_HEX`, and `/^[a-z0-9_]{1,32}$/` validation.
-  - Implemented `appendAttribution()` with idempotent Schema 0 code merging and Schema 2 role preservation.
-  - Implemented `getConfiguredAttributionTag()`, `createAttributionSuffix()`, `decodeAttributionData()`, `hasExpectedAttribution()`, `verifyOnChainAttribution()`, and `getWalletClientExtension()`.
-- **Status:** COMPLETED.
+  - Pinned SDK: `@celo/attribution-tags@0.5.0`.
+  - Assigned tag: `celo_235f6ef56f5b` strictly authoritative.
+  - Implemented `CeloAttributionService`, `appendAttribution()`, `classifyOperation()`, and viem extensions.
+  - Resolved DEF-46, DEF-47, DEF-48.
+- **Status:** `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE`.
 
-### TASK AGY-11: Transaction Coverage and Request Classification
-- **Objective:** Classify all application requests into Category A (Outgoing EVM transactions), Category B (Read-only RPC), Category C (HTTP x402 Buy payments), and Category D (Internal operations), and enforce strict exclusion of read-only and HTTP payment paths from attribution suffixes.
-- **Files Involved:** `src/server/services/celoAttributionService.ts`, `src/server/app.ts`.
-- **Implementation:**
-  - Implemented `classifyOperation()` covering 24 distinct operation strings across Categories A, B, C, D.
-  - Enforced `assertReadOnlyRpcUntagged()` rejecting any injection of `ERC_8021_MARKER` into `eth_call`, `eth_getTransactionReceipt`, `debug_traceTransaction`, etc.
-  - Maintained complete separation between HTTP x402 Buy payment flows and EVM transaction attribution.
-- **Status:** COMPLETED.
+---
 
-### TASK AGY-12: Testing, Regression and Verification Evidence
-- **Objective:** Create and execute deterministic test suite covering tag validation, encoding vectors, calldata preservation, idempotency, caller immutability, request classification, viem client extensions, and on-chain verification.
-- **Files Involved:** `tests/erc8021.test.ts`, `tests/attribution.test.ts`.
-- **Results:**
-  - `tests/erc8021.test.ts`: 63/63 tests passing (100% green).
-  - `tests/attribution.test.ts`: 11/11 tests passing (100% green).
-  - Full suite (`npm test`): 21 test files, 420/420 tests passing (100% green).
-- **Status:** COMPLETED.
+## MODULE 4.1 — Security Remediation & Release Gate (MOD-04.1)
 
-### TASK AGY-13: Documentation, Git Release and Snapshot
-- **Objective:** Update master defect register, roadmap, audit, changelog, and test results; commit and push to remote `main`; generate fresh Gitingest snapshot.
-- **Status:** COMPLETED.
+### TASK AGY-04-01: Registration URI Hardening & Base URL Validation (DEF-49)
+- **Objective:** Eliminate arbitrary `agentURI` public query overrides and enforce canonical metadata URL validation.
+- **Files Involved:** `src/server/app.ts`, `src/server/config.ts`, `tests/erc8021.test.ts`.
+- **Implementation:** Removed public `query.agentURI` parameter; derived metadata URI strictly from validated configuration (`${PUBLIC_BASE_URL}/api/agent/metadata`). Added `validatePublicBaseUrl()` requiring HTTPS and rejecting credentials, localhost, loopback, and private IPv4/IPv6 ranges in production.
+- **Status:** `COMPLETED_PENDING_REVIEW`.
+
+### TASK AGY-04-02: RPC Method Allowlist Classification & State-Changing Isolation (DEF-50)
+- **Objective:** Eliminate broad prefix matching (`eth_*`, `debug_*`) and explicitly classify state-mutating transaction methods.
+- **Files Involved:** `src/server/services/celoAttributionService.ts`, `tests/erc8021.test.ts`.
+- **Implementation:** Replaced prefix matching with explicit allowlists for Category A (`eth_sendTransaction`, `eth_sendRawTransaction`, `wallet_sendCalls`, `writeContract`, etc.), Category B (read-only RPC queries), Category C (HTTP payment), and Category D (internal). Unrecognized methods fail closed to `CATEGORY_UNKNOWN`.
+- **Status:** `COMPLETED_PENDING_REVIEW`.
+
+### TASK AGY-04-03: Calldata Validation Fail-Closed & Attribution Merge Safety (DEF-51, DEF-54)
+- **Objective:** Fail closed on malformed calldata and prevent silent omission of official hackathon attribution.
+- **Files Involved:** `src/server/services/celoAttributionService.ts`, `tests/erc8021.test.ts`.
+- **Implementation:** Validates calldata hex format strictly (even length, `0x` prefix, hex characters). Merging fails closed on errors. Schema 2 role-based calldata lacking the hackathon tag throws typed `SCHEMA_2_MERGE_PROHIBITED` rather than silently omitting attribution.
+- **Status:** `COMPLETED_PENDING_REVIEW`.
+
+### TASK AGY-04-04: Official Agent Wallet Invariant & Structured Read-Only RPC Guard (DEF-52, DEF-53)
+- **Objective:** Prevent wallet address drift in production and enforce recursive payload inspection on read-only RPC methods.
+- **Files Involved:** `src/server/config/attribution.ts`, `src/server/config.ts`, `src/server/providers/chainstack.ts`, `tests/erc8021.test.ts`.
+- **Implementation:** Added `validateAgentWalletAddress()` strictly matching `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` in production. Upgraded `assertReadOnlyRpcUntagged()` with bounded recursive traversal (depth 10, nodes 500) and circular reference detection. Integrated guard directly into `ChainstackProvider.callRpc()`.
+- **Status:** `COMPLETED_PENDING_REVIEW`.
+
+### TASK AGY-04-05: Comprehensive Regression Verification & Release Evidence (DEF-55)
+- **Objective:** Execute full verification matrix, update governance documents without task ID collisions, and produce release evidence.
+- **Files Involved:** `MASTER_DEFECT_REGISTER.md`, `ANTIGRAVITY_TASK_REGISTER.md`, `MASTER_EXECUTION_ROADMAP.md`, `MASTER_CHANGELOG.md`, `TEST_RESULTS.md`, `README.md`, `SECURITY.md`.
+- **Results:** 458/458 tests passing across all 21 test files (100% green). Full typecheck and build green. Route verification (36/36 scenarios) and CDP E2E passing.
+- **Status:** `COMPLETED_PENDING_REVIEW`.

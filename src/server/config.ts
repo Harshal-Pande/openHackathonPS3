@@ -4,7 +4,8 @@ import { validateScryptHashFormat } from './auth/passwordHasher.js';
 import {
   OFFICIAL_CELO_ATTRIBUTION_TAG,
   OFFICIAL_AGENT_WALLET_ADDRESS,
-  validateAttributionTag
+  validateAttributionTag,
+  validateAgentWalletAddress
 } from './config/attribution.js';
 
 dotenv.config();
@@ -18,6 +19,86 @@ export const PLACEHOLDER_OPERATOR_HASH = 'REPLACE_WITH_SCRYPT_HASH';
 export const TEST_OPERATOR_PASSWORD = 'test-operator-password';
 export const TEST_OPERATOR_HASH =
   'scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=';
+
+export interface BaseUrlValidationResult {
+  valid: boolean;
+  normalized?: string;
+  reason?: string;
+}
+
+/**
+ * Validates and normalizes PUBLIC_BASE_URL (DEF-49).
+ * In production:
+ * - Must be an absolute HTTPS URL.
+ * - Must not contain embedded credentials (username/password).
+ * - Must not be localhost, loopback, or private-network IP ranges.
+ * In development/test:
+ * - Accepts http:// and https:// including localhost.
+ */
+export function validatePublicBaseUrl(rawUrl: unknown, isProduction: boolean = false): BaseUrlValidationResult {
+  if (typeof rawUrl !== 'string' || rawUrl.trim().length === 0) {
+    return { valid: false, reason: 'PUBLIC_BASE_URL must be a non-empty string.' };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl.trim());
+  } catch {
+    return { valid: false, reason: `PUBLIC_BASE_URL '${rawUrl}' is not a valid absolute URL.` };
+  }
+
+  // Reject embedded credentials
+  if (parsed.username || parsed.password) {
+    return { valid: false, reason: 'PUBLIC_BASE_URL must not contain embedded username or password credentials.' };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  if (isProduction) {
+    if (parsed.protocol !== 'https:') {
+      return { valid: false, reason: `PUBLIC_BASE_URL in production must use https: protocol, got '${parsed.protocol}'.` };
+    }
+
+    // Check localhost / loopback
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '[::1]' ||
+      hostname.endsWith('.localhost')
+    ) {
+      return { valid: false, reason: `PUBLIC_BASE_URL in production cannot be localhost or loopback address '${hostname}'.` };
+    }
+
+    // Check private network IP ranges
+    const isPrivateIpv4 =
+      /^10\./.test(hostname) ||
+      /^192\.168\./.test(hostname) ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+      /^169\.254\./.test(hostname) ||
+      hostname === '0.0.0.0';
+
+    const isPrivateIpv6 =
+      hostname.startsWith('fc') ||
+      hostname.startsWith('fd') ||
+      hostname.startsWith('fe80');
+
+    if (isPrivateIpv4 || isPrivateIpv6) {
+      return { valid: false, reason: `PUBLIC_BASE_URL in production cannot be a private network or link-local address '${hostname}'.` };
+    }
+  } else {
+    // In dev / test, accept http and https
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { valid: false, reason: `PUBLIC_BASE_URL must use http: or https: protocol, got '${parsed.protocol}'.` };
+    }
+  }
+
+  // Normalize: strip trailing slashes, preserve origin + pathname without trailing slash
+  const cleanPathname = parsed.pathname.replace(/\/+$/, '');
+  const normalized = `${parsed.origin}${cleanPathname}`;
+
+  return { valid: true, normalized };
+}
 
 const booleanField = z
   .union([
@@ -160,6 +241,18 @@ function enforceProductionInvariants(config: AppConfig): void {
   const tagValidation = validateAttributionTag(config.CELO_ATTRIBUTION_TAG);
   if (!tagValidation.valid) {
     errors.push(`CELO_ATTRIBUTION_TAG is invalid: ${tagValidation.reason}`);
+  }
+
+  // Validate agent wallet address in production (DEF-53)
+  const walletValidation = validateAgentWalletAddress(config.AGENT_WALLET_ADDRESS, true);
+  if (!walletValidation.valid) {
+    errors.push(`AGENT_WALLET_ADDRESS is invalid: ${walletValidation.reason}`);
+  }
+
+  // Validate public base URL in production (DEF-49)
+  const urlValidation = validatePublicBaseUrl(config.PUBLIC_BASE_URL, true);
+  if (!urlValidation.valid) {
+    errors.push(`PUBLIC_BASE_URL is invalid: ${urlValidation.reason}`);
   }
 
   if (errors.length > 0) {

@@ -1,3 +1,5 @@
+import { CeloAttributionService } from '../services/celoAttributionService.js';
+
 export interface NormalizedTransaction {
   hash: string;
   blockNumber: number | null;
@@ -74,8 +76,12 @@ export class ChainstackProvider {
 
   /**
    * Safe JSON-RPC caller with retry on transient network errors and strict URL redaction.
+   * Intercepts and guards read-only RPC methods against illicit ERC-8021 marker injection (DEF-52).
    */
   public async callRpc<T = unknown>(method: string, params: unknown[] = []): Promise<T> {
+    // Enforce read-only RPC isolation at the provider gateway boundary
+    CeloAttributionService.assertReadOnlyRpcUntagged(method, params);
+
     if (!this.isConfigured()) {
       throw new ChainstackProviderError(
         'Chainstack Celo RPC URL is not configured. Set CHAINSTACK_CELO_MAINNET_RPC_URL in .env',

@@ -998,3 +998,71 @@ Following the complete specification and source audit of the repository and the 
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
 - **On-Chain Verification Status:** `PENDING_LIVE_PROOF` (no on-chain transaction has been broadcast yet; ready for Module 5 registration).
+
+---
+
+## Phase 22 — Module 4.1: Attribution Security Remediation & Release Gate (MOD-04.1 / DEF-49 through DEF-55)
+**Date:** 2026-11-08
+**Baseline Commit:** `a1366497e052dc26f58a37fd662f6d1e03f048d5`
+**Scope:** Remediation of 7 security and governance defects identified during independent review of MOD-04: removal of public registration URI substitution query parameters, explicit allowlist classification of state-changing EVM RPC methods, fail-closed calldata validation on malformed inputs, recursive bounded inspection of structured read-only RPC payloads with gateway boundary enforcement, official agent wallet invariant enforcement in production, strict Schema 2 refusal policy to prevent silent omission of hackathon attribution, and reconciliation of governance task tracking.
+
+### 1. Summary of Changes
+Following an independent audit of the MOD-04 implementation snapshot by ChatGPT, 7 findings were addressed and verified:
+
+1. **DEF-49: Registration URI Substitution Prevention & Base URL Security (P1):**
+   - **Root Cause:** `GET /api/agent/erc8004-registration-tx` read `query.agentURI` directly from incoming query parameters with a fallback to config, allowing public callers to forge registration calldata pointing to arbitrary metadata URIs.
+   - **Remediation:** Removed public `query.agentURI` parameter in `src/server/app.ts`. The route now constructs the registration URI exclusively from application configuration: `${PUBLIC_BASE_URL}/api/agent/metadata`.
+   - Added `validatePublicBaseUrl()` in `src/server/config.ts` enforcing: absolute HTTPS URL in production; rejection of embedded credentials (username/password); rejection of `localhost`, loopback, and private IPv4 (`10.*`, `172.16-31.*`, `192.168.*`, `169.254.*`) or IPv6 (`fc*`, `fd*`, `fe80*`) addresses in production; preservation of `http://localhost` only in development/test; and exact single-pass trailing slash normalization to prevent double slashes in service endpoints.
+   - Added regression tests in `tests/erc8021.test.ts` verifying that `?agentURI=https://attacker.example/metadata` cannot influence the returned payload and that ABI-decoded registration calldata strictly encodes the canonical metadata URL.
+
+2. **DEF-50: Explicit JSON-RPC Method Allowlist & State-Changing Isolation (P1):**
+   - **Root Cause:** `classifyOperation()` used a broad prefix rule (`op.startsWith('eth_') || op.startsWith('debug_')`) to classify calls as read-only, which inadvertently misclassified state-changing methods `eth_sendTransaction` and `eth_sendRawTransaction` as read-only and untagged.
+   - **Remediation:** Completely removed broad prefix matching. Implemented explicit allowlists:
+     - **Category A (Outgoing State-Mutating EVM Transactions):** `sendTransaction`, `writeContract`, `eth_sendTransaction`, `eth_sendRawTransaction`, `wallet_sendCalls`, `eth_signTransaction`, `personal_sendTransaction`, `prepareTaggedTransaction`, `buildErc8004RegistrationTransaction`, `native_transfer`, `erc20_transfer`. (`shouldAddAttribution: true`).
+     - **Category B (Read-Only RPC Queries):** `eth_call`, `eth_getTransactionReceipt`, `eth_getTransactionByHash`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_blockNumber`, `eth_chainId`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getLogs`, `eth_estimateGas`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `eth_getTransactionCount`, `debug_traceTransaction`, `debug_traceBlockByNumber`, `debug_traceBlockByHash`, `debug_traceCall`, `ChainstackProvider`. (`shouldAddAttribution: false`).
+     - **Category C (HTTP x402 Buy Payments):** `buy_cli`, `buy_whoami`, `x402_payment`, `cencori_chat_completions`, `cencori_quote`, `cencori_execute`, `http_402_challenge`. (`shouldAddAttribution: false`).
+     - **Category D (Internal Operations):** `sqlite_persist`, `sqlite_write`, `password_scrypt`, `session_hmac`, `report_generate`, `report_export`, `export_csv`, `auth_rate_limit`, `operator_login`, `investigation_cache`, `internal_api`. (`shouldAddAttribution: false`).
+     - **Category Unknown:** Any unlisted operation fails closed to `CATEGORY_UNKNOWN` with no assumption of safety (`shouldAddAttribution: false`).
+
+3. **DEF-51: Fail-Closed Calldata Validation (P2):**
+   - **Root Cause:** `appendAttribution()` permitted arbitrary non-hex strings or unprefixed inputs, silently falling back to `'0x'` and discarding non-empty caller calldata.
+   - **Remediation:** Enforced strict hexadecimal input validation in `src/server/services/celoAttributionService.ts`:
+     - Accepts `undefined` only where no calldata is intended (normalized to `'0x'`).
+     - Accepts empty string `''` and `'0x'` as empty calldata `'0x'`.
+     - Strictly requires `0x` prefix on all non-empty strings.
+     - Strictly rejects odd-length hexadecimal strings.
+     - Strictly rejects non-hexadecimal characters.
+     - Throws typed `AttributionError` with code `INVALID_CALLDATA` on any malformed input without silent normalization or truncation.
+     - Preserves valid calldata byte-for-byte as a prefix.
+
+4. **DEF-52: Structured Read-Only RPC Parameter Guard & Provider Boundary (P2):**
+   - **Root Cause:** `assertReadOnlyRpcUntagged()` checked `typeof payload === 'string'`, failing to inspect JSON-RPC parameters that are structured as nested arrays or objects.
+   - **Remediation:** Upgraded `assertReadOnlyRpcUntagged()` in `src/server/services/celoAttributionService.ts` to perform recursive bounded inspection:
+     - Traverses nested objects and arrays up to `MAX_DEPTH = 10` and `MAX_NODES = 500`.
+     - Detects `ERC_8021_MARKER` (`80218021802180218021802180218021`) case-insensitively anywhere in nested string properties.
+     - Implemented cycle detection using `Set<object>`, failing closed with `CIRCULAR_REFERENCE_DETECTED`.
+     - Fails closed with `PAYLOAD_INSPECTION_LIMIT_EXCEEDED` on excessive depth or node counts.
+     - Never mutates the examined payload.
+     - Wired the guard directly into the `ChainstackProvider.callRpc()` boundary in `src/server/providers/chainstack.ts` to guarantee gateway-level enforcement.
+
+5. **DEF-53: Official Agent Wallet Address Inviolability (P2):**
+   - **Root Cause:** `config.ts` allowed any valid 20-byte EVM address format in `AGENT_WALLET_ADDRESS`, permitting silent address drift from the hackathon-assigned wallet.
+   - **Remediation:** Implemented `validateAgentWalletAddress()` in `src/server/config/attribution.ts`. Enforced checksumming and strict case-insensitive equality to `OFFICIAL_AGENT_WALLET_ADDRESS` (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`) in production mode. `enforceProductionInvariants()` rejects any alternate address with an explicit configuration error.
+
+6. **DEF-54: Strict Attribution Merging & Schema 2 Refusal Policy (P1):**
+   - **Root Cause:** `appendAttribution()` silently returned untagged original calldata on merge exceptions, and returned Schema 2 calldata untouched even when the official hackathon tag was missing.
+   - **Remediation:** Made merge errors hard failures throwing typed `AttributionError`. Resolved the Schema 2 compliance policy: if calldata contains existing Schema 2 role-based attribution and lacks the official hackathon tag, `appendAttribution()` throws typed `AttributionError` with code `SCHEMA_2_MERGE_PROHIBITED`, refusing to silently omit the assigned hackathon tag or corrupt the Schema 2 role structure. Added final verification via `hasExpectedAttribution()` before returning.
+
+7. **DEF-55: Governance Task Register Re-alignment & Module Sequencing (P2):**
+   - **Root Cause:** Tasks AGY-10 through AGY-13 were previously reused for MOD-04, conflicting with tasks already assigned to Modules 5 and 6.
+   - **Remediation:** Reconciled `ANTIGRAVITY_TASK_REGISTER.md` by assigning unique identifiers `AGY-04-01` through `AGY-04-05` for MOD-04.1. Marked MOD-04 as `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE`. Updated `MASTER_EXECUTION_ROADMAP.md` establishing the explicit dependency chain `MOD-04 → MOD-04.1 → MOD-06 → MOD-05 → MOD-07 → MOD-08`. Kept MOD-03 live settlement gated on funding/approval and MOD-05 registration dependent on public deployment.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **21/21 test files, 458/458 tests passing** in ~13.8s (100% green; +38 new tests covering DEF-49 through DEF-54 across `tests/erc8021.test.ts` and `tests/config.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
+- **On-Chain Verification Status:** `PENDING_LIVE_PROOF` (no on-chain transaction has been broadcast yet; deferred to Module 5 registration following Module 6 deployment).
