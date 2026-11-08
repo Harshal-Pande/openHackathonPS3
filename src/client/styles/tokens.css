@@ -1,0 +1,20 @@
+:root {
+  color-scheme: dark;
+  --ink-950: #080C11; --ink-900: #0B1117; --ink-850: #0F1720;
+  --petrol-800: #122733; --petrol-750: #16303F; --petrol-700: #183341;
+  --petrol-600: #21465A; --border: #1F3646; --border-strong: #2E5368;
+  --text-1: #E9EEF1; --text-2: #9FB2BF; --text-3: #7D94A4; --text-on-accent: #0B1117;
+  --lens: #CDF545; --lens-hover: #DAFF5F; --lens-press: #B5DB2E;
+  --lens-subtle: rgba(205,245,69,0.12); --lens-line: rgba(205,245,69,0.45);
+  --fail: #F2555F; --fail-text: #FF8A91; --fail-bg: rgba(242,85,95,.12); --fail-line: rgba(242,85,95,.45);
+  --warn: #F0B429; --warn-text: #F5C75A; --warn-bg: rgba(240,180,41,.12); --warn-line: rgba(240,180,41,.45);
+  --ok: #3DD598; --ok-text: #6BE3B3; --ok-bg: rgba(61,213,152,.12); --ok-line: rgba(61,213,152,.45);
+  --info: #5BB0FF; --info-text: #8CC8FF; --info-bg: rgba(91,176,255,.12); --info-line: rgba(91,176,255,.45);
+  --font-sans: "Geist Variable", "Inter", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px;
+  --shadow-overlay: 0 8px 24px rgba(0,0,0,.45);
+  --t-fast: 120ms ease-out; --t-med: 200ms ease-out;
+  --topbar-h: 48px; --w-content: 960px; --w-report: 1280px;
+}

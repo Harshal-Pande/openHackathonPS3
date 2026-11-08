@@ -391,7 +391,8 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
       '.svg': 'image/svg+xml',
-      '.ico': 'image/x-icon'
+      '.ico': 'image/x-icon',
+      '.woff2': 'font/woff2'
     };
 
     server.get('/', async (req, reply) => {

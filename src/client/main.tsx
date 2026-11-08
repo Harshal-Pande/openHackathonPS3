@@ -1,3 +1,8 @@
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
+import './styles/tokens.css';
+import './styles/base.css';
+import './styles/components.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';

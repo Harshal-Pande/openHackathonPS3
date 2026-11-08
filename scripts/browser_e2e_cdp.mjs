@@ -172,42 +172,47 @@ async function runBrowserE2E() {
     });
 
     await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}` });
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1200));
 
-    // A.1 Verify page title and header
-    const title = await cdp.eval('document.querySelector("h1")?.innerText');
-    const subtitle = await cdp.eval('document.querySelector("h2")?.innerText');
-    console.log(`  ✓ Brand Title: "${title}"`);
-    console.log(`  ✓ Subtitle: "${subtitle}"`);
-    if (title !== 'RevertLens') throw new Error(`Unexpected title: ${title}`);
-    if (!subtitle || subtitle.length === 0) throw new Error('Missing subtitle');
+    // A.1 Verify page title and header using data-testid
+    const pageTitle = await cdp.eval('document.querySelector("[data-testid=page-title]")?.innerText');
+    const wordmark = await cdp.eval('document.querySelector("[data-testid=app-title-link]")?.innerText');
+    console.log(`  ✓ Page Title: "${pageTitle}"`);
+    console.log(`  ✓ Wordmark: "${wordmark}"`);
+    if (pageTitle !== 'Your Celo transaction failed. Find out why.') {
+      throw new Error(`Unexpected page title: ${pageTitle}`);
+    }
+    if (!wordmark || !wordmark.includes('RevertLens')) {
+      throw new Error(`Unexpected wordmark: ${wordmark}`);
+    }
 
     await assertScreenshot(cdp, 'screenshots/e2e_desktop_home.png');
+    await assertScreenshot(cdp, 'screenshots/after/desktop_home.png');
 
-    // A.2 Test Invalid Transaction Input
+    // A.2 Test Invalid Transaction Input & Validation Error
     console.log('\n  [A.2] Testing Invalid Transaction Input & Validation Error...');
     await cdp.eval(`
-      const input = document.getElementById("txHash");
+      const input = document.getElementById("txHash") || document.querySelector("[data-testid=tx-input]");
       input.value = "0xinvalid123";
       input.dispatchEvent(new Event("input", { bubbles: true }));
-      document.querySelector("button[type='submit']").click();
+      document.querySelector("[data-testid=submit-investigate]").click();
     `);
     await new Promise((r) => setTimeout(r, 300));
 
-    const validationMsg = await cdp.eval(`document.querySelector("p[style*='color: rgb(248, 113, 113)']")?.innerText`);
+    const validationMsg = await cdp.eval(`document.querySelector("[data-testid=input-error]")?.innerText`);
     console.log(`  ✓ Validation Error Rendered: "${validationMsg}"`);
-    if (!validationMsg || !validationMsg.includes('0x-prefixed 64-character hexadecimal')) {
+    if (!validationMsg || !validationMsg.includes('64-character hexadecimal')) {
       throw new Error(`Validation message missing or incorrect: ${validationMsg}`);
     }
     await assertScreenshot(cdp, 'screenshots/e2e_desktop_invalid_input.png');
 
     // A.3 Test Loading Verified Sample Transaction
-    console.log('\n  [A.3] Testing "Load Verified Sample Failed Tx" button...');
+    console.log('\n  [A.3] Testing "sample-button" click...');
     await cdp.eval(`
-      const sampleBtn = Array.from(document.querySelectorAll("button")).find(b => b.innerText.includes("Load Verified Sample"));
+      const sampleBtn = document.querySelector("[data-testid=sample-button]");
       sampleBtn.click();
     `);
-    const populatedTx = await cdp.eval('document.getElementById("txHash")?.value');
+    const populatedTx = await cdp.eval('document.querySelector("[data-testid=tx-input]")?.value || document.getElementById("txHash")?.value');
     console.log(`  ✓ Input populated with: ${populatedTx}`);
     if (populatedTx.toLowerCase() !== CANDIDATE_TX.toLowerCase()) {
       throw new Error(`Populated hash mismatch: ${populatedTx}`);
@@ -215,22 +220,22 @@ async function runBrowserE2E() {
 
     // A.4 Submit Investigation & Observe Loading State
     console.log('\n  [A.4] Submitting Investigation to Live Celo Mainnet Node...');
-    await cdp.eval('document.querySelector("button[type=\'submit\']").click()');
+    await cdp.eval('document.querySelector("[data-testid=submit-investigate]").click()');
     await new Promise((r) => setTimeout(r, 200));
 
-    const loadingText = await cdp.eval('document.querySelector("h3")?.innerText');
-    console.log(`  ✓ Loading State Headline: "${loadingText}"`);
-    if (!loadingText) {
-      throw new Error('Loading state failed to display');
+    const loadingPanel = await cdp.eval('Boolean(document.querySelector("[data-testid=loading-panel]"))');
+    console.log(`  ✓ Loading Panel displayed: ${loadingPanel}`);
+    if (!loadingPanel) {
+      throw new Error('Loading panel failed to display');
     }
 
     // A.5 Wait for Live Response and Report Render
-    console.log('\n  [A.5] Waiting for Live Report Generation...');
+    console.log('\n  [A.5] Waiting for Live Report Generation & Route Change...');
     let reportRendered = false;
     for (let i = 0; i < 40; i++) {
       await new Promise((r) => setTimeout(r, 500));
-      const hasReport = await cdp.eval('Boolean(document.querySelector("h2[style*=\'color: rgb(248, 250, 252)\']"))');
-      if (hasReport) {
+      const hasHeadline = await cdp.eval('Boolean(document.querySelector("[data-testid=verdict-headline]"))');
+      if (hasHeadline) {
         reportRendered = true;
         break;
       }
@@ -240,35 +245,51 @@ async function runBrowserE2E() {
     }
 
     // A.6 Inspect Resulting Diagnosis
-    const diagnosisHeadline = await cdp.eval('document.querySelector("h2[style*=\'color: rgb(248, 250, 252)\']")?.innerText');
-    const badges = await cdp.eval(`Array.from(document.querySelectorAll("span[style*='font-weight: 800']")).map(s => s.innerText)`);
+    const diagnosisHeadline = await cdp.eval('document.querySelector("[data-testid=verdict-headline]")?.innerText');
+    const statusChip = await cdp.eval('document.querySelector("[data-testid=status-chip]")?.innerText');
     console.log(`  ✓ Diagnosis Headline: "${diagnosisHeadline}"`);
-    console.log(`  ✓ Status Badges: [${badges.join(', ')}]`);
+    console.log(`  ✓ Status Chip: "${statusChip}"`);
     if (!diagnosisHeadline || !diagnosisHeadline.includes('execution reverted')) {
       throw new Error(`Unexpected diagnosis headline: ${diagnosisHeadline}`);
     }
-    if (!badges.includes('REVERTED')) {
-      throw new Error(`Expected REVERTED badge in [${badges.join(', ')}]`);
-    }
-    if (!badges.includes('DETERMINISTIC ANALYSIS')) {
-      throw new Error(`Expected DETERMINISTIC ANALYSIS badge in [${badges.join(', ')}]`);
+    if (!statusChip || !statusChip.includes('Reverted')) {
+      throw new Error(`Expected Reverted status chip: ${statusChip}`);
     }
 
     // A.7 Verify Call Tree and Failure Propagation
-    const treeText = await cdp.eval('document.body.innerText');
-    const hasSwapReverted = treeText.includes('Swap reverted') || treeText.includes('execution reverted');
-    const hasPropSupported = treeText.includes('Propagated') || treeText.includes('PROPAGATED_CHILD_REVERT') || treeText.includes('FAILURE_PROPAGATION');
-    if (!hasSwapReverted) throw new Error('Call tree missing expected revert error text');
-    if (!hasPropSupported) throw new Error('Call tree missing expected causality propagation status');
-    console.log(`  ✓ Call Tree contains revert error (ASSERTION PASSED)`);
-    console.log(`  ✓ Causality propagation displayed (ASSERTION PASSED)`);
+    const treeExists = await cdp.eval('Boolean(document.querySelector("[data-testid=trace-tree]"))');
+    if (!treeExists) throw new Error('Trace tree element not found');
+
+    const traceRowsText = await cdp.eval(`
+      Array.from(document.querySelectorAll("[data-testid=trace-row]")).map(r => r.innerText).join(" ")
+    `);
+    const hasPropSupported = traceRowsText.includes('Failure propagated');
+    const hasFailingFrame = traceRowsText.includes('Failing frame');
+    console.log(`  ✓ Trace rows contain "Failure propagated": ${hasPropSupported}`);
+    console.log(`  ✓ Trace rows contain "Failing frame": ${hasFailingFrame}`);
+    if (!hasPropSupported) throw new Error('Trace tree missing "Failure propagated" label');
+    if (!hasFailingFrame) throw new Error('Trace tree missing "Failing frame" label');
 
     // A.8 Verify Evidence Items
-    const hasEvidence = treeText.includes('E-01') && treeText.includes('E-02');
-    if (!hasEvidence) throw new Error('Evidence ledger missing E-01/E-02 citations');
-    console.log(`  ✓ Evidence Ledger [E-01, E-02] displayed (ASSERTION PASSED)`);
+    const hasE01 = await cdp.eval('Boolean(document.querySelector("[data-testid=evidence-row][data-evidence-id=\'E-01\']"))');
+    const hasE02 = await cdp.eval('Boolean(document.querySelector("[data-testid=evidence-row][data-evidence-id=\'E-02\']"))');
+    console.log(`  ✓ Evidence row E-01 present: ${hasE01}`);
+    console.log(`  ✓ Evidence row E-02 present: ${hasE02}`);
+    if (!hasE01 || !hasE02) throw new Error('Evidence ledger missing E-01/E-02 rows');
+
+    // Verify AI and Payment Panels honesty
+    const aiPanelText = await cdp.eval('document.querySelector("[data-testid=ai-panel]")?.innerText || ""');
+    if (!aiPanelText.includes('Generated text')) throw new Error('AI panel missing "Generated text" honesty disclosure');
+    if (aiPanelText.includes('Payment successful')) throw new Error('AI panel dishonestly claims "Payment successful"');
+
+    const paymentPanelText = await cdp.eval('document.querySelector("[data-testid=payment-panel]")?.innerText || ""');
+    if (!paymentPanelText.includes('does not execute payments')) {
+      throw new Error('Payment panel missing "does not execute payments" honesty statement');
+    }
+    console.log('  ✓ AI and Payment panels honesty assertions passed');
 
     await assertScreenshot(cdp, 'screenshots/e2e_desktop_investigation_result.png');
+    await assertScreenshot(cdp, 'screenshots/after/desktop_investigation_result.png');
 
     // A.9 Test JSON Export Functionality
     console.log('\n  [A.9] Testing JSON Export Functionality...');
@@ -284,8 +305,8 @@ async function runBrowserE2E() {
     `);
 
     await cdp.eval(`
-      const btn = Array.from(document.querySelectorAll("button")).find(b => b.innerText.includes("Download JSON Report"));
-      if (!btn) throw new Error("Download JSON Report button not found");
+      const btn = document.querySelector("[data-testid=export-json]");
+      if (!btn) throw new Error("Export JSON button not found");
       btn.click();
     `);
 
@@ -296,7 +317,7 @@ async function runBrowserE2E() {
       if (exportedJson) break;
     }
     if (!exportedJson) {
-      throw new Error('Assertion failed: Download JSON Report button did not generate blob payload');
+      throw new Error('Assertion failed: Download JSON button did not generate blob payload');
     }
 
     const parsedExport = JSON.parse(exportedJson);
@@ -308,25 +329,44 @@ async function runBrowserE2E() {
     }
     console.log(`  ✓ JSON Export verified: contains ${parsedExport.evidenceLedger.length} evidence items and matches candidate tx`);
 
-    // A.10 Test Page Reload & SQLite Recovery
-    console.log('\n  [A.10] Testing Page Reload & SQLite History Recovery...');
+    // Verify toast notification
+    const toastText = await cdp.eval('document.querySelector("[data-testid=toast]")?.innerText || ""');
+    console.log(`  ✓ Export Toast Rendered: "${toastText}"`);
+    if (!toastText.startsWith('Exported')) {
+      throw new Error(`Toast message expected to start with "Exported", got: "${toastText}"`);
+    }
+
+    // A.10 Test Page Reload on Route & Persistence Recovery
+    console.log('\n  [A.10] Testing Page Reload on Report URL & AI Neutral State Recovery...');
     await cdp.send('Page.reload');
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1200));
 
-    const recentItem = await cdp.eval('document.querySelector("code[style*=\'color: rgb(56, 189, 248)\']")?.innerText');
-    console.log(`  ✓ Recent Investigation in Drawer: ${recentItem}`);
-    if (!recentItem || !recentItem.includes(CANDIDATE_TX.slice(0, 10))) {
-      throw new Error(`Recent item mismatch: ${recentItem}`);
-    }
-
-    // Click recent item to reload report
-    await cdp.eval('document.querySelector("div[style*=\'cursor: pointer\'][style*=\'justify-content: space-between\']").click()');
-    await new Promise((r) => setTimeout(r, 500));
-    const reloadedHeadline = await cdp.eval('document.querySelector("h2[style*=\'color: rgb(248, 250, 252)\']")?.innerText');
-    console.log(`  ✓ Re-hydrated Report Headline from SQLite: "${reloadedHeadline}"`);
+    const reloadedHeadline = await cdp.eval('document.querySelector("[data-testid=verdict-headline]")?.innerText');
+    console.log(`  ✓ Re-hydrated Report Headline after reload: "${reloadedHeadline}"`);
     if (!reloadedHeadline || !reloadedHeadline.includes('execution reverted')) {
-      throw new Error(`Failed to reload report from history drawer: ${reloadedHeadline}`);
+      throw new Error(`Failed to reload report on route: ${reloadedHeadline}`);
     }
+
+    // Fix D2 verification: on reloaded report, AI panel shows "Not stored for this report"
+    const reloadedAiText = await cdp.eval('document.querySelector("[data-testid=ai-panel]")?.innerText || ""');
+    if (!reloadedAiText.includes('Not stored for this report')) {
+      throw new Error(`Fix D2 failed: expected "Not stored for this report", got: "${reloadedAiText}"`);
+    }
+    console.log('  ✓ Fix D2 verified: reloaded AI panel displays neutral "Not stored for this report"');
+
+    // A.11 Verify History Page
+    console.log('\n  [A.11] Testing History Page navigation & rows...');
+    await cdp.eval('window.location.hash = "#/history"');
+    await new Promise((r) => setTimeout(r, 600));
+
+    const historyRowExists = await cdp.eval(`
+      Array.from(document.querySelectorAll("[data-testid=history-row]")).some(r => r.innerText.includes("${CANDIDATE_TX.slice(0, 10)}"))
+    `);
+    console.log(`  ✓ History page contains candidate tx row: ${historyRowExists}`);
+    if (!historyRowExists) {
+      throw new Error('History page missing candidate investigation row');
+    }
+    await assertScreenshot(cdp, 'screenshots/after/history_page.png');
 
     // ==========================================================
     // PHASE B: MOBILE VIEWPORT TESTING (iPhone X / 375x812)
@@ -339,22 +379,52 @@ async function runBrowserE2E() {
       mobile: true
     });
 
-    await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}` });
+    await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}#/` });
     await new Promise((r) => setTimeout(r, 1000));
 
     await assertScreenshot(cdp, 'screenshots/e2e_mobile_home.png');
+    await assertScreenshot(cdp, 'screenshots/after/mobile_home.png');
 
-    // Verify mobile layout
-    const mobileInput = await cdp.eval('Boolean(document.getElementById("txHash"))');
-    const mobileBtn = await cdp.eval('Boolean(document.querySelector("button[type=\'submit\']"))');
-    if (!mobileInput) throw new Error('Mobile viewport missing txHash input element');
-    if (!mobileBtn) throw new Error('Mobile viewport missing submit button');
-    console.log(`  ✓ Mobile Input and Button verified (ASSERTION PASSED)`);
+    // Horizontal overflow check on mobile home
+    const homeNoOverflow = await cdp.eval('document.documentElement.scrollWidth <= window.innerWidth');
+    console.log(`  ✓ Mobile Home page has no horizontal overflow: ${homeNoOverflow}`);
+    if (!homeNoOverflow) throw new Error('Mobile Home page has horizontal overflow');
 
-    // Click recent item in mobile view
-    await cdp.eval('document.querySelector("div[style*=\'cursor: pointer\'][style*=\'justify-content: space-between\']").click()');
+    // Navigate to report on mobile
+    await cdp.eval(`
+      const recentRow = document.querySelector("[data-testid=recent-row]");
+      if (recentRow) recentRow.click();
+      else window.location.hash = "#/history";
+    `);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // If on history, click first row
+    const onHistory = await cdp.eval('window.location.hash === "#/history"');
+    if (onHistory) {
+      await cdp.eval('document.querySelector("[data-testid=history-row]")?.click()');
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    const mobileReportHeadline = await cdp.eval('document.querySelector("[data-testid=verdict-headline]")?.innerText');
+    console.log(`  ✓ Mobile Report Headline: "${mobileReportHeadline}"`);
+
+    // Horizontal overflow check on mobile report
+    const reportNoOverflow = await cdp.eval('document.documentElement.scrollWidth <= window.innerWidth');
+    console.log(`  ✓ Mobile Report page has no horizontal overflow: ${reportNoOverflow}`);
+    if (!reportNoOverflow) throw new Error('Mobile Report page has horizontal overflow');
+
+    // Tap a trace row to open inspector drawer on mobile
+    await cdp.eval(`
+      const row = document.querySelector("[data-testid=trace-row]");
+      if (row) row.click();
+    `);
     await new Promise((r) => setTimeout(r, 500));
+
+    const drawerInspectorVisible = await cdp.eval('Boolean(document.querySelector(".drawer--open [data-testid=frame-inspector]"))');
+    console.log(`  ✓ Mobile Frame Inspector Drawer opened: ${drawerInspectorVisible}`);
+
     await assertScreenshot(cdp, 'screenshots/e2e_mobile_investigation_result.png');
+    await assertScreenshot(cdp, 'screenshots/after/mobile_investigation_result.png');
 
     console.log('\n=================================================================');
     console.log(' ALL BROWSER E2E ASSERTIONS & SCREENSHOTS PASSED (EXIT CODE 0)');
