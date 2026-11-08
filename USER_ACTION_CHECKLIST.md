@@ -61,7 +61,7 @@
   - `DATABASE_PATH=/app/data/revertlens.sqlite`
   - `CHAINSTACK_CELO_MAINNET_RPC_URL=<YOUR_CHAINSTACK_HTTPS_ENDPOINT>` (obtain from your Chainstack dashboard)
   - `SESSION_SECRET=<GENERATE_A_RANDOM_32_CHAR_STRING>` (e.g., run `openssl rand -hex 32` or generate 32+ random characters)
-  - `OPERATOR_PASSWORD_HASH=<GENERATED_SCRYPT_HASH>` (generate locally via `node scripts/generate_password_hash.mjs`; enter the encoded `scrypt$v=1$...` hash, NEVER the plaintext password)
+  - `OPERATOR_PASSWORD_HASH=<GENERATED_SCRYPT_HASH>` (generate locally via `node scripts/generate_operator_hash.mjs`; enter the encoded `scrypt$v=1$...` hash, NEVER the plaintext password)
   - `RATE_LIMIT_INVESTIGATIONS_MAX=10`
   - `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS=60000`
   - `TRUST_PROXY=true` (if deploying behind Render/Railway HTTPS reverse proxy)

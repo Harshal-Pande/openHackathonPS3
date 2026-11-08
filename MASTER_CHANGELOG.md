@@ -1414,3 +1414,46 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Static Typing & Build:** `npm run typecheck` returned 0 errors; `npm run build` cleanly compiled production bundles.
 - **Zero-Spend Invariant Enforced:** Spend across all project phases remains strictly **$0.00**. No cloud resources or paid features provisioned.
 - **Deployment Readiness Decision:** `READY_WITH_LIMITATIONS` (Approved for operator cloud account connection and deployment).
+
+---
+
+## Phase 26.3 — MOD-06.1 Docker Runtime Verification and Closure
+**Date:** 2026-11-09<br/>
+**Baseline Commit:** `198e410fd1531d4cc578e923d309d172526fc923`<br/>
+**Scope:** Real Docker multi-stage image build, container execution under Docker Desktop WSL2 Linux engine, published endpoint verification, health check probe transition, non-root user audit, SQLite named-volume data persistence across container lifecycle recreation, graceful shutdown signal handling, and release closure.
+
+### 1. Docker Multi-Stage Image Build
+- **Engine Context:** Docker Desktop 4.98.0, Docker Engine 29.9.2 (`desktop-linux`, `linux/amd64`).
+- **Build Command:** `docker build --pull -t revertlens:mod-06-1 .`
+- **Builder Stage:** Verified Node.js 22 LTS Alpine (`node:22-alpine`) multi-stage compilation. Ran full `npm ci`, compiled Fastify TypeScript backend (`tsc -p tsconfig.server.json`), and bundled Vite client (`vite build`).
+- **Runner Stage:** Clean `node:22-alpine` container with `npm ci --omit=dev`, compiled `dist/` copied, non-root `node:node` permissions set on `/app/data`.
+- **Image ID:** `7cc29bf61c0c539e9518659d064fbe37c69649689e61f1a3fe8bc907f95ececc` (`revertlens:mod-06-1`, 717 MB uncompressed, 123 MB content size).
+- **Image Inspection:**
+  - `User`: `node` (UID 1000).
+  - `Cmd`: `["node", "dist/server/index.js"]`.
+  - `Healthcheck`: `node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(...)"`.
+
+### 2. Live Container Execution & Published Endpoints
+- **Container Execution:** Started container `revertlens-mod061` mapped to port `3000:3000` with named volume `revertlens-mod061-data` mounted at `/app/data` using ephemeral secure test configuration.
+- **Published Endpoints Verified:**
+  - `GET http://localhost:3000/api/health` -> HTTP 200, valid JSON response (`status: "ok"`, `chainId: 42220`, `buyReady: false`).
+  - `GET http://localhost:3000/` -> HTTP 200, React frontend SPA HTML shell with split vendor script preloads.
+- **Docker Health Check:** Container status transitioned to `Up 6 seconds (healthy)`.
+- **Non-Root Execution:** Confirmed `docker exec revertlens-mod061 whoami` returns `node` (`uid=1000(node) gid=1000(node)`).
+
+### 3. Named-Volume Data Persistence Across Container Recreation
+- **Persistence Marker Creation:** Created marker `/app/data/mod061-persistence-proof.txt` with content `mod061-persistence-proof-verified` under unprivileged user `node`.
+- **Graceful Container Teardown:** Executed `docker stop --timeout 15 revertlens-mod061`, cleanly exiting with code 0 and triggering Fastify `onClose` database flush. Destroyed container with `docker rm revertlens-mod061`.
+- **Container Recreation:** Spun up a new container instance (`cfe479ff3e3f...`) mounting the same named volume `revertlens-mod061-data:/app/data`.
+- **Persistence Verification:**
+  - Verified marker file survived: `mod061-persistence-proof-verified`.
+  - Verified `revertlens.sqlite` (98,304 bytes) persisted intact and was cleanly reopened by the new container.
+  - Recreated container reached `healthy` status and answered `/api/health` with HTTP 200.
+
+### 4. Teardown & Quality Gates
+- Stopped and removed container, deleted test volume, and deleted ephemeral configuration file with zero leaked credentials.
+- **Automated Test Suite:** `npm test` passed with **23/23 test suites, 516/516 tests passing (100% green)** in 14.6s.
+- **Static Typing & Build:** `npm run typecheck` returned 0 errors; `npm run build` compiled production bundles in 4.23s with zero warnings.
+- **Gitingest Integrity:** Passed all 17 independent snapshot and manifest verification checks.
+- **Zero-Spend Invariant Enforced:** Spend across all operations remains strictly **$0.00**. No cloud services provisioned; no on-chain transactions broadcast.
+- **Milestone State:** `MOD-06.1 — COMPLETED`. Ready for `MOD-06.2` public deployment authorization.

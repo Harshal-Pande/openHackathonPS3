@@ -271,3 +271,106 @@ Once deployed, provide the assigned domain to Antigravity to run the live verifi
 - `GET https://<YOUR_ASSIGNED_DOMAIN>/api/health`
 - `GET https://<YOUR_ASSIGNED_DOMAIN>/api/agent/metadata`
 - `GET https://<YOUR_ASSIGNED_DOMAIN>/`
+
+---
+
+## 9. Real Docker Runtime Verification Evidence (MOD-06.1 Execution)
+
+**Execution Date:** 2026-11-09<br/>
+**Execution Environment:** Windows PowerShell, Docker Desktop 4.98.0, Docker Engine 29.9.2 (`desktop-linux`, `linux/amd64`), Node.js 22 LTS<br/>
+**Verification Level:** `LOCAL` (Real container runtime & volume lifecycle execution; $0.00 spent)
+
+### 9.1 Docker Image Build
+- **Build Command:** `docker build --pull -t revertlens:mod-06-1 .`
+- **Builder Stage:** `node:22-alpine` multi-stage build, full `npm ci`, TypeScript backend compilation (`tsc -p tsconfig.server.json`), Vite client bundle (`vite build`).
+- **Runner Stage:** Clean `node:22-alpine` image with `npm ci --omit=dev`, compiled `dist/` copied, non-root user permissions initialized.
+- **Image ID:** `7cc29bf61c0c539e9518659d064fbe37c69649689e61f1a3fe8bc907f95ececc`
+- **Image Tag:** `revertlens:mod-06-1`
+- **Image Size:** 717 MB uncompressed (content size: 123 MB)
+- **Container Configuration Inspection (`docker image inspect`):**
+  - **User:** `node` (UID 1000)
+  - **Cmd:** `["node", "dist/server/index.js"]`
+  - **Healthcheck:** `fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health')` (Interval: 30s, Timeout: 5s, StartPeriod: 10s, Retries: 3)
+
+### 9.2 Container Runtime Execution
+- **Persistent Volume:** Created Docker named volume `revertlens-mod061-data`.
+- **Run Command:**
+  ```bash
+  docker run -d \
+    --name revertlens-mod061 \
+    -p 3000:3000 \
+    -v revertlens-mod061-data:/app/data \
+    --env-file <SECURE_TEMP_CONFIG> \
+    revertlens:mod-06-1
+  ```
+- **Container ID:** `4fb0a5176be8240f34c56cf4193abcfa114f4c275c5b9794f1e4508197550b7d`
+- **Container Health State:** Transitioned to `Up 6 seconds (healthy)`
+- **Non-Root Execution Verified:**
+  - `docker exec revertlens-mod061 whoami` -> `node`
+  - `docker exec revertlens-mod061 id` -> `uid=1000(node) gid=1000(node) groups=1000(node)`
+- **Data Directory Permissions:**
+  - `/app/data` owned by `node:node` (`drwxr-xr-x 2 node node`)
+  - SQLite files created: `revertlens.sqlite`, `revertlens.sqlite-shm`, `revertlens.sqlite-wal`
+
+### 9.3 Published Endpoints Verification
+- **Health Check (`GET http://localhost:3000/api/health`):**
+  - **HTTP Status:** `200 OK`
+  - **Response Payload:**
+    ```json
+    {
+      "data": {
+        "status": "ok",
+        "version": "0.1.0",
+        "chainId": 42220,
+        "featureFlags": {
+          "buyEnabled": false,
+          "cencoriEnabled": false,
+          "chainstackConfigured": false
+        },
+        "buyReady": false
+      },
+      "error": null,
+      "requestId": "574da02c-0b1f-47c8-8b42-dbc91ee1cfe8"
+    }
+    ```
+- **Frontend SPA Shell (`GET http://localhost:3000/`):**
+  - **HTTP Status:** `200 OK`
+  - **Content-Type:** `text/html; charset=utf-8`
+  - **HTML Title:** `<title>RevertLens - Celo transaction failure investigation</title>`
+  - **Script Preloads:** Assets cleanly loaded from `/assets/index-Bn8c6ORW.js` and split vendor chunks.
+
+### 9.4 SQLite Named-Volume Persistence Across Container Lifecycle
+1. **Proof Marker Written as Non-Root:**
+   ```bash
+   docker exec -u node revertlens-mod061 sh -c 'echo "mod061-persistence-proof-verified" > /app/data/mod061-persistence-proof.txt'
+   ```
+2. **Graceful Container Shutdown:**
+   ```bash
+   docker stop --timeout 15 revertlens-mod061
+   ```
+   - Exit Code: `0` (clean shutdown and Fastify `onClose` database flush).
+3. **Container Destruction:**
+   ```bash
+   docker rm revertlens-mod061
+   ```
+4. **Recreation with Same Named Volume:**
+   ```bash
+   docker run -d \
+     --name revertlens-mod061 \
+     -p 3000:3000 \
+     -v revertlens-mod061-data:/app/data \
+     --env-file <SECURE_TEMP_CONFIG> \
+     revertlens:mod-06-1
+   ```
+   - New Container ID: `cfe479ff3e3f08d7445a86a9463475bbba14049e8e1726e675e6325f0eb0944f`
+5. **Persistence Proof Verified:**
+   - `docker exec revertlens-mod061 cat /app/data/mod061-persistence-proof.txt` -> `mod061-persistence-proof-verified`
+   - `revertlens.sqlite` (98,304 bytes) persisted intact and was successfully reopened.
+   - Endpoint `GET http://localhost:3000/api/health` returned HTTP 200.
+   - Container health status transitioned to `healthy`.
+
+### 9.5 Environment Teardown & Security Cleanup
+- Container stopped gracefully and removed.
+- Volume `revertlens-mod061-data` removed.
+- Temporary verification configuration file deleted with zero credentials committed or logged.
+- All 516 automated unit/integration tests verified passing (`npm test`).

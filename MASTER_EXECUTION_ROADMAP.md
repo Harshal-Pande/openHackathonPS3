@@ -265,6 +265,48 @@ flowchart TD
 
 ---
 
+### MODULE 6.1 — Production Docker Audit, Container Hardening & Runtime Verification
+- **Module ID:** `MOD-06.1`
+- **Status:** `COMPLETED` (Image build, non-root execution, named-volume persistence, health check probe, graceful shutdown, and 516 tests verified)
+- **Objective:** Build and verify the multi-stage production Docker container under real Docker Desktop runtime conditions with persistent SQLite volume storage and graceful shutdown.
+- **Hackathon Relevance:** Ensures RevertLens is container-packaged, portable, self-contained, and ready for one-click cloud deployment.
+- **Exact Tasks:**
+  1. Audit Dockerfile and multi-stage Node.js 22 LTS Alpine builder/runner architecture. [COMPLETED]
+  2. Implement Fastify `onClose` hook for SQLite database flush and `SIGTERM`/`SIGINT` graceful shutdown handling. [COMPLETED]
+  3. Implement native Node.js 22 Docker `HEALTHCHECK` probe against `/api/health`. [COMPLETED]
+  4. Build production Docker image `revertlens:mod-06-1` (Image ID `7cc29bf61c0c`, 717 MB uncompressed). [COMPLETED]
+  5. Run container with persistent volume `revertlens-mod061-data`, verify health check transition to `healthy`, verify non-root UID 1000 execution, and verify endpoints (`GET /api/health` 200 OK, `GET /` 200 OK). [COMPLETED]
+  6. Verify SQLite named-volume persistence across container destruction and recreation with marker file proof. [COMPLETED]
+  7. Verify clean shutdown (`docker stop --timeout 15`) with exit code 0. [COMPLETED]
+- **Files Changed:** `Dockerfile`, `.dockerignore`, `src/server/index.ts`, `src/server/app.ts`, `src/server/db/database.ts`, `tests/dockerRuntime.test.ts`, `DEPLOYMENT_READINESS.md`.
+- **Prerequisites:** `MOD-05A.1` Complete.
+- **Acceptance Criteria:**
+  - Image builds cleanly via `docker build --pull -t revertlens:mod-06-1 .`. [VERIFIED]
+  - Non-root user `node` (UID 1000) verified inside running container. [VERIFIED]
+  - Docker health check transitions to `healthy`. [VERIFIED]
+  - Endpoints `/api/health` and `/` respond with HTTP 200. [VERIFIED]
+  - Data directory `/app/data` persists files across container recreation. [VERIFIED]
+  - Container stops gracefully with exit code 0. [VERIFIED]
+  - All 516 automated tests pass in Vitest. [VERIFIED]
+
+---
+
+### MODULE 6.2 — Public Cloud Deployment & Live Endpoint Verification
+- **Module ID:** `MOD-06.2`
+- **Status:** `PENDING_OPERATOR_AUTHORIZATION` (Provider matrix and runbook prepared; awaiting operator selection of Render Free or Railway)
+- **Objective:** Deploy the verified container to a public HTTPS domain with $0 spend and zero credit card requirement.
+- **Hackathon Relevance:** Provides judges with a live, interactive web application and enables public ERC-8004 agent metadata hosting.
+- **Exact Tasks:**
+  1. Operator selects hosting provider (Render Free or Railway) and connects GitHub repository (`USR-02`).
+  2. Operator enters secure production environment variables (`USR-03`).
+  3. Deployment completes and yields public HTTPS domain (`USR-05`).
+  4. Antigravity executes live endpoint verification against public domain.
+- **User Dependencies:** `USR-02`, `USR-03`, `USR-05`.
+- **Prerequisites:** `MOD-06.1` Complete.
+- **Cost:** **$0.00** strictly enforced.
+
+---
+
 ### MODULE 5B — Live ERC-8004 Agent Identity Registration
 - **Module ID:** `MOD-05B`
 - **Status:** `BLOCKED_PENDING_MOD06` (Prerequisite: MOD-06 Cloud Deployment)

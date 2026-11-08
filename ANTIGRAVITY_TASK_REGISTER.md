@@ -253,3 +253,19 @@ This register contains all technical and operational tasks owned and executed di
 - **Files Involved:** `src/server/services/celoAttributionService.ts`, `tests/erc8021.test.ts`.
 - **Implementation:** Replaced `.trim()` in `appendAttribution()` with strict whitespace regex validation (`/\s/.test(calldata)`). Rejects leading, trailing, and embedded whitespace with typed `AttributionError('INVALID_CALLDATA')` without mutating inputs.
 - **Status:** `COMPLETED_PENDING_REVIEW`.
+
+---
+
+## MODULE 6.1 — Production Docker Audit, Container Hardening & Runtime Verification (MOD-06.1)
+
+### TASK AGY-12: Production Docker Multi-Stage Build, Volume Persistence & Container Lifecycle Verification
+- **Objective:** Audit, harden, build, and verify the production Docker container for RevertLens under real Docker Desktop runtime conditions.
+- **Files Involved:** `Dockerfile`, `.dockerignore`, `src/server/index.ts`, `src/server/app.ts`, `src/server/db/database.ts`, `tests/dockerRuntime.test.ts`, `DEPLOYMENT_READINESS.md`.
+- **Implementation:**
+  - Hardened multi-stage `Dockerfile` with builder (`node:22-alpine`, `npm ci`, full build) and runner (`node:22-alpine`, `npm ci --omit=dev`, non-root `USER node`, `/app/data` volume mount).
+  - Hardened `.dockerignore` to exclude SQLite artifacts (`*.sqlite*`), sensitive environments, test coverage, and documentation generation.
+  - Implemented Fastify `onClose` hook executing `db.close()` to ensure clean SQLite WAL flush on `SIGTERM`/`SIGINT`.
+  - Added native Node.js 22 health check probe via `fetch` to `/api/health`.
+  - Built image `revertlens:mod-06-1` (Image ID `7cc29bf61c0c`).
+  - Executed container with named volume `revertlens-mod061-data`, verified published HTTP endpoints (200 OK on `/api/health` and `/`), confirmed health check state `healthy`, verified non-root UID 1000 execution, verified SQLite named-volume persistence across container recreation via proof marker, verified graceful shutdown with exit code 0, and passed all 516 automated tests.
+- **Status:** `COMPLETED`.
