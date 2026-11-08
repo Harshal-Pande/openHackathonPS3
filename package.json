@@ -16,7 +16,10 @@
     "build": "npm run build:server && npm run build:client",
     "start": "node dist/server/index.js",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gitingest:generate": "node scripts/generate_gitingest.mjs",
+    "gitingest:verify": "node scripts/verify_gitingest.mjs",
+    "gitingest:check": "npm run gitingest:generate && npm run gitingest:verify"
   },
   "dependencies": {
     "@celo/attribution-tags": "^0.5.0",

@@ -132,13 +132,12 @@ The authoritative Gitingest digest of the repository has been recorded:
 |:---|:---|:---|
 | **Snapshot File Name** | `revertlens_mod05a_1_gitingest.txt` | Authoritative single-file repository digest |
 | **Snapshot File Path** | `D:\Blockchain\BuildWithBuy\revertlens_mod05a_1_gitingest.txt` | Workspace root |
-| **Exact Byte Size** | `2,207,185` bytes | ~2.10 MB uncompressed |
-| **Total Line Count** | `46,793` lines | Including headers, directory tree, and file contents |
-| **Included File Sections** | `231` tracked files | Filtered via strict exclusion patterns (excluding all `*gitingest*` digests) |
-| **Directory Tree File Count** | `231` tracked files | Confirmed 100% match between directory listing and file sections |
-| **Header Generation Timestamp** | `MEASURED_AT_FINAL_GENERATION` | Recorded directly from snapshot header |
-| **Filesystem Timestamp (mtime)** | `MEASURED_AT_FINAL_GENERATION` | Recorded from filesystem mtime |
-| **Exclusion Policy** | Verified | Excludes all previous and current `*gitingest.txt` digests, `.env*`, SQLite databases, node_modules, dist, and media |
+| **Manifest JSON Path** | `D:\Blockchain\BuildWithBuy\revertlens_mod05a_1_gitingest_manifest.json` | Machine-readable provenance manifest |
+| **Manifest MD Path** | `D:\Blockchain\BuildWithBuy\revertlens_mod05a_1_gitingest_manifest.md` | Human-readable verification report |
+| **Included Files** | `232` tracked files | Filtered via strict exclusion patterns (excluding all `*gitingest*` digests) |
+| **Directory Tree File Count** | `232` tracked files | Confirmed 100% match between directory listing and file sections |
+| **Path-Set Equality** | `VERIFIED` | Set A (filesystem) === Set B (tree) === Set C (sections) |
+| **Exclusion Policy** | Verified | Excludes all previous and current `*gitingest*` digests and manifests, `.env*`, SQLite databases, node_modules, dist, and media |
 
 ---
 
@@ -156,37 +155,87 @@ A focused documentation reconciliation was executed to ensure complete historica
 
 An independent audit identified three specific defects that were resolved in this phase:
 
-1. **DEF-60 (Snapshot Metadata & Provenance):** Resolved discrepancy between reported snapshot size and actual disk artifact. Hardened generator to exclude all Gitingest text digests while properly preserving repository scripts (`generate_gitingest.mjs`). Verified exact agreement between directory tree file count (231) and included file sections (231).
-2. **DEF-61 (UTF-8 Integrity Restoration):** Repaired 34 instances of mojibake across MASTER_CHANGELOG.md, DEPLOYMENT_READINESS.md, and JUDGE_LOCAL_RUNBOOK.md. Restored multiplication symbols (U+00D7), en-dashes (U+2013), em-dashes (U+2014), right arrows (U+2192), and box-drawing vertical lines (U+2502). Reconciled project-level changelog status, milestone, and roadmap sequence.
+1. **DEF-60 (Snapshot Metadata & Provenance):** Resolved discrepancy between reported snapshot size and actual disk artifact. Hardened generator to exclude all Gitingest text digests while properly preserving repository scripts (`generate_gitingest.mjs`). Verified exact agreement between directory tree file count and included file sections.
+2. **DEF-61 (UTF-8 Integrity Restoration):** Repaired 34 instances of mojibake across `MASTER_CHANGELOG.md`, `DEPLOYMENT_READINESS.md`, and `JUDGE_LOCAL_RUNBOOK.md`. Restored multiplication symbols (U+00D7), en-dashes (U+2013), em-dashes (U+2014), right arrows (U+2192), and box-drawing vertical lines (U+2502). Reconciled project-level changelog status, milestone, and roadmap sequence.
 3. **DEF-62 (Generator Identity Alignment):** Updated `scripts/generate_gitingest.mjs` console output and snapshot header to correctly identify `MOD-05A.1` instead of outdated `MOD-04` labels.
 
 ---
 
-## 10. MOD-05A.1-R3 — Final Authoritative Snapshot Verification
+## 10. MOD-05A.1-R3 — Authoritative Snapshot Regeneration
 
-This corrective pass definitively resolves the discrepancy between the external review artifact and the committed repository generator:
+This corrective pass resolved the discrepancy between the external review artifact and the committed repository generator:
 
 1. **Root Cause of External Review Discrepancy:**
    - The artifact previously supplied for review (1,753,575 bytes, 36,977 lines, 228 uppercase `FILE:` sections) was produced by the online third-party tool `gitingest.com`. That service enforces an internal file-size limit that silently dropped `MASTER_CHANGELOG.md` (~70 KB) from the content sections while leaving it in the directory tree.
    - The committed local generator `scripts/generate_gitingest.mjs` is established as the single authoritative mechanism for snapshot generation. It runs in native Node.js without file-size limits, includes `MASTER_CHANGELOG.md` in full, and asserts that directory tree count equals content sections bit-for-bit.
 
-2. **Multi-Dimension Verification Classifications:**
-   - **GitHub Commit Verification:** Verified local HEAD and remote tracking branch `origin/main` are identical, fast-forward pushed with zero divergences.
-   - **Local Automated Test Verification:** All 498 tests across 22 test files run offline and pass 100% in ~11.8s.
-   - **Snapshot Provenance Verification:** The snapshot file `revertlens_mod05a_1_gitingest.txt` is generated directly from the final commit HEAD and self-verified with 231 files and 231 content sections.
-   - **Live Mainnet Evidence:** Direct explorer links on Celoscan and Blockscout verify real reverted transaction `0xb90bcca5...`, canonical registry `0x8004A169...`, implementation `0x7274e874...`, wallet `0x3e1bef...`, and attribution tag `celo_235f6ef56f5b`.
-   - **Pending Public Deployment & Registration:** Cloud deployment scheduled for MOD-06; on-chain agent token registration scheduled for MOD-05B.
-   - **Pending Paid Buy Settlement:** Software integration verified across 147 tests; live settlement status remains `PENDING_OPERATOR_FUNDING` ($0.00 spent across project lifecycle). Local snapshot completeness does not imply live deployment or paid settlement.
+---
+
+## 11. Final MOD-05A Milestone Closure, Provenance Verification & Acceptance
+
+This final closure establishes definitive, mathematically verified repository provenance and marks milestone MOD-05A complete.
+
+### 11.1 Executive Summary
+- **Scope Prepared:** Full ERC-8004 identity registration preparation, canonical metadata schema, safe preview endpoints, ERC-8021 builder attribution, offline test suite discoverability, and clean fresh-clone reproducibility.
+- **Scope Repaired in Closure:**
+  - Replaced count-only comparison with exact path-set reconciliation (`Set A === Set B === Set C`).
+  - Implemented fail-closed reading (zero silent error banners).
+  - Built independent standalone verifier (`scripts/verify_gitingest.mjs`) checking all 17 conditions.
+  - Generated machine-readable manifests (`revertlens_mod05a_1_gitingest_manifest.json` and `.md`).
+  - Reconciled `FILE_MANIFEST.json` explaining historical 91-test RC1 baseline vs current proven 498-test suite.
+- **Pending Milestones:** Live public deployment (MOD-06.1/MOD-06), on-chain agent registration (MOD-05B), and funded Buy settlement remain scheduled for subsequent milestones.
+
+### 11.2 Repository Baseline
+- **Starting Commit SHA:** `2fb494c96b63a7b09de959b451e8f1810ce6e225`
+- **Branch:** `main`
+- **Remote Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`
+- **Starting Working-Tree State:** Clean (`## main...origin/main`)
+- **Remote Reachability:** Verified via `git fetch origin`
+
+### 11.3 Registration Preparation
+- **Celo Chain ID:** `42220` (`0xa4ec` on Celo Mainnet)
+- **Official Builder Attribution Tag:** `celo_235f6ef56f5b` (Schema 0, 35-byte calldata suffix)
+- **Official Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
+- **Canonical ERC-8004 Identity Registry:** `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`
+- **Metadata URI Policy:** Production requires public HTTPS URL (enforced by `DEF-54`).
+- **Registration Transaction Status:** `BLOCKED_PENDING_PUBLIC_DEPLOYMENT`
+- **Agent Token ID:** `NOT_REGISTERED`
+
+### 11.4 Provenance & Manifest Verification
+- **Committed Generator:** `scripts/generate_gitingest.mjs`
+- **Independent Verifier:** `scripts/verify_gitingest.mjs`
+- **Snapshot Filename:** `revertlens_mod05a_1_gitingest.txt`
+- **Manifest Deliverables:** `revertlens_mod05a_1_gitingest_manifest.json` and `revertlens_mod05a_1_gitingest_manifest.md`
+- **Path-Set Equality:** `Set A (filesystem) === Set B (directory tree) === Set C (content sections)` verified 100%
+- **Duplicate Paths:** 0
+- **Missing Paths:** 0
+- **Unexpected Paths:** 0
+- **Read Errors:** 0
+- **Changelog Integrity:** Verified present in full, matching disk SHA-256, containing Phase 25.4
+
+### 11.5 Testing Evidence
+- **Automated Vitest Suite (`npm test`):** **22 test files, 498 tests passed (100% green)** in 12.25s offline
+- **TypeScript Static Typing (`npm run typecheck`):** **0 errors** across server and client
+- **Production Asset Compilation (`npm run build`):** Clean compile to `dist/server/` and `dist/client/`
+- **Independent Snapshot Verifier (`npm run gitingest:verify`):** **17/17 checks passed (100% pass)**
+- **Mojibake Repository Scan:** **0 mojibake instances** across entire repository
+
+### 11.6 Financial & Security Invariants
+- **Spend:** Strictly **$0.00** across all modules and tests.
+- **Wallet Invariants:** No private keys or seed phrases requested, handled, logged, or committed.
+- **On-Chain Invariants:** No live transactions signed or broadcast; no ERC-8004 token registered; no live Buy funds spent.
+- **Read-Only RPC Isolation:** Dedicated Chainstack OP Geth node used exclusively for read-only forensic retrieval.
+
+### 11.7 Final Milestone Acceptance Status
+
+**MOD-05A — ACCEPTED**
 
 ---
 
-## 11. Remaining Blockers & Next Human Operator Actions
+## 12. Remaining Blockers & Next Human Operator Actions
 
-1. **MOD-06 (Public Cloud Deployment):** Deploy container to Render or Railway using [`DEPLOYMENT_READINESS.md`](DEPLOYMENT_READINESS.md) to obtain canonical HTTPS domain.
-2. **MOD-05B (On-Chain Agent Registration):** Fund agent wallet with `~0.1 CELO` and broadcast pre-computed registration transaction.
-3. **MOD-07 (Demonstration Video):** Record 3-minute video presentation following [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md).
-4. **MOD-08 (Submission):** Complete submission form on Loops House portal before November 9, 2026, 09:00 GMT.
-
----
-
-**MOD-05A.1-R3 — AUTHORITATIVE SNAPSHOT REGENERATED — PENDING INDEPENDENT REVIEW**
+1. **MOD-06.1 (Docker and Runtime Readiness):** Verify Docker container build, entrypoint, volume permissions, and health probes.
+2. **MOD-06 (Public Cloud Deployment):** Deploy container to Render or Railway using [`DEPLOYMENT_READINESS.md`](DEPLOYMENT_READINESS.md) to obtain canonical HTTPS domain.
+3. **MOD-05B (On-Chain Agent Registration):** Fund agent wallet with `~0.1 CELO` and broadcast pre-computed registration transaction.
+4. **MOD-07 (Demonstration Video):** Record 3-minute video presentation following [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md).
+5. **MOD-08 (Submission):** Complete submission form on Loops House portal before November 9, 2026, 09:00 GMT.

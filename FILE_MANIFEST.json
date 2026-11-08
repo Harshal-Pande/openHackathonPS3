@@ -7,14 +7,20 @@
   "verified_live_buy_quotes": true,
   "verified_live_buy_settlement": false,
   "verified_deployment": false,
-  "release_candidate": "v0.1.0-rc1",
-  "total_automated_tests": 91,
+  "current_milestone": "MOD-05A",
+  "total_automated_tests": 498,
+  "total_test_suites": 22,
   "test_pass_rate": "100%",
+  "test_runner": "vitest",
+  "historical_rc1_automated_tests": 91,
+  "historical_rc1_note": "91 tests represented the early Phase 9 release-candidate baseline prior to MOD-03 payment lifecycle, MOD-04 attribution, and MOD-05 identity suites",
   "core_subsystems": {
     "server": "Fastify backend with Zod API validation, SQLite persistence, and Chainstack OP Geth integration",
     "client": "React 19 + Vite dark blockchain forensics dashboard",
     "forensics": "EVM call trace parser, 5-tier causality classifier, Solidity Error/Panic decoder, and SHA-256 evidence ledger",
     "ai_explanation": "Cencori provider client with 10-rule anti-hallucination Zod validator",
-    "buy_payment": "11-state payment lifecycle in SQLite with body-hash binding and operator authentication"
+    "buy_payment": "11-state payment lifecycle in SQLite with body-hash binding and operator authentication",
+    "attribution": "ERC-8021 builder attribution with Schema 0 35-byte suffix injection",
+    "identity": "ERC-8004 agent registration calldata preparation and metadata validation"
   }
 }

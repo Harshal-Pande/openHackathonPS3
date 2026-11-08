@@ -21,4 +21,5 @@ test-results/
 artifacts/private/
 secrets/
 wallet/
-*gitingest.txt
+*gitingest*.txt
+*gitingest_manifest*
