@@ -17,7 +17,8 @@ import { ChainstackProvider } from '../src/server/providers/chainstack.js';
 import {
   verifyReceiptTransferLogs,
   ERC20_TRANSFER_EVENT_TOPIC,
-  BuyAdapter
+  BuyAdapter,
+  decodeAddressFromTopic
 } from '../src/server/adapters/buyAdapter.js';
 import {
   normalizeAndVerifyAmount,
@@ -1751,6 +1752,867 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
       expect(db.getSettlementProof(attemptId)).toBeNull();
       expect(db.getPurchaseAttempt(attemptId)?.status).toBe('EXECUTION_PENDING');
       expect(db.getQuote(quoteId)?.status).toBe('EXECUTION_PENDING');
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-37: Payer Identity Configuration & Health Invariants
+  // =========================================================================
+  describe('DEFECT-37: Hardened Payer Identity Configuration & Health', () => {
+    const dummyQuote = {
+      id: 'quote-def37-1',
+      investigation_id: null,
+      capability_id: 'cencori.v1.chat.completions',
+      url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+      method: 'POST',
+      exact_body: '{}',
+      body_sha256: 'sha-def37',
+      token_symbol: 'USDC',
+      token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      amount_atomic: '10000',
+      amount_display: '$0.01',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+      chain_id: 42220,
+      status: 'APPROVED',
+      created_at: new Date().toISOString()
+    };
+
+    it('rejects settlement verification when AGENT_WALLET_ADDRESS is missing', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: '' };
+      const adapter = new BuyAdapter({}, db, cfg as any);
+      const res = await adapter.verifyOnChainSettlement('0x' + '1'.repeat(64), dummyQuote);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Agent wallet address is not configured or malformed');
+    });
+
+    it('rejects settlement verification when AGENT_WALLET_ADDRESS is malformed', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: '0xshort' };
+      const adapter = new BuyAdapter({}, db, cfg as any);
+      const res = await adapter.verifyOnChainSettlement('0x' + '1'.repeat(64), dummyQuote);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Agent wallet address is not configured or malformed');
+    });
+
+    it('accepts valid configured address and normalizes to lowercase', async () => {
+      const cfg = {
+        ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }),
+        AGENT_WALLET_ADDRESS: '0x3E1BEF07824CD0E076F4907641F0A0EF27898E52'
+      };
+      const mockVerifier = vi.fn().mockResolvedValue({ verified: true });
+      const adapter = new BuyAdapter({ settlementVerifier: mockVerifier }, db, cfg as any);
+      const res = await adapter.verifyOnChainSettlement('0x' + '1'.repeat(64), dummyQuote);
+      expect(res.verified).toBe(true);
+      expect(mockVerifier).toHaveBeenCalled();
+    });
+
+    it('getHealth reports UNCONFIGURED and ready=false when AGENT_WALLET_ADDRESS is missing and CLI returns unknown', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: '' };
+      const mockCli = async () => ({ stdout: 'unknown\n', stderr: '', exitCode: 0 });
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNCONFIGURED');
+    });
+
+    it('getHealth reports UNAVAILABLE or UNCONFIGURED in catch/fallback when CLI throws and no address configured', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: '' };
+      const mockCli = async () => { throw new Error('CLI unavailable'); };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+      expect(health.ready).toBe(false);
+      expect(['UNAVAILABLE', 'UNCONFIGURED']).toContain(health.account);
+    });
+
+    it('getHealth flags payerMismatch and ready=false when CLI account differs from configured address', async () => {
+      const cfg = {
+        ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }),
+        AGENT_WALLET_ADDRESS: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52'
+      };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ account: '0x9999999999999999999999999999999999999999', balances: { USDC: '0' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+      expect(health.ready).toBe(false);
+      expect(health.payerMismatch).toBe(true);
+      expect(health.account).toBe('0x9999999999999999999999999999999999999999');
+      expect(health.configuredPayer).toBe('0x3e1bef07824cd0e076f4907641f0a0ef27898e52');
+    });
+
+    it('blocks settlement verification before any RPC query when payer identity is unconfigured', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: '' };
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+      const adapter = new BuyAdapter({}, db, cfg as any);
+      const res = await adapter.verifyOnChainSettlement('0x' + '2'.repeat(64), dummyQuote);
+      expect(res.verified).toBe(false);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-38: Strict ABI Indexed Address Topic Validation
+  // =========================================================================
+  describe('DEFECT-38: Strict ABI Indexed Address Topic Validation', () => {
+    const validTopic = '0x' + '0'.repeat(24) + '3e1bef07824cd0e076f4907641f0a0ef27898e52';
+    const validQuote = {
+      token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+      amount_atomic: '10000'
+    };
+    const validTxHash = '0x' + '3'.repeat(64);
+    const validPayer = '0x3e1bef07824cd0e076f4907641f0a0ef27898e52';
+
+    it('validates and decodes standard 32-byte zero-padded topic', () => {
+      expect(decodeAddressFromTopic(validTopic)).toBe(validPayer.toLowerCase());
+    });
+
+    it('rejects topic missing 0x prefix', () => {
+      expect(decodeAddressFromTopic('0'.repeat(24) + '3e1bef07824cd0e076f4907641f0a0ef27898e52')).toBe('');
+    });
+
+    it('rejects 31-byte topic (62 hex chars)', () => {
+      expect(decodeAddressFromTopic('0x' + '0'.repeat(22) + '3e1bef07824cd0e076f4907641f0a0ef27898e52')).toBe('');
+    });
+
+    it('rejects 33-byte topic (66 hex chars)', () => {
+      expect(decodeAddressFromTopic('0x' + '0'.repeat(26) + '3e1bef07824cd0e076f4907641f0a0ef27898e52')).toBe('');
+    });
+
+    it('rejects topic with non-hex characters', () => {
+      expect(decodeAddressFromTopic('0x' + '0'.repeat(24) + '3e1bef07824cd0e076f4907641f0a0ef27898ezz')).toBe('');
+    });
+
+    it('rejects topic with non-zero address padding', () => {
+      expect(decodeAddressFromTopic('0x' + '0'.repeat(23) + '1' + '3e1bef07824cd0e076f4907641f0a0ef27898e52')).toBe('');
+    });
+
+    it('verifyReceiptTransferLogs rejects receipt with non-zero padding in sender topic', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(23) + '1' + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid non-zero address padding in sender topic');
+    });
+
+    it('verifyReceiptTransferLogs rejects receipt with non-zero padding in recipient topic', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              validTopic,
+              '0x' + '0'.repeat(23) + '1' + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid non-zero address padding in recipient topic');
+    });
+
+    it('verifyReceiptTransferLogs rejects receipt with malformed 31-byte recipient topic', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              validTopic,
+              '0x' + '0'.repeat(22) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid or missing recipient topic');
+    });
+
+    it('verifyReceiptTransferLogs cleanly ignores valid unrelated transfer logs on same or different token', () => {
+      const otherRecipient = '0x9999999999999999999999999999999999999999';
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          // Unrelated transfer to someone else on same token
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              validTopic,
+              '0x' + '0'.repeat(24) + otherRecipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(50000).toString(16).padStart(64, '0')
+          },
+          // Relevant matching transfer
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              validTopic,
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+    });
+
+    it('verifyReceiptTransferLogs verifies exact aggregate payment across multiple valid logs', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              validTopic,
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(4000).toString(16).padStart(64, '0')
+          },
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              validTopic,
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(6000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-39: Settlement Persistence & Field Override Protection
+  // =========================================================================
+  describe('DEFECT-39: Settlement Persistence & Field Override Protection', () => {
+    const quoteId = 'def39-quote-1';
+    const attemptId = 'def39-attempt-1';
+    const txHash = '0x' + '9'.repeat(64);
+    const validProof = {
+      id: 'proof-def39-1',
+      purchase_attempt_id: attemptId,
+      quote_id: quoteId,
+      tx_hash: txHash,
+      chain_id: 42220,
+      block_number: 555,
+      token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      payer: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+      amount_atomic: '10000',
+      receipt_status: 1,
+      verified_at: new Date().toISOString()
+    };
+
+    beforeEach(() => {
+      db.saveQuote({
+        id: quoteId,
+        investigation_id: null,
+        capability_id: 'cencori.v1.chat.completions',
+        url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+        method: 'POST',
+        exact_body: '{}',
+        body_sha256: 'sha-39',
+        token_symbol: 'USDC',
+        token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amount_atomic: '10000',
+        amount_display: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+        chain_id: 42220,
+        status: 'EXECUTION_PENDING',
+        created_at: new Date().toISOString()
+      });
+      db.reserveBudgetAtomic(quoteId, null, '10000', { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n });
+      db.savePurchaseAttempt({
+        id: attemptId,
+        quote_id: quoteId,
+        approval_id: 'app-39',
+        investigation_id: null,
+        capability_id: 'cencori.v1.chat.completions',
+        url: 'https://test',
+        body_sha256: 'sha-39',
+        token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amount_atomic: '10000',
+        status: 'EXECUTION_PENDING',
+        created_at: new Date().toISOString()
+      });
+    });
+
+    it('forbids overriding purchase_attempt_id', () => {
+      expect(() => {
+        db.commitSettlementAtomic(validProof, { purchase_attempt_id: 'other-attempt' } as any);
+      }).toThrow('cannot override "purchase_attempt_id"');
+    });
+
+    it('forbids overriding quote_id', () => {
+      expect(() => {
+        db.commitSettlementAtomic(validProof, { quote_id: 'other-quote' } as any);
+      }).toThrow('cannot override "quote_id"');
+    });
+
+    it('forbids overriding token_contract', () => {
+      expect(() => {
+        db.commitSettlementAtomic(validProof, { token_contract: '0xother' } as any);
+      }).toThrow('cannot override "token_contract"');
+    });
+
+    it('forbids overriding amount_atomic', () => {
+      expect(() => {
+        db.commitSettlementAtomic(validProof, { amount_atomic: '99999' } as any);
+      }).toThrow('cannot override "amount_atomic"');
+    });
+
+    it('forbids overriding payer_address', () => {
+      expect(() => {
+        db.commitSettlementAtomic(validProof, { payer_address: '0xattacker' } as any);
+      }).toThrow('cannot override "payer_address"');
+    });
+
+    it('forbids overriding payee_address', () => {
+      expect(() => {
+        db.commitSettlementAtomic(validProof, { payee_address: '0xattacker' } as any);
+      }).toThrow('cannot override "payee_address"');
+    });
+
+    it('forbids overriding settlement_tx_hash with conflicting value', () => {
+      expect(() => {
+        db.commitSettlementAtomic(validProof, { settlement_tx_hash: '0x' + '1'.repeat(64) } as any);
+      }).toThrow('Cannot override canonical settlement_tx_hash with conflicting value');
+    });
+
+    it('rejects cross-quote settlement proof', () => {
+      const otherQuoteId = 'def39-other-quote';
+      db.saveQuote({
+        id: otherQuoteId,
+        investigation_id: null,
+        capability_id: 'cencori.v1.chat.completions',
+        url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+        method: 'POST',
+        exact_body: '{}',
+        body_sha256: 'sha-39-other',
+        token_symbol: 'USDC',
+        token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amount_atomic: '10000',
+        amount_display: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+        chain_id: 42220,
+        status: 'EXECUTION_PENDING',
+        created_at: new Date().toISOString()
+      });
+
+      expect(() => {
+        db.commitSettlementAtomic({ ...validProof, quote_id: otherQuoteId });
+      }).toThrow('Cross-quote settlement proof rejected');
+    });
+
+    it('rejects cross-attempt proof with non-existent purchase attempt', () => {
+      expect(() => {
+        db.commitSettlementAtomic({ ...validProof, purchase_attempt_id: 'non-existent-attempt' });
+      }).toThrow('Purchase attempt "non-existent-attempt" not found');
+    });
+
+    it('rejects proof when token contract mismatches stored quote', () => {
+      expect(() => {
+        db.commitSettlementAtomic({ ...validProof, token_contract: '0x9999999999999999999999999999999999999999' });
+      }).toThrow('does not match quote token contract');
+    });
+
+    it('rejects proof when recipient mismatches stored quote', () => {
+      expect(() => {
+        db.commitSettlementAtomic({ ...validProof, recipient: '0x9999999999999999999999999999999999999999' });
+      }).toThrow('does not match quote recipient');
+    });
+
+    it('rejects proof when amount mismatches stored quote', () => {
+      expect(() => {
+        db.commitSettlementAtomic({ ...validProof, amount_atomic: '20000' });
+      }).toThrow('does not match quote atomic amount');
+    });
+
+    it('rejects proof with invalid chain ID', () => {
+      expect(() => {
+        db.commitSettlementAtomic({ ...validProof, chain_id: 1 });
+      }).toThrow('Invalid chain ID in settlement proof');
+    });
+
+    it('rejects proof with non-success receipt status', () => {
+      expect(() => {
+        db.commitSettlementAtomic({ ...validProof, receipt_status: 0 });
+      }).toThrow('Invalid receipt status in settlement proof');
+    });
+
+    it('ensures full rollback of all tables when an error occurs during commitSettlementAtomic', () => {
+      expect(() => {
+        db.commitSettlementAtomic({ ...validProof, amount_atomic: '99999' });
+      }).toThrow();
+
+      expect(db.getSettlementProof(attemptId)).toBeNull();
+      expect(db.getBudgetReservation(quoteId)?.status).toBe('RESERVED');
+      expect(db.getPurchaseAttempt(attemptId)?.status).toBe('EXECUTION_PENDING');
+      expect(db.getQuote(quoteId)?.status).toBe('EXECUTION_PENDING');
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-40: Elimination of Arbitrary CLI Stdout Hash Extraction
+  // =========================================================================
+  describe('DEFECT-40: Elimination of Arbitrary CLI Stdout Hash Extraction', () => {
+    const config = loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' });
+    const quoteParams = {
+      capabilityId: 'cencori.v1.chat.completions',
+      url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+      method: 'POST',
+      exactBody: JSON.stringify({ model: 'maximo-atlas-1.3', messages: [{ role: 'user', content: 'test' }] }),
+      tokenSymbol: 'USDC',
+      tokenContract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      amountAtomic: '10000',
+      amountDisplay: '$0.01',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b'
+    };
+
+    it('accepts valid structured paymentResponse with txHash and settlementTxHash', async () => {
+      const mockCli = async () => ({
+        stdout: JSON.stringify({
+          response: { ok: true },
+          paymentResponse: {
+            txHash: '0x' + 'a'.repeat(64),
+            settlementTxHash: '0x' + 'b'.repeat(64)
+          }
+        }),
+        stderr: '',
+        exitCode: 0
+      });
+      const mockVerifier = vi.fn().mockResolvedValue({
+        verified: true,
+        txHash: '0x' + 'b'.repeat(64),
+        payer: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52'
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli, settlementVerifier: mockVerifier }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const res = await svc.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      expect(res.status).toBe('SETTLED');
+      expect(res.isSettled).toBe(true);
+      expect(res.settlementTxHash).toBe('0x' + 'b'.repeat(64));
+    });
+
+    it('accepts paymentResponse with only txHash present', async () => {
+      const mockCli = async () => ({
+        stdout: JSON.stringify({
+          response: { ok: true },
+          paymentResponse: { txHash: '0x' + 'c'.repeat(64) }
+        }),
+        stderr: '',
+        exitCode: 0
+      });
+      const mockVerifier = vi.fn().mockResolvedValue({
+        verified: true,
+        txHash: '0x' + 'c'.repeat(64),
+        payer: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52'
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli, settlementVerifier: mockVerifier }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const res = await svc.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      expect(res.status).toBe('SETTLED');
+      expect(res.isSettled).toBe(true);
+    });
+
+    it('rejects and marks SETTLEMENT_UNKNOWN when paymentResponse is missing even if stdout contains arbitrary 32-byte hex hash', async () => {
+      const arbitraryHash = '0x' + 'd'.repeat(64);
+      const mockCli = async () => ({
+        stdout: `Success! Arbitrary log message containing transaction hash ${arbitraryHash} inside plaintext.`,
+        stderr: '',
+        exitCode: 0
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const res = await svc.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      expect(res.status).toBe('SETTLEMENT_UNKNOWN');
+      expect(res.isSettled).toBe(false);
+      expect(res.txHash).toBeNull();
+      expect(db.getBudgetReservation(quote.quoteId)?.status).toBe('RESERVED');
+    });
+
+    it('rejects and marks SETTLEMENT_UNKNOWN when stdout contains multiple unrelated hashes', async () => {
+      const mockCli = async () => ({
+        stdout: `Transaction 0x${'1'.repeat(64)} and 0x${'2'.repeat(64)} emitted`,
+        stderr: '',
+        exitCode: 0
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const res = await svc.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      expect(res.status).toBe('SETTLEMENT_UNKNOWN');
+      expect(res.isSettled).toBe(false);
+    });
+
+    it('rejects and marks SETTLEMENT_UNKNOWN when paymentResponse hashes are malformed (< 64 hex chars)', async () => {
+      const mockCli = async () => ({
+        stdout: JSON.stringify({
+          response: { ok: true },
+          paymentResponse: { txHash: '0x1234' }
+        }),
+        stderr: '',
+        exitCode: 0
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const res = await svc.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      expect(res.status).toBe('SETTLEMENT_UNKNOWN');
+      expect(res.isSettled).toBe(false);
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-41: Strict CLI Receipt-Resolution Execution & Validation
+  // =========================================================================
+  describe('DEFECT-41: Strict CLI Receipt-Resolution Execution & Validation', () => {
+    const config = loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' });
+    const quoteParams = {
+      capabilityId: 'cencori.v1.chat.completions',
+      url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+      method: 'POST',
+      exactBody: JSON.stringify({ model: 'maximo-atlas-1.3', messages: [{ role: 'user', content: 'test' }] }),
+      tokenSymbol: 'USDC',
+      tokenContract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      amountAtomic: '10000',
+      amountDisplay: '$0.01',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b'
+    };
+
+    it('returns unresolved and retains reservation when receipts command exits non-zero', async () => {
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          return {
+            stdout: JSON.stringify([{ quoteId: 'any-quote', txHash: '0x' + '1'.repeat(64) }]),
+            stderr: 'CLI internal failure during receipt resolution',
+            exitCode: 1
+          };
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+      const res = await svc.resolvePurchaseSettlement({ attemptId: attempt.id, isOperatorAuthenticated: true });
+      expect(res.resolved).toBe(false);
+      expect(res.message).toContain('receipts command exited with code 1');
+      expect(db.getBudgetReservation(quote.quoteId)?.status).toBe('RESERVED');
+    });
+
+    it('returns unresolved and retains reservation when receipts execution times out or throws', async () => {
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          throw new Error('ETIMEDOUT: CLI receipt call timed out');
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+      const res = await svc.resolvePurchaseSettlement({ attemptId: attempt.id, isOperatorAuthenticated: true });
+      expect(res.resolved).toBe(false);
+      expect(res.message).toContain('ETIMEDOUT');
+      expect(db.getBudgetReservation(quote.quoteId)?.status).toBe('RESERVED');
+    });
+
+    it('returns unresolved and retains reservation when receipts output is malformed JSON', async () => {
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          return { stdout: 'NOT_A_VALID_JSON_STRING', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+      const res = await svc.resolvePurchaseSettlement({ attemptId: attempt.id, isOperatorAuthenticated: true });
+      expect(res.resolved).toBe(false);
+      expect(res.message).toContain('malformed JSON response');
+    });
+
+    it('returns unresolved and retains reservation when receipts output is not a JSON array', async () => {
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          return { stdout: JSON.stringify({ error: 'not an array' }), stderr: '', exitCode: 0 };
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+      const res = await svc.resolvePurchaseSettlement({ attemptId: attempt.id, isOperatorAuthenticated: true });
+      expect(res.resolved).toBe(false);
+      expect(res.message).toContain('receipts output is not a JSON array');
+    });
+
+    it('ignores candidate that only matches recipient address (forbids recipient-only association)', async () => {
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          return {
+            stdout: JSON.stringify([
+              {
+                recipient: quoteParams.recipient,
+                txHash: '0x' + '7'.repeat(64)
+                // Missing quoteId, purchaseAttemptId, or paymentReference
+              }
+            ]),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+      const res = await svc.resolvePurchaseSettlement({ attemptId: attempt.id, isOperatorAuthenticated: true });
+      expect(res.resolved).toBe(false);
+      expect(res.message).toContain('no matching unique receipt found');
+    });
+
+    it('deduplicates identical transaction hashes across candidate entries', async () => {
+      const sameHash = '0x' + '8'.repeat(64);
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          return {
+            stdout: JSON.stringify([
+              { quoteId: 'dup-quote', txHash: sameHash },
+              { quoteId: 'dup-quote', txHash: sameHash }
+            ]),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+      const mockVerifier = vi.fn().mockResolvedValue({
+        verified: true,
+        txHash: sameHash,
+        payer: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52'
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli, settlementVerifier: mockVerifier }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+      // Update candidate to match our quoteId
+      const cliWithQuote = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          return {
+            stdout: JSON.stringify([
+              { quoteId: quote.quoteId, txHash: sameHash },
+              { quoteId: quote.quoteId, txHash: sameHash }
+            ]),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+      const adapter2 = new BuyAdapter({ cliRunner: cliWithQuote, settlementVerifier: mockVerifier }, db, config);
+      const svc2 = new BuyQuoteService(db, config, adapter2);
+      const res = await svc2.resolvePurchaseSettlement({ attemptId: attempt.id, isOperatorAuthenticated: true });
+      expect(res.resolved).toBe(true);
+      expect(res.status).toBe('SETTLED');
+    });
+
+    it('falls back to recorded attempt transaction hash if receipts command returns empty list', async () => {
+      const recordedHash = '0x' + 'f'.repeat(64);
+      const mockCli = async () => ({ stdout: '[]', stderr: '', exitCode: 0 });
+      const mockVerifier = vi.fn().mockResolvedValue({
+        verified: true,
+        txHash: recordedHash,
+        payer: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52'
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli, settlementVerifier: mockVerifier }, db, config);
+      const svc = new BuyQuoteService(db, config, adapter);
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'admin',
+        isOperatorAuthenticated: true
+      });
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+      db.updatePurchaseAttemptStatus(attempt.id, 'SETTLEMENT_UNKNOWN', { settlement_tx_hash: recordedHash });
+
+      const res = await svc.resolvePurchaseSettlement({ attemptId: attempt.id, isOperatorAuthenticated: true });
+      expect(res.resolved).toBe(true);
+      expect(res.status).toBe('SETTLED');
     });
   });
 });

@@ -248,4 +248,6 @@ export interface BuyHealthStatus {
   balances: Record<string, string>;
   killSwitchActive: boolean;
   timestamp: string;
+  configuredPayer?: string;
+  payerMismatch?: boolean;
 }

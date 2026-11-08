@@ -216,3 +216,14 @@ Engineered to resolve DEF-31 through DEF-36:
 - **Unique Candidate Settlement Resolution (DEF-36):** `resolveSettlement()` collects candidate transaction hashes and strictly requires exactly 1 unique candidate. Ambiguous multi-candidate or zero-candidate states are rejected.
 - **Atomic State Consistency:** Settlement recording, purchase attempt status update, quote transition, and budget commitment are executed within a single SQLite `BEGIN IMMEDIATE` transaction via `db.commitSettlementAtomic()`, guaranteeing all-or-nothing rollback.
 
+---
+
+## 11. Final Payment-Proof Integrity Hardening (MOD-03.4)
+
+Engineered to resolve DEF-37 through DEF-41:
+- **Zero Payer Identity Fallbacks (DEF-37):** Payer address verification strictly requires a valid, configured `AGENT_WALLET_ADDRESS` (`/^0x[0-9a-fA-F]{40}$/`). Normalized to lowercase without fallbacks. Settlement verification fails closed if address is missing or malformed. `getHealth()` reports `UNCONFIGURED` / `UNAVAILABLE` and flags `payerMismatch` when CLI account differs from configured address.
+- **Strict ABI Word & Address Padding Validation (DEF-38):** Indexed address topics in ERC-20 `Transfer` events must be exactly 32 bytes (64 hex characters) with strict 12-byte zero padding (`000000000000000000000000`). Both sender (`topics[1]`) and recipient (`topics[2]`) topics are verified. Fails verification explicitly on malformed payment token topics while cleanly ignoring valid unrelated logs.
+- **Settlement Proof Field Override Defense (DEF-39):** `commitSettlementAtomic()` enforces an immutable field allowlist forbidding callers from overriding `purchase_attempt_id`, `quote_id`, `token_contract`, `amount_atomic`, `payer_address`, `payee_address`, and `settlement_tx_hash`. Validates cross-quote matching, token contract, recipient, amount, chain ID (42220), and receipt status (1) within atomic `BEGIN IMMEDIATE` transaction with all-or-nothing rollback.
+- **Removal of Arbitrary CLI Stdout Hash Extraction (DEF-40):** Eliminates unconstrained stdout regex fallback searching for 32-byte hex strings. Parses only documented structured `paymentResponse.txHash` and `settlementTxHash` validated against `/^0x[0-9a-fA-F]{64}$/`. Transitions to `SETTLEMENT_UNKNOWN` and preserves budget reservation when valid structured references are absent.
+- **Strict CLI Receipt-Resolution Execution & Validation (DEF-41):** `resolveSettlement()` requires `exitCode === 0` before parsing CLI stdout. Catches timeouts and errors, returning unresolved and preserving budget reservation. Validates output strictly as JSON array and requires strong unique associations, forbidding recipient-only matching.
+

@@ -242,3 +242,36 @@ Following independent audit of the payment settlement pipeline, 6 critical settl
    - Introduced `db.commitSettlementAtomic()` wrapped in a SQLite `BEGIN IMMEDIATE` transaction.
    - Simultaneously writes `settlement_records`, updates `purchase_attempts`, updates `quote_records`, and transitions `budget_reservations` to `COMMITTED`.
    - Guarantees 100% database consistency or complete rollback on write failure.
+
+---
+
+## 8. Final Payment-Proof Integrity Remediation (MOD-03.4 / DEF-37 through DEF-41)
+
+Following an independent source audit of the MOD-03.3 settlement verification pipeline, 5 critical payment-proof integrity protections were engineered:
+
+1. **Elimination of Hardcoded Payer Identity Fallbacks (DEF-37):**
+   - Settlement verification strictly requires a valid, explicitly configured `AGENT_WALLET_ADDRESS` (`/^0x[0-9a-fA-F]{40}$/`).
+   - Normalizes to lowercase without silent fallbacks. If unconfigured or malformed, settlement verification fails closed immediately before querying receipts.
+   - `getHealth()` reports `account: 'UNCONFIGURED'` or `'UNAVAILABLE'` in fallback and catch branches, eliminating all hardcoded wallet constants.
+   - Compares configured payer against CLI reported account; mismatches expose `payerMismatch: true` and fail health check (`ready: false`).
+
+2. **Strict ABI Indexed Address Topic Validation (DEF-38):**
+   - Address decoder `decodeAddressFromTopic()` strictly requires exactly `0x` followed by 64 hex characters (32 bytes).
+   - Validates that the first 12 bytes (24 hex characters) are strictly zero-padded (`000000000000000000000000`).
+   - Applies strict validation to both sender (`topics[1]`) and recipient (`topics[2]`).
+   - Fails verification explicitly on malformed topics claiming to be payment token transfers while cleanly ignoring valid unrelated logs.
+
+3. **Settlement Proof Field Override Protection & Cross-Quote Validation (DEF-39):**
+   - Enforces strict allowlist in `commitSettlementAtomic()`. Forbids callers from overriding `purchase_attempt_id`, `quote_id`, `token_contract`, `amount_atomic`, `payer_address`, `payee_address`, and `settlement_tx_hash`.
+   - Validates that the settlement proof references an existing purchase attempt, the purchase attempt belongs to the same quote, and proof parameters (token, recipient, atomic amount, chain ID 42220, receipt status 1) strictly match stored quote records.
+   - Executed within a SQLite `BEGIN IMMEDIATE` transaction with all-or-nothing rollback.
+
+4. **Elimination of Arbitrary CLI Stdout Hash Extraction (DEF-40):**
+   - Completely removed regular-expression fallback searching arbitrary stdout for 32-byte hex strings.
+   - Parses only documented, validated structured `paymentResponse.txHash` and `settlementTxHash` fields (`/^0x[0-9a-fA-F]{64}$/`).
+   - If structured settlement references are absent or malformed, execution marks attempt and quote `SETTLEMENT_UNKNOWN`, preserves budget reservation (`RESERVED`), does not retry, and records redacted CLI output for operator inspection.
+
+5. **Strict CLI Receipt-Resolution Execution & Validation (DEF-41):**
+   - `resolveSettlement()` requires `exitCode === 0` before parsing CLI stdout for receipt candidates.
+   - Catches CLI execution errors or timeouts, returning unresolved and retaining budget reservation.
+   - Validates stdout strictly as JSON array, validates candidate schemas, requires strong unique associations (quote ID, purchase attempt ID, or payment reference), strictly forbids recipient-only matching, and requires exactly 1 unique candidate hash.

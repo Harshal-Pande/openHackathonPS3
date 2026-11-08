@@ -25,11 +25,19 @@ const execFileAsync = promisify(execFile);
 export const ERC20_TRANSFER_EVENT_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
+/**
+ * Strictly decodes an ABI-encoded 20-byte address from a 32-byte indexed event topic.
+ * Enforces:
+ * 1. Topic must be a non-null string starting with '0x' followed by exactly 64 hex characters (32 bytes).
+ * 2. The first 12 bytes (24 hex characters) must be zero-padded ('000000000000000000000000').
+ * 3. Returns the normalized lowercase 20-byte address ('0x' + 40 hex characters) only after validation.
+ */
 export function decodeAddressFromTopic(topic: string): string {
   if (!topic || typeof topic !== 'string') return '';
-  const clean = topic.startsWith('0x') ? topic.slice(2) : topic;
-  if (clean.length < 40) return '';
-  return '0x' + clean.slice(-40).toLowerCase();
+  if (!/^0x[0-9a-fA-F]{64}$/.test(topic)) return '';
+  const padding = topic.slice(2, 26);
+  if (padding !== '000000000000000000000000') return '';
+  return '0x' + topic.slice(26).toLowerCase();
 }
 
 export function decodeUint256FromData(data: string): bigint {
@@ -60,9 +68,10 @@ export interface ReceiptVerificationResult {
  * Enforces:
  * 1. Receipt existence and successful status (0x1 or 1).
  * 2. Requested transaction hash matches receipt transactionHash case-insensitively.
- * 3. ERC-20 Transfer topic matching and minimum 3 indexed topics.
- * 4. Payer identity is verified from topics[1] and matches expectedPayer (no fallbacks!).
- * 5. Sum of all matching transfer logs to recipient equals the exact quoted atomic amount.
+ * 3. ERC-20 Transfer topic matching with strict 32-byte ABI word validation.
+ * 4. Payer and recipient indexed address topic validation (first 12 bytes zero-padded).
+ * 5. Payer identity verified from topics[1] matching expectedPayer without fallbacks.
+ * 6. Sum of all matching transfer logs to recipient equals the exact quoted atomic amount.
  */
 export function verifyReceiptTransferLogs(
   receipt: any,
@@ -126,25 +135,52 @@ export function verifyReceiptTransferLogs(
     if (!log || typeof log !== 'object') continue;
 
     const logAddress = (log.address || '').toLowerCase();
+    // Only inspect logs from the quoted payment token contract
     if (logAddress !== expectedToken) continue;
 
+    // Check if this log claims to be an ERC-20 Transfer
     if (!Array.isArray(log.topics) || log.topics.length < 3) continue;
-
     const topic0 = (log.topics[0] || '').toLowerCase();
     if (topic0 !== ERC20_TRANSFER_EVENT_TOPIC) continue;
 
-    const logTo = decodeAddressFromTopic(log.topics[2]);
-    if (logTo !== expectedRecipient) continue;
-
-    // Decode sender from topics[1] (DEFECT MOD03.3-03)
-    const logSender = decodeAddressFromTopic(log.topics[1]);
-    if (!logSender || !/^0x[0-9a-fA-F]{40}$/.test(logSender)) {
+    // It is an ERC-20 Transfer on our payment token: enforce strict topic requirements (DEF-38)
+    const senderTopic = log.topics[1];
+    if (!senderTopic || typeof senderTopic !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(senderTopic)) {
       return {
         verified: false,
-        reason: 'Transfer log contains invalid or missing sender topic (topics[1]).'
+        reason: 'Transfer log contains invalid or missing sender topic (topics[1]): must be 32-byte hex.'
+      };
+    }
+    if (senderTopic.slice(2, 26) !== '000000000000000000000000') {
+      return {
+        verified: false,
+        reason: 'Transfer log contains invalid non-zero address padding in sender topic (topics[1]).'
       };
     }
 
+    const recipientTopic = log.topics[2];
+    if (!recipientTopic || typeof recipientTopic !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(recipientTopic)) {
+      return {
+        verified: false,
+        reason: 'Transfer log contains invalid or missing recipient topic (topics[2]): must be 32-byte hex.'
+      };
+    }
+    if (recipientTopic.slice(2, 26) !== '000000000000000000000000') {
+      return {
+        verified: false,
+        reason: 'Transfer log contains invalid non-zero address padding in recipient topic (topics[2]).'
+      };
+    }
+
+    const logSender = '0x' + senderTopic.slice(26).toLowerCase();
+    const logRecipient = '0x' + recipientTopic.slice(26).toLowerCase();
+
+    // If recipient is NOT our expected recipient, this is an unrelated transfer on the same token (e.g. part of a multi-transfer transaction)
+    if (logRecipient !== expectedRecipient) {
+      continue;
+    }
+
+    // Now this log claims to transfer to our recipient: verify payer and amount
     if (normalizedExpectedPayer && logSender !== normalizedExpectedPayer) {
       return {
         verified: false,
@@ -156,7 +192,7 @@ export function verifyReceiptTransferLogs(
     if (typeof log.data !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(log.data)) {
       return {
         verified: false,
-        reason: 'Transfer log contains malformed or un-decodable data amount.'
+        reason: 'Transfer log contains malformed or un-decodable data amount: must be 32-byte hex.'
       };
     }
     const logAmount = decodeUint256FromData(log.data);
@@ -269,7 +305,12 @@ export class BuyAdapter {
     private db: Database,
     private appConfig: AppConfig
   ) {
-    this.payingAddress = (this.appConfig.AGENT_WALLET_ADDRESS || '0x3e1bef07824cd0E076F4907641F0A0EF27898e52').toLowerCase();
+    const rawWallet = this.appConfig?.AGENT_WALLET_ADDRESS;
+    if (rawWallet && typeof rawWallet === 'string' && /^0x[0-9a-fA-F]{40}$/.test(rawWallet.trim())) {
+      this.payingAddress = rawWallet.trim().toLowerCase();
+    } else {
+      this.payingAddress = '';
+    }
     if (config.executable) {
       this.executable = config.executable;
       this.argsPrefix = config.argsPrefix || [];
@@ -356,6 +397,8 @@ export class BuyAdapter {
 
   /**
    * Reads the health and wallet identity of the Buy CLI environment (read-only).
+   * DEFECT-37: Exposes unavailable/unconfigured account rather than fabricating an identity.
+   * Compares configured payer identity against CLI account and reports mismatch as health failure.
    */
   public async getHealth(): Promise<BuyHealthStatus> {
     const killSwitchActive = this.db.getKillSwitch();
@@ -402,27 +445,39 @@ export class BuyAdapter {
       }
 
       const isFunded = Object.values(balances).some((v) => parseFloat(v) > 0);
+      const configuredPayer = this.payingAddress || undefined;
+      const payerMismatch = Boolean(
+        configuredPayer &&
+        account !== 'unknown' &&
+        account.toLowerCase() !== configuredPayer.toLowerCase()
+      );
+
+      const isReady = whoamiRes.exitCode === 0 && !payerMismatch && account !== 'unknown';
 
       return {
-        ready: whoamiRes.exitCode === 0,
+        ready: isReady,
         cliVersion,
-        account,
+        account: account === 'unknown' ? (configuredPayer || 'UNCONFIGURED') : account,
         network: 'celo',
         funded: isFunded,
         balances,
         killSwitchActive,
-        timestamp: now
+        timestamp: now,
+        configuredPayer,
+        payerMismatch
       };
     } catch (err: any) {
       return {
         ready: false,
         cliVersion: 'unavailable',
-        account: '0x3e1bef07824cd0E076F4907641F0A0EF27898e52',
+        account: this.payingAddress || 'UNAVAILABLE',
         network: 'celo',
         funded: false,
         balances: {},
         killSwitchActive,
-        timestamp: now
+        timestamp: now,
+        configuredPayer: this.payingAddress || undefined,
+        payerMismatch: false
       };
     }
   }
@@ -641,20 +696,43 @@ export class BuyAdapter {
         parsedResponse = { raw: redactedStdout };
       }
 
-      // Check for transaction settlement evidence in CLI output
+      // DEFECT-40: Parse ONLY documented structured paymentResponse fields.
+      // Strictly validate 32-byte hex format. NEVER search arbitrary stdout with regex!
       let txHash: string | null = null;
       let settlementTxHash: string | null = null;
-      if (parsedResponse?.paymentResponse?.settlementTxHash) {
-        settlementTxHash = parsedResponse.paymentResponse.settlementTxHash;
+
+      const rawTxHash = parsedResponse?.paymentResponse?.txHash;
+      if (typeof rawTxHash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(rawTxHash)) {
+        txHash = rawTxHash.toLowerCase();
       }
-      if (parsedResponse?.paymentResponse?.txHash) {
-        txHash = parsedResponse.paymentResponse.txHash;
+
+      const rawSettlementTxHash = parsedResponse?.paymentResponse?.settlementTxHash;
+      if (typeof rawSettlementTxHash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(rawSettlementTxHash)) {
+        settlementTxHash = rawSettlementTxHash.toLowerCase();
       }
-      if (!settlementTxHash && !txHash) {
-        const txMatch = stdout.match(/0x[0-9a-fA-F]{64}/);
-        if (txMatch) txHash = txMatch[0];
-      }
+
       const targetHash = settlementTxHash || txHash;
+
+      // If no valid structured settlement reference is available, mark SETTLEMENT_UNKNOWN and preserve budget reservation
+      if (!targetHash) {
+        this.db.updatePurchaseAttemptStatus(attemptId, 'SETTLEMENT_UNKNOWN', {
+          error_message: 'No valid structured payment response reference (txHash or settlementTxHash) in CLI output.',
+          raw_stdout_redacted: redactedStdout,
+          raw_stderr_redacted: redactedStderr
+        });
+        this.db.updateQuoteStatus(quote.id, 'SETTLEMENT_UNKNOWN');
+
+        return {
+          purchaseAttemptId: attemptId,
+          quoteId: quote.id,
+          status: 'SETTLEMENT_UNKNOWN',
+          providerResponse: parsedResponse,
+          txHash: null,
+          settlementTxHash: null,
+          errorMessage: 'No valid structured settlement reference in provider response. Marked SETTLEMENT_UNKNOWN. Budget reservation preserved.',
+          isSettled: false
+        };
+      }
 
       // Independent receipt resolution: verify on-chain settlement
       const settlement = await this.verifyOnChainSettlement(targetHash, quote);
@@ -666,7 +744,7 @@ export class BuyAdapter {
             id: crypto.randomUUID(),
             purchase_attempt_id: attemptId,
             quote_id: quote.id,
-            tx_hash: settlement.txHash || targetHash || '0x' + '0'.repeat(64),
+            tx_hash: settlement.txHash || targetHash,
             chain_id: 42220,
             block_number: settlement.blockNumber || null,
             token_contract: quote.token_contract,
@@ -678,7 +756,6 @@ export class BuyAdapter {
           },
           {
             tx_hash: txHash || settlement.txHash || targetHash,
-            settlement_tx_hash: settlementTxHash || settlement.txHash || targetHash,
             raw_stdout_redacted: redactedStdout,
             raw_stderr_redacted: redactedStderr
           }
@@ -690,13 +767,14 @@ export class BuyAdapter {
           status: 'SETTLED',
           providerResponse: parsedResponse,
           txHash: settlement.txHash || targetHash,
-          settlementTxHash: settlementTxHash || settlement.txHash || targetHash,
+          settlementTxHash: settlement.txHash || targetHash,
           isSettled: true
         };
       } else {
         // Payment response arrived but on-chain settlement receipt not yet confirmed: set SETTLEMENT_UNKNOWN
         this.db.updatePurchaseAttemptStatus(attemptId, 'SETTLEMENT_UNKNOWN', {
           tx_hash: txHash,
+          settlement_tx_hash: settlementTxHash,
           error_message: settlement.reason || 'Received response from provider but on-chain settlement receipt not yet confirmed.',
           raw_stdout_redacted: redactedStdout,
           raw_stderr_redacted: redactedStderr
@@ -709,6 +787,7 @@ export class BuyAdapter {
           status: 'SETTLEMENT_UNKNOWN',
           providerResponse: parsedResponse,
           txHash,
+          settlementTxHash,
           errorMessage: settlement.reason || 'Settlement confirmation pending on-chain.',
           isSettled: false
         };
@@ -725,8 +804,12 @@ export class BuyAdapter {
 
   /**
    * Resolves doubtful or pending settlements by querying Buy CLI receipts with --resolve.
-   * Strictly enforces unique association (quoteId, purchaseAttemptId, or exact known txHash).
-   * Forbids recipient-only matching and ambiguous multiple matches!
+   * Strictly enforces:
+   * 1. CLI execution must succeed with exitCode === 0 (DEFECT-41).
+   * 2. CLI output must strictly parse as a JSON array.
+   * 3. Candidate schemas and association fields validated (quoteId, purchaseAttemptId, paymentReference).
+   * 4. Forbids recipient-only matching and ambiguous multiple matches!
+   * 5. Retains budget reservation on unresolved/ambiguous outcomes.
    */
   public async resolveSettlement(attemptId: string): Promise<SettlementResolutionResult> {
     const attempt = this.db.getPurchaseAttempt(attemptId);
@@ -751,54 +834,95 @@ export class BuyAdapter {
       };
     }
 
-    const { stdout, stderr, exitCode } = await this.runCli(['receipts', '--json', '--resolve']);
+    let cliResult: { stdout: string; stderr: string; exitCode: number };
+    try {
+      cliResult = await this.runCli(['receipts', '--json', '--resolve']);
+    } catch (cliErr: any) {
+      const redactedErr = redactSensitiveOutput(cliErr.message || String(cliErr));
+      return {
+        purchaseAttemptId: attempt.id,
+        quoteId: quote.id,
+        status: attempt.status as PurchaseStatus,
+        resolved: false,
+        txHash: attempt.tx_hash,
+        message: `Settlement resolution execution error or timeout: ${redactedErr}. Retaining reservation.`
+      };
+    }
+
+    const { stdout, stderr, exitCode } = cliResult;
     const redactedStderr = redactSensitiveOutput(stderr);
 
-    // Look for matching receipt using ONLY strong unique associations (never recipient-only!)
+    // DEFECT-41: Require exitCode === 0 before parsing receipt candidates
+    if (exitCode !== 0) {
+      return {
+        purchaseAttemptId: attempt.id,
+        quoteId: quote.id,
+        status: attempt.status as PurchaseStatus,
+        resolved: false,
+        txHash: attempt.tx_hash,
+        message: `Buy CLI receipts command exited with code ${exitCode}${redactedStderr ? ': ' + redactedStderr : ''}. Unresolved. Retaining reservation.`
+      };
+    }
+
+    // DEFECT-41: Parse stdout strictly as JSON array
     let parsed: any;
     try {
       parsed = JSON.parse(stdout);
-    } catch {
-      parsed = [];
+    } catch (parseErr: any) {
+      return {
+        purchaseAttemptId: attempt.id,
+        quoteId: quote.id,
+        status: attempt.status as PurchaseStatus,
+        resolved: false,
+        txHash: attempt.tx_hash,
+        message: 'Settlement resolution failed: malformed JSON response from receipts command. Unresolved.'
+      };
     }
 
-    const matchingCandidates: any[] = [];
-    if (Array.isArray(parsed)) {
-      for (const r of parsed) {
-        if (!r || typeof r !== 'object') continue;
-
-        const matchQuote =
-          (r.quoteId && r.quoteId === quote.id) ||
-          (r.quote_id && r.quote_id === quote.id);
-        const matchAttempt =
-          (r.purchaseAttemptId && r.purchaseAttemptId === attempt.id) ||
-          (r.purchase_attempt_id && r.purchase_attempt_id === attempt.id);
-        const matchPaymentRef =
-          r.paymentReference &&
-          (r.paymentReference === attempt.id || r.paymentReference === quote.id);
-        const matchTx =
-          (attempt.tx_hash && r.txHash && r.txHash.toLowerCase() === attempt.tx_hash.toLowerCase()) ||
-          (attempt.settlement_tx_hash && r.txHash && r.txHash.toLowerCase() === attempt.settlement_tx_hash.toLowerCase());
-
-        if (matchQuote || matchAttempt || matchPaymentRef || matchTx) {
-          matchingCandidates.push(r);
-        }
-      }
+    if (!Array.isArray(parsed)) {
+      return {
+        purchaseAttemptId: attempt.id,
+        quoteId: quote.id,
+        status: attempt.status as PurchaseStatus,
+        resolved: false,
+        txHash: attempt.tx_hash,
+        message: 'Settlement resolution failed: receipts output is not a JSON array. Unresolved.'
+      };
     }
 
-    // Extract unique candidate transaction hashes (DEFECT MOD03.3-06)
     const candidateTxHashes = new Set<string>();
-    for (const c of matchingCandidates) {
-      const h = c.txHash || c.settlementTxHash;
-      if (h && typeof h === 'string' && /^0x[0-9a-fA-F]{64}$/.test(h)) {
-        candidateTxHashes.add(h.toLowerCase());
+
+    for (const r of parsed) {
+      if (!r || typeof r !== 'object') continue;
+
+      const rawHash = r.txHash || r.settlementTxHash;
+      if (!rawHash || typeof rawHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(rawHash)) {
+        continue;
+      }
+
+      const matchQuote =
+        (typeof r.quoteId === 'string' && r.quoteId === quote.id) ||
+        (typeof r.quote_id === 'string' && r.quote_id === quote.id);
+      const matchAttempt =
+        (typeof r.purchaseAttemptId === 'string' && r.purchaseAttemptId === attempt.id) ||
+        (typeof r.purchase_attempt_id === 'string' && r.purchase_attempt_id === attempt.id);
+      const matchPaymentRef =
+        typeof r.paymentReference === 'string' &&
+        (r.paymentReference === attempt.id || r.paymentReference === quote.id);
+      const matchRecordedTx =
+        (attempt.tx_hash && rawHash.toLowerCase() === attempt.tx_hash.toLowerCase()) ||
+        (attempt.settlement_tx_hash && rawHash.toLowerCase() === attempt.settlement_tx_hash.toLowerCase());
+
+      // FORBID recipient-only matching!
+      if (matchQuote || matchAttempt || matchPaymentRef || matchRecordedTx) {
+        candidateTxHashes.add(rawHash.toLowerCase());
       }
     }
 
     // Fallback: If CLI receipts didn't have candidate, but attempt had a recorded tx_hash
-    if (candidateTxHashes.size === 0 && (attempt.settlement_tx_hash || attempt.tx_hash)) {
+    if (candidateTxHashes.size === 0) {
       const recorded = attempt.settlement_tx_hash || attempt.tx_hash;
-      if (recorded && /^0x[0-9a-fA-F]{64}$/.test(recorded)) {
+      if (recorded && typeof recorded === 'string' && /^0x[0-9a-fA-F]{64}$/.test(recorded)) {
         candidateTxHashes.add(recorded.toLowerCase());
       }
     }
@@ -843,9 +967,6 @@ export class BuyAdapter {
           amount_atomic: quote.amount_atomic,
           receipt_status: 1,
           verified_at: new Date().toISOString()
-        },
-        {
-          settlement_tx_hash: settlement.txHash
         }
       );
 
@@ -879,6 +1000,14 @@ export class BuyAdapter {
     txHash: string | null | undefined,
     quote: QuoteRow
   ): Promise<ReceiptVerificationResult> {
+    // DEFECT-37: Require valid, explicitly configured AGENT_WALLET_ADDRESS before settlement verification runs
+    if (!this.payingAddress) {
+      return {
+        verified: false,
+        reason: 'Settlement verification blocked: Agent wallet address is not configured or malformed.'
+      };
+    }
+
     if (this.config.settlementVerifier) {
       return this.config.settlementVerifier(txHash, quote);
     }

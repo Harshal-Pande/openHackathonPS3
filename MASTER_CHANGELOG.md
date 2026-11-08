@@ -810,3 +810,54 @@ Following an independent audit of the payment settlement path, 6 critical defect
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop and Mobile viewports with exit code 0.
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO / 0 USDC. $0.00 spent.
+
+---
+
+## Phase 18 — Module 3.4: Final Payment-Proof Integrity Remediation (MOD-03.4 / DEF-37 through DEF-41)
+**Date:** 2026-11-08
+**Scope:** Removal of hardcoded payer fallback identities; strict 32-byte EVM ABI indexed address topic validation with 12-byte leading zero-padding check on ERC-20 Transfer event logs; prevention of settlement proof field overrides in atomic multi-table SQLite transactions; elimination of arbitrary CLI stdout transaction-hash regex extraction in favor of strictly structured paymentResponse; and mandatory CLI execution success (`exitCode === 0`) with candidate schema validation during settlement resolution.
+
+### 1. Summary of Changes
+Following an independent audit of the MOD-03.3 settlement and payment proof path, 5 defects were identified and systematically resolved:
+
+1. **DEF-37: Payer Identity Hardcoded Fallback Elimination (P0):**
+   - Removed all hardcoded payer identity fallbacks (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`) from `BuyAdapter` constructor and `verifyReceiptTransferLogs()`.
+   - Requires explicit `AGENT_WALLET_ADDRESS` environment variable matching `/^0x[0-9a-fA-F]{40}$/`; normalized to lowercase or left undefined.
+   - If `AGENT_WALLET_ADDRESS` is missing or malformed, `payingAddress` remains `undefined`, and any payment verification fails closed immediately.
+   - `getHealth()` reports `UNCONFIGURED` or `UNAVAILABLE` when the CLI account or configured payer is missing without fabricating identity, detects CLI account vs configured payer mismatches, and exposes `payerMismatch: true` and `ready: false`.
+
+2. **DEF-38: Strict ABI Indexed Address Topic Validation (P1):**
+   - Hardened `decodeAddressFromTopic()` to strictly enforce:
+     - Topic must be a 32-byte hex string (`/^0x[0-9a-fA-F]{64}$/`).
+     - High 12 bytes (24 hex characters) must be zero-padded (`000000000000000000000000`).
+     - Extracts the trailing 20-byte address (`topics.slice(26)`) and normalizes to lowercase.
+   - Applied strict validation to both sender (`topics[1]`) and recipient (`topics[2]`) in `verifyReceiptTransferLogs()`.
+   - Malformed topics on logs matching the target token contract trigger explicit verification failure; non-matching transfer logs or logs with fewer than 3 topics are safely bypassed.
+
+3. **DEF-39: Prevention of Settlement Proof Field Overrides in Atomic Commit (P1):**
+   - Hardened `Database.commitSettlementAtomic()` to reject any caller-supplied overrides of critical proof and audit columns (`purchase_attempt_id`, `quote_id`, `token_contract`, `amount_atomic`, `payer_address`, `payee_address`, `settlement_tx_hash`, `tx_hash`).
+   - Validates existence of the purchase attempt and quote within a SQLite `BEGIN IMMEDIATE` transaction.
+   - Asserts that the purchase attempt's `quote_id` matches the settlement proof's `quote_id`, and verifies that proof fields match quote contract, payee, and atomic amount.
+   - Validates proof parameter constraints (chain ID `42220`, receipt status `1`, 32-byte transaction hash).
+   - Entire multi-table commit executes atomically with automatic rollback on any failure.
+
+4. **DEF-40: Elimination of Unstructured Arbitrary CLI Stdout Transaction-Hash Extraction (P1):**
+   - Completely deleted the regex fallback that searched arbitrary stdout lines for 32-byte hex patterns.
+   - Transaction hash extraction now exclusively inspects documented structured CLI outputs (`paymentResponse.txHash` or `settlementTxHash`) matching `/^0x[0-9a-fA-F]{64}$/`.
+   - If the structured transaction hash is missing or malformed, the attempt and quote transition to `SETTLEMENT_UNKNOWN`, the budget reservation remains safely `RESERVED`, and execution aborts without retrying.
+
+5. **DEF-41: Strict CLI Execution and Schema Validation in Receipt Resolution (P1):**
+   - Hardened `resolveSettlement()` to require `exitCode === 0` from CLI receipt queries.
+   - Catches CLI execution timeouts and non-zero exits, returning unresolved without releasing the budget reservation.
+   - Strictly validates stdout as a valid JSON array and validates candidate entry schemas (`txHash`, `quoteId`, `purchaseAttemptId`, `paymentReference`).
+   - Forbids ambiguous recipient-only candidate matching; matches candidates exclusively by exact `quoteId`, `purchaseAttemptId`, or `paymentReference`.
+   - Halts on 0 matches or multiple candidate matches, requiring exactly 1 unique candidate.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **20/20 test files, 319/319 tests passing** in ~5.4s (100% green; 109/109 tests in `tests/buySecurity.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.

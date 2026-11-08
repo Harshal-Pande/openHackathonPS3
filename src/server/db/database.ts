@@ -827,16 +827,105 @@ export class Database {
    * 3. Updates purchase attempt status to 'SETTLED'
    * 4. Updates quote status to 'SETTLED'
    * If any step fails, rolls back all changes atomically.
+   * Commits settlement proof, budget reservation, purchase attempt, and quote status
+   * atomically within a single SQLite BEGIN IMMEDIATE transaction (DEF-36 / DEF-39).
+   * Validates proof attributes against stored quote, checks cross-quote references,
+   * forbids field overrides on canonical settlement proof attributes, and guarantees complete rollback.
    */
   public commitSettlementAtomic(
     proof: SettlementProofRow,
     attemptUpdates: Partial<PurchaseAttemptRow> = {}
   ): void {
+    if (!proof || typeof proof !== 'object') {
+      throw new Error('Settlement proof must be a valid non-null object.');
+    }
+    if (!proof.purchase_attempt_id) {
+      throw new Error('Settlement proof missing purchase_attempt_id.');
+    }
+    if (!proof.quote_id) {
+      throw new Error('Settlement proof missing quote_id.');
+    }
+    if (!proof.tx_hash || !/^0x[0-9a-fA-F]{64}$/.test(proof.tx_hash)) {
+      throw new Error(`Invalid settlement proof tx_hash: "${proof.tx_hash}".`);
+    }
+    if (proof.chain_id !== 42220) {
+      throw new Error(`Invalid chain ID in settlement proof: ${proof.chain_id}, expected 42220 (Celo Mainnet).`);
+    }
+    if (proof.receipt_status !== 1) {
+      throw new Error(`Invalid receipt status in settlement proof: ${proof.receipt_status}, expected 1.`);
+    }
+    if (!proof.payer || !/^0x[0-9a-fA-F]{40}$/.test(proof.payer)) {
+      throw new Error(`Invalid payer address in settlement proof: "${proof.payer}".`);
+    }
+    if (!proof.recipient || !/^0x[0-9a-fA-F]{40}$/.test(proof.recipient)) {
+      throw new Error(`Invalid recipient address in settlement proof: "${proof.recipient}".`);
+    }
+
+    // DEFECT-39: Never permit attemptUpdates to override canonical fields
+    const FORBIDDEN_OVERRIDE_FIELDS = [
+      'id',
+      'purchase_attempt_id',
+      'quote_id',
+      'token_contract',
+      'amount_atomic',
+      'payer_address',
+      'payee_address'
+    ] as const;
+
+    for (const field of FORBIDDEN_OVERRIDE_FIELDS) {
+      if ((attemptUpdates as any)[field] !== undefined) {
+        throw new Error(`Forbidden attemptUpdate field: cannot override "${field}".`);
+      }
+    }
+
+    if (
+      attemptUpdates.settlement_tx_hash &&
+      attemptUpdates.settlement_tx_hash.toLowerCase() !== proof.tx_hash.toLowerCase()
+    ) {
+      throw new Error('Cannot override canonical settlement_tx_hash with conflicting value.');
+    }
+
     this.transaction(() => {
-      // 1. Save settlement proof
+      // 1. Validate purchase attempt existence
+      const attempt = this.getPurchaseAttempt(proof.purchase_attempt_id);
+      if (!attempt) {
+        throw new Error(`Purchase attempt "${proof.purchase_attempt_id}" not found.`);
+      }
+
+      // 2. Validate quote existence
+      const quote = this.getQuote(proof.quote_id);
+      if (!quote) {
+        throw new Error(`Quote "${proof.quote_id}" not found.`);
+      }
+
+      // 3. Cross-attempt and cross-quote validation
+      if (attempt.quote_id !== proof.quote_id) {
+        throw new Error(
+          `Cross-quote settlement proof rejected: attempt quote "${attempt.quote_id}" does not match proof quote "${proof.quote_id}".`
+        );
+      }
+
+      // 4. Validate proof attributes against stored quote
+      if (proof.token_contract.toLowerCase() !== quote.token_contract.toLowerCase()) {
+        throw new Error(
+          `Settlement proof token contract "${proof.token_contract}" does not match quote token contract "${quote.token_contract}".`
+        );
+      }
+      if (proof.recipient.toLowerCase() !== quote.recipient.toLowerCase()) {
+        throw new Error(
+          `Settlement proof recipient "${proof.recipient}" does not match quote recipient "${quote.recipient}".`
+        );
+      }
+      if (proof.amount_atomic !== quote.amount_atomic) {
+        throw new Error(
+          `Settlement proof amount "${proof.amount_atomic}" does not match quote atomic amount "${quote.amount_atomic}".`
+        );
+      }
+
+      // 5. Save settlement proof
       this.saveSettlementProof(proof);
 
-      // 2. Commit budget reservation
+      // 6. Commit budget reservation
       const res = this.getBudgetReservation(proof.quote_id);
       if (!res) {
         throw new Error(`Budget reservation for quote "${proof.quote_id}" not found.`);
@@ -846,16 +935,24 @@ export class Database {
       }
       this.commitBudgetReservation(proof.quote_id);
 
-      // 3. Mark purchase attempt SETTLED
+      // 7. Mark purchase attempt SETTLED with immutable canonical fields
+      // Preserve legitimate separate tx_hash (request hash) if validated, but canonical settlement_tx_hash is ALWAYS proof.tx_hash
+      const requestTxHash =
+        attemptUpdates.tx_hash && /^0x[0-9a-fA-F]{64}$/.test(attemptUpdates.tx_hash)
+          ? attemptUpdates.tx_hash
+          : attempt.tx_hash || proof.tx_hash;
+
       this.updatePurchaseAttemptStatus(proof.purchase_attempt_id, 'SETTLED', {
-        tx_hash: proof.tx_hash,
+        tx_hash: requestTxHash,
         settlement_tx_hash: proof.tx_hash,
         payer_address: proof.payer,
         payee_address: proof.recipient,
-        ...attemptUpdates
+        raw_stdout_redacted: attemptUpdates.raw_stdout_redacted,
+        raw_stderr_redacted: attemptUpdates.raw_stderr_redacted,
+        error_message: attemptUpdates.error_message
       });
 
-      // 4. Mark quote SETTLED
+      // 8. Mark quote SETTLED
       this.updateQuoteStatus(proof.quote_id, 'SETTLED');
     });
   }

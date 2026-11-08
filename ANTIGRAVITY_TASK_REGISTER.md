@@ -135,3 +135,16 @@ This register contains all technical and operational tasks owned and executed di
 - **Required Tests:** `tests/buySecurity.test.ts` (64/64 passed), `tests/buyAdapter.test.ts` (9/9 passed).
 - **Acceptance Criteria:** 100% test pass rate across all new fail-closed chain checks, hash matching, payer verification, aggregate transfer amounts, ambiguous error preservation, unique receipt resolution, and atomic SQLite rollback tests.
 - **Evidence:** Passing test output in `tests/buySecurity.test.ts` and `tests/buyAdapter.test.ts`.
+
+### TASK AGY-07.3: Final Payment-Proof Integrity Remediation (DEF-37 to DEF-41)
+- **Objective:** Close remaining payment-proof identity, strict ABI parsing, settlement persistence override vulnerabilities, and CLI evidence-association defects.
+- **Files Involved:** `src/server/adapters/buyAdapter.ts`, `src/server/db/database.ts`, `src/server/forensics/types.ts`, `tests/buySecurity.test.ts`
+- **Implementation & Hardening:**
+  - DEF-37 (Hardened Payer Identity Configuration & Health): Required explicitly configured, validated `AGENT_WALLET_ADDRESS` (`/^0x[0-9a-fA-F]{40}$/`). Fails closed on missing or malformed configuration before querying receipts. `getHealth()` reports `UNCONFIGURED` / `UNAVAILABLE` without fabricating identity. Exposes `payerMismatch` when CLI account differs from configured address.
+  - DEF-38 (Strict ABI Indexed Address Topic Validation): Enforces exact 32-byte hex topic format (`/^0x[0-9a-fA-F]{64}$/`) and strict 12-byte zero padding (`000000000000000000000000`) for sender and recipient topics. Fails verification explicitly on malformed topics claiming to be payment token transfers while cleanly ignoring valid unrelated logs.
+  - DEF-39 (Prevent Settlement Proof Field Overrides): Enforced strict allowlist in `commitSettlementAtomic()`. Forbids overrides on `purchase_attempt_id`, `quote_id`, `token_contract`, `amount_atomic`, `payer_address`, `payee_address`, and `settlement_tx_hash`. Validates proof existence, quote existence, cross-quote matching, token, recipient, amount, chain ID (42220), and receipt status (1) within atomic `BEGIN IMMEDIATE` transaction with all-or-nothing rollback.
+  - DEF-40 (Elimination of Arbitrary CLI Stdout Hash Extraction): Removed stdout regex matching for transaction hashes. Parses only documented structured `paymentResponse.txHash` and `settlementTxHash` validated against `/^0x[0-9a-fA-F]{64}$/`. Transitions to `SETTLEMENT_UNKNOWN` and preserves budget reservation when valid structured references are absent.
+  - DEF-41 (Strict CLI Receipt-Resolution Execution & Validation): Required `exitCode === 0` before parsing receipts stdout. Safely catches timeouts and execution errors, returning unresolved and retaining budget reservation. Validates stdout strictly as JSON array and validates candidate schemas and strong unique associations.
+- **Required Tests:** `tests/buySecurity.test.ts` (109/109 passed; +45 new tests), `tests/buyAdapter.test.ts` (9/9 passed).
+- **Acceptance Criteria:** 100% test pass rate across all 5 defect categories; zero hardcoded payer fallbacks, zero arbitrary stdout regex extraction, all-or-nothing database rollbacks, and preserved budget reservations.
+- **Evidence:** 319/319 passing tests across all 20 test files in `npm test`.
