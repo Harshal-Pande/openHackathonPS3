@@ -15,8 +15,8 @@ RevertLens is an evidence-based forensic investigation platform for Celo Mainnet
 - **Forensics Pipeline:** Revert decoder (Solidity `Error(string)` & `Panic(uint256)`), EVM call trace tree parser with causality classification (`NO_FAILURE`, `OBSERVED_FAILURE`, `CAUGHT_CHILD_REVERT`, `PROPAGATION_SUPPORTED`, `CAUSALITY_UNCERTAIN`), atomic evidence ledger builder (`[E-01]` to `[E-05]`), and deterministic classifier.
 - **Persistence:** Native Node 22 SQLite (`node:sqlite`) with automated schema migrations.
 - **Frontend Workbench ("The Evidence Bench"):** React 19 + Vite modular institutional forensics workbench with interactive call trace viewer, deepest failing frame badges, evidence ledger, WCAG AAA contrast, and JSON report export.
-- **Attribution & Identity:** Assigned attribution tag `celo_235f6ef56f5b` enforced via `@celo/attribution-tags` (ERC-8021); ERC-8004 agent registration calldata prepared for Celo Identity Registry (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`).
-- **Testing:** 130 unit and integration tests passing in Vitest across 15 suites (100% pass rate), 21/21 API route injection tests, 14/14 live mainnet verification checks, plus real Chrome DevTools Protocol (CDP) automated browser testing on Desktop (1280x800) and Mobile (375x812) viewports.
+- **Attribution & Identity:** Assigned attribution tag `celo_235f6ef56f5b` enforced via `@celo/attribution-tags` (ERC-8021) with Schema 0 wire format validation, centralized configuration (`src/server/config/attribution.ts`), and request classification; ERC-8004 agent registration calldata prepared for Celo Identity Registry (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`).
+- **Testing:** 420 unit and integration tests passing in Vitest across 21 suites (100% pass rate), 36/36 API route injection tests, 14/14 live mainnet verification checks, plus real Chrome DevTools Protocol (CDP) automated browser testing on Desktop (1280x800) and Mobile (375x812) viewports.
 
 ---
 

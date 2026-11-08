@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
 import { validateScryptHashFormat } from './auth/passwordHasher.js';
+import {
+  OFFICIAL_CELO_ATTRIBUTION_TAG,
+  OFFICIAL_AGENT_WALLET_ADDRESS,
+  validateAttributionTag
+} from './config/attribution.js';
 
 dotenv.config();
 
@@ -92,8 +97,8 @@ const envSchema = z.object({
   CENCORI_ENABLED: booleanField,
 
   // Official Hackathon Attribution & Agent Wallet Configuration
-  CELO_ATTRIBUTION_TAG: z.string().default('celo_235f6ef56f5b'),
-  AGENT_WALLET_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).default('0x3e1bef07824cd0E076F4907641F0A0EF27898e52'),
+  CELO_ATTRIBUTION_TAG: z.string().default(OFFICIAL_CELO_ATTRIBUTION_TAG),
+  AGENT_WALLET_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).default(OFFICIAL_AGENT_WALLET_ADDRESS),
 
   REPORT_TTL_DAYS: z.coerce.number().int().positive().default(14),
   REPORTS_PUBLIC_BY_DEFAULT: booleanField
@@ -149,8 +154,12 @@ function enforceProductionInvariants(config: AppConfig): void {
     errors.push('BUY_ENABLED is true but BUY_PER_CALL_CAP_ATOMIC is 0 — no per-call cap configured.');
   }
 
-  if (config.CELO_ATTRIBUTION_TAG !== 'celo_235f6ef56f5b') {
-    errors.push('CELO_ATTRIBUTION_TAG must match the official hackathon tag "celo_235f6ef56f5b".');
+  if (config.CELO_ATTRIBUTION_TAG !== OFFICIAL_CELO_ATTRIBUTION_TAG) {
+    errors.push(`CELO_ATTRIBUTION_TAG must match the official hackathon tag "${OFFICIAL_CELO_ATTRIBUTION_TAG}".`);
+  }
+  const tagValidation = validateAttributionTag(config.CELO_ATTRIBUTION_TAG);
+  if (!tagValidation.valid) {
+    errors.push(`CELO_ATTRIBUTION_TAG is invalid: ${tagValidation.reason}`);
   }
 
   if (errors.length > 0) {

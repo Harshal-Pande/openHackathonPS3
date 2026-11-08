@@ -943,3 +943,58 @@ Following an independent audit of the MOD-03.5 snapshot, two critical identity a
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
+
+---
+
+## Phase 21 — Module 4: ERC-8021 Attribution Engine & Celo SDK Integration (MOD-04 / DEF-46, DEF-47, DEF-48)
+**Date:** 2026-11-08
+**Scope:** Official Celo attribution SDK (`@celo/attribution-tags@0.5.0`) integration, centralization of the official hackathon attribution tag (`celo_235f6ef56f5b`), idempotent calldata suffix appending with Schema 0 code merging and Schema 2 role preservation, comprehensive request classification across Categories A through D, viem client extension compatibility, and read-only RPC isolation.
+
+### 1. Summary of Changes
+Following the complete specification and source audit of the repository and the official Celo attribution SDK:
+
+1. **DEF-46: Calldata Preservation & Idempotent Attribution Merging (P1):**
+   - Replaced naive `concat([baseData, suffix])` in `CeloAttributionService` (`src/server/services/celoAttributionService.ts`) with official SDK-compliant `appendAttribution()`.
+   - Guaranteed byte-for-byte prefix preservation for all contract calls.
+   - Handled existing attribution idempotently: if calldata already ends with the official tag, returns base unchanged without duplicating bytes.
+   - If calldata contains a different Schema 0 tag, merges codes idempotently without duplication (`['other_tag', 'celo_235f6ef56f5b']`).
+   - If calldata contains Schema 2 role attribution, preserves existing attribution as per SDK specification.
+   - Enforced caller object immutability in `prepareTaggedTransaction()`.
+
+2. **DEF-47: Centralized Attribution Configuration (P2):**
+   - Created authoritative `src/server/config/attribution.ts` exporting typed constants:
+     - `OFFICIAL_CELO_ATTRIBUTION_TAG = 'celo_235f6ef56f5b'`
+     - `REQUIRED_CELO_CHAIN_ID = 42220`
+     - `OFFICIAL_AGENT_WALLET_ADDRESS = '0x3e1bef07824cd0E076F4907641F0A0EF27898e52'`
+     - `EXPECTED_ATTRIBUTION_SUFFIX_HEX = '0x63656c6f5f323335663665663536663562110080218021802180218021802180218021'`
+     - Formal regex validation `/^[a-z0-9_]{1,32}$/` matching official SDK constraints.
+   - Refactored `src/server/config.ts` to import from this single authoritative module, eliminating duplicate strings and configuration drift.
+
+3. **DEF-48: Standardized SDK Wrapper Methods & Request Classification (P2):**
+   - Implemented standard SDK wrapper surface in `CeloAttributionService`:
+     - `getConfiguredAttributionTag(): string`
+     - `createAttributionSuffix(): Hex`
+     - `decodeAttributionData(data: string)`
+     - `hasExpectedAttribution(data: string): AttributionCheckResult` (distinguishes `TAGGED_CORRECTLY`, `NO_ATTRIBUTION`, `WRONG_ATTRIBUTION`, `MALFORMED_SUFFIX`)
+     - `verifyOnChainAttribution(hash: Hex, client: any): Promise<OnChainVerificationResult>`
+     - `getWalletClientExtension()` (delegating to `@celo/attribution-tags` `withAttribution`)
+     - `assertReadOnlyRpcUntagged(method, payload)`
+   - Implemented `classifyOperation(operation: string): RequestClassification` covering 24 distinct operation strings across Category A (Outgoing EVM transactions - tagged), Category B (Read-only RPC - strictly untagged), Category C (HTTP x402 Buy payments - untagged), and Category D (Internal operations - untagged).
+
+4. **Tag Validation & Discrepancy Documentation:**
+   - Validated that assigned tag `celo_235f6ef56f5b` strictly conforms to the official SDK's `/^[a-z0-9_]{1,32}$/` format.
+   - Documented that while `codeFromRepo('Harshal-Pande/openHackathonPS3')` derives `celo_655a3d2b2db2` via standard SHA-256 derivation, the hackathon registration tag `celo_235f6ef56f5b` remains strictly authoritative and immutable.
+
+### 2. Verification Evidence
+- **Targeted Vitest Suites:**
+  - `npx vitest run tests/erc8021.test.ts` passed **63/63 tests** (100% green; tag validation, wire format vectors, calldata preservation, idempotency, caller immutability, viem client extensions, request classification, on-chain verification).
+  - `npx vitest run tests/attribution.test.ts` passed **11/11 tests**.
+  - `npx vitest run tests/buySecurity.test.ts` passed **147/147 tests**.
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Full Vitest Automated Suite:** `npm test` passed with **21/21 test files, 420/420 tests passing** in ~11.1s (100% green).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
+- **On-Chain Verification Status:** `PENDING_LIVE_PROOF` (no on-chain transaction has been broadcast yet; ready for Module 5 registration).

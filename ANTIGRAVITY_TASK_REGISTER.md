@@ -168,3 +168,47 @@ This register contains all technical and operational tasks owned and executed di
 - **Required Tests:** `tests/buySecurity.test.ts` (147/147 passed; +16 new tests covering DEF-44 and DEF-45), `tests/buyAdapter.test.ts` (9/9 passed).
 - **Acceptance Criteria:** 100% test pass rate across 357 tests in 20 suites; zero silent omission of payer checks in receipt logs; zero arbitrary text regex extraction from CLI output.
 - **Evidence:** 357/357 passing tests across all 20 test files in `npm test`.
+
+---
+
+## MODULE 4 — Official Attribution Engine & Celo SDK Integration (MOD-04)
+
+### TASK AGY-09: Official Specification and Source Audit
+- **Objective:** Complete source audit of `@celo/attribution-tags`, ERC-8021 specification, assigned tag `celo_235f6ef56f5b`, and complete transaction path classification.
+- **Findings:**
+  - Pinned SDK: `@celo/attribution-tags@0.5.0` (latest published).
+  - Assigned tag: `celo_235f6ef56f5b`. Documented that `codeFromRepo('Harshal-Pande/openHackathonPS3')` yields `celo_655a3d2b2db2` due to standard repo hash derivation; assigned hackathon registration tag remains strictly authoritative.
+  - Architecture verified: RevertLens has zero outgoing transaction sender or wallet broadcast mechanisms; read-only investigator architecture strictly preserved.
+  - Identified DEF-46 (naive suffix concatenation without idempotency), DEF-47 (decentralized configuration), and DEF-48 (incomplete SDK wrapper methods).
+- **Status:** COMPLETED.
+
+### TASK AGY-10: Official SDK Integration and Attribution Utility
+- **Objective:** Centralize attribution configuration and implement complete SDK wrapper utility with Schema 0 wire format determinism and calldata preservation.
+- **Files Involved:** `src/server/config/attribution.ts`, `src/server/config.ts`, `src/server/services/celoAttributionService.ts`.
+- **Implementation:**
+  - Created `src/server/config/attribution.ts` declaring `OFFICIAL_CELO_ATTRIBUTION_TAG`, `EXPECTED_ATTRIBUTION_SUFFIX_HEX`, and `/^[a-z0-9_]{1,32}$/` validation.
+  - Implemented `appendAttribution()` with idempotent Schema 0 code merging and Schema 2 role preservation.
+  - Implemented `getConfiguredAttributionTag()`, `createAttributionSuffix()`, `decodeAttributionData()`, `hasExpectedAttribution()`, `verifyOnChainAttribution()`, and `getWalletClientExtension()`.
+- **Status:** COMPLETED.
+
+### TASK AGY-11: Transaction Coverage and Request Classification
+- **Objective:** Classify all application requests into Category A (Outgoing EVM transactions), Category B (Read-only RPC), Category C (HTTP x402 Buy payments), and Category D (Internal operations), and enforce strict exclusion of read-only and HTTP payment paths from attribution suffixes.
+- **Files Involved:** `src/server/services/celoAttributionService.ts`, `src/server/app.ts`.
+- **Implementation:**
+  - Implemented `classifyOperation()` covering 24 distinct operation strings across Categories A, B, C, D.
+  - Enforced `assertReadOnlyRpcUntagged()` rejecting any injection of `ERC_8021_MARKER` into `eth_call`, `eth_getTransactionReceipt`, `debug_traceTransaction`, etc.
+  - Maintained complete separation between HTTP x402 Buy payment flows and EVM transaction attribution.
+- **Status:** COMPLETED.
+
+### TASK AGY-12: Testing, Regression and Verification Evidence
+- **Objective:** Create and execute deterministic test suite covering tag validation, encoding vectors, calldata preservation, idempotency, caller immutability, request classification, viem client extensions, and on-chain verification.
+- **Files Involved:** `tests/erc8021.test.ts`, `tests/attribution.test.ts`.
+- **Results:**
+  - `tests/erc8021.test.ts`: 63/63 tests passing (100% green).
+  - `tests/attribution.test.ts`: 11/11 tests passing (100% green).
+  - Full suite (`npm test`): 21 test files, 420/420 tests passing (100% green).
+- **Status:** COMPLETED.
+
+### TASK AGY-13: Documentation, Git Release and Snapshot
+- **Objective:** Update master defect register, roadmap, audit, changelog, and test results; commit and push to remote `main`; generate fresh Gitingest snapshot.
+- **Status:** COMPLETED.

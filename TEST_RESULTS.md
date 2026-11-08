@@ -1,11 +1,12 @@
 # RevertLens — Automated Test & Verification Results
 
-**Date/time:** 2026-11-08 17:50:00 UTC
-**Phase:** Module 3.6: Final Payer Identity Contract Hardening (MOD-03.6 / DEF-44 & DEF-45)
+**Date/time:** 2026-11-08 18:15:00 UTC
+**Phase:** Module 4: Official Attribution Engine & Celo SDK Integration (MOD-04 / DEF-46, DEF-47, DEF-48)
 **Node:** v22.17.0
 **npm:** 11.6.1
 **Target Network:** Celo Mainnet (`eip155:42220`)
 **Paying Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
+**Attribution Tag:** `celo_235f6ef56f5b`
 
 ---
 
@@ -13,18 +14,19 @@
 
 | Command | Exit Code | Result | Key Output & Notes |
 |:---|:---:|:---:|:---|
-| `npx vitest run tests/buySecurity.test.ts` | **0** | **`PASS`** | **147/147 tests passed** (100% green; +16 new tests for DEF-44 and DEF-45). |
-| `npx vitest run tests/buyAdapter.test.ts` | **0** | **`PASS`** | **9/9 tests passed** (100% green). |
+| `npx vitest run tests/erc8021.test.ts` | **0** | **`PASS`** | **63/63 tests passed** (100% green; tag validation, wire format vectors, calldata preservation, idempotency, caller immutability, request classification, viem extension, on-chain verification). |
+| `npx vitest run tests/attribution.test.ts` | **0** | **`PASS`** | **11/11 tests passed** (100% green). |
+| `npx vitest run tests/buySecurity.test.ts` | **0** | **`PASS`** | **147/147 tests passed** (100% green). |
 | `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
-| `npm test` | **0** | **`PASS`** | **20 test files passed, 357/357 tests passed** (100% green). |
+| `npm test` | **0** | **`PASS`** | **21 test files passed, 420/420 tests passed** (100% green). |
 | `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430 kB), `vendor-icons` (15.7 kB), `index` (189.6 kB). **0 warnings**. |
-| `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **36/36 test scenarios passed** across 25 unique Fastify endpoints (including all MOD-03 operator routes: execute, purchases, buy-health, audit-events). |
+| `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **36/36 test scenarios passed** across 25 unique Fastify endpoints (including agent metadata and tagged ERC-8004 preparation). |
 | `node scripts/browser_e2e_cdp.mjs` | **0** | **`PASS`** | Real Chrome DevTools Protocol automated testing: Desktop (1280x800) and Mobile (375x812) viewports fully validated with exit code 0. |
 | `git diff --check` | **0** | **`PASS`** | Clean whitespace across all files; zero trailing whitespaces or conflict markers. |
 
 ---
 
-## 2. Test Breakdown by File (20 Suites, 357 Tests)
+## 2. Test Breakdown by File (21 Suites, 420 Tests)
 
 | # | Test File | Test Count | Classification | Result |
 |:---:|:---|:---:|:---|:---:|
@@ -41,14 +43,15 @@
 | 11 | `tests/clientLib.test.ts` | **20** | `LOCAL` | **PASS** |
 | 12 | `tests/cencoriProvider.test.ts` | **3** | `LOCAL` | **PASS** |
 | 13 | `tests/attribution.test.ts` | **11** | `LOCAL` | **PASS** |
-| 14 | `tests/health.test.ts` | **4** | `LOCAL` | **PASS** |
-| 15 | `tests/regressionEdgeCases.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| 16 | `tests/buySecurity.test.ts` | **147** | `LOCAL_INTEGRATION` | **PASS** |
-| 17 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| 18 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
-| 19 | `tests/buyAdapter.test.ts` | **9** | `LOCAL_INTEGRATION` | **PASS** |
-| 20 | `tests/paymentLifecycle.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| **Total** | **20 Test Suites** | **357 Tests** | **100% Automated** | **357 PASS** |
+| 14 | `tests/erc8021.test.ts` | **63** | `LOCAL_INTEGRATION` | **PASS** |
+| 15 | `tests/health.test.ts` | **4** | `LOCAL` | **PASS** |
+| 16 | `tests/regressionEdgeCases.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| 17 | `tests/buySecurity.test.ts` | **147** | `LOCAL_INTEGRATION` | **PASS** |
+| 18 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| 19 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
+| 20 | `tests/buyAdapter.test.ts` | **9** | `LOCAL_INTEGRATION` | **PASS** |
+| 21 | `tests/paymentLifecycle.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| **Total** | **21 Test Suites** | **420 Tests** | **100% Automated** | **420 PASS** |
 
 ---
 

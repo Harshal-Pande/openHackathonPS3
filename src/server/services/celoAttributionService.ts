@@ -1,10 +1,36 @@
-import { toDataSuffix, fromDataSuffix, ERC_8021_MARKER } from '@celo/attribution-tags';
-import { encodeFunctionData, isAddress, concat, type Hex } from 'viem';
+import {
+  toDataSuffix,
+  fromDataSuffix,
+  withAttribution,
+  verifyTx,
+  ERC_8021_MARKER
+} from '@celo/attribution-tags';
+import { encodeFunctionData, isAddress, type Hex } from 'viem';
+import {
+  OFFICIAL_CELO_ATTRIBUTION_TAG,
+  REQUIRED_CELO_CHAIN_ID,
+  OFFICIAL_AGENT_WALLET_ADDRESS,
+  ERC8021_SCHEMA_0_ID,
+  ERC8021_MARKER_HEX,
+  EXPECTED_ATTRIBUTION_SUFFIX_HEX,
+  ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
+  ERC8004_REPUTATION_REGISTRY_CELO_MAINNET,
+  validateAttributionTag,
+  getConfiguredAttributionTag
+} from '../config/attribution.js';
 
-export const OFFICIAL_CELO_ATTRIBUTION_TAG = 'celo_235f6ef56f5b';
-export const REQUIRED_CELO_CHAIN_ID = 42220;
-export const ERC8004_IDENTITY_REGISTRY_CELO_MAINNET = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
-export const ERC8004_REPUTATION_REGISTRY_CELO_MAINNET = '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63';
+export {
+  OFFICIAL_CELO_ATTRIBUTION_TAG,
+  REQUIRED_CELO_CHAIN_ID,
+  OFFICIAL_AGENT_WALLET_ADDRESS,
+  ERC8021_SCHEMA_0_ID,
+  ERC8021_MARKER_HEX,
+  EXPECTED_ATTRIBUTION_SUFFIX_HEX,
+  ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
+  ERC8004_REPUTATION_REGISTRY_CELO_MAINNET,
+  validateAttributionTag,
+  getConfiguredAttributionTag
+};
 
 export const ERC8004_IDENTITY_REGISTRY_ABI = [
   {
@@ -15,6 +41,97 @@ export const ERC8004_IDENTITY_REGISTRY_ABI = [
     type: 'function'
   }
 ] as const;
+
+export type OperationCategory =
+  | 'CATEGORY_A_OUTGOING_TX'
+  | 'CATEGORY_B_READ_ONLY_RPC'
+  | 'CATEGORY_C_HTTP_PAYMENT'
+  | 'CATEGORY_D_INTERNAL';
+
+export interface RequestClassification {
+  operation: string;
+  category: OperationCategory;
+  shouldAddAttribution: boolean;
+  description: string;
+}
+
+/**
+ * Authoritative operation classifier separating state-mutating EVM transactions
+ * from read-only RPC calls, HTTP payment requests, and internal operations.
+ */
+export function classifyOperation(operation: string): RequestClassification {
+  const op = operation.trim();
+
+  // Category A: Actual outgoing EVM transactions
+  const categoryAOps = [
+    'sendTransaction',
+    'writeContract',
+    'prepareTaggedTransaction',
+    'buildErc8004RegistrationTransaction',
+    'native_transfer',
+    'erc20_transfer'
+  ];
+  if (categoryAOps.includes(op)) {
+    return {
+      operation: op,
+      category: 'CATEGORY_A_OUTGOING_TX',
+      shouldAddAttribution: true,
+      description: 'Outgoing state-mutating EVM transaction; must include ERC-8021 attribution suffix.'
+    };
+  }
+
+  // Category B: Read-only RPC requests
+  const categoryBOps = [
+    'eth_call',
+    'eth_getTransactionReceipt',
+    'eth_getTransactionByHash',
+    'eth_getBlockByNumber',
+    'eth_getBlockByHash',
+    'debug_traceTransaction',
+    'eth_chainId',
+    'eth_blockNumber',
+    'eth_getBalance',
+    'eth_getCode',
+    'eth_getLogs',
+    'eth_estimateGas',
+    'ChainstackProvider'
+  ];
+  if (categoryBOps.includes(op) || op.startsWith('eth_') || op.startsWith('debug_')) {
+    return {
+      operation: op,
+      category: 'CATEGORY_B_READ_ONLY_RPC',
+      shouldAddAttribution: false,
+      description: 'Read-only JSON-RPC query inspecting mined blocks/receipts; must NEVER be tagged.'
+    };
+  }
+
+  // Category C: x402 / Buy HTTP payment requests
+  const categoryCOps = [
+    'buy_cli',
+    'buy_whoami',
+    'x402_payment',
+    'cencori_chat_completions',
+    'cencori_quote',
+    'cencori_execute',
+    'http_402_challenge'
+  ];
+  if (categoryCOps.includes(op) || op.startsWith('buy_') || op.startsWith('cencori_') || op.startsWith('x402_')) {
+    return {
+      operation: op,
+      category: 'CATEGORY_C_HTTP_PAYMENT',
+      shouldAddAttribution: false,
+      description: 'HTTP x402 / Buy payment lifecycle request; separate protocol from EVM transaction calldata.'
+    };
+  }
+
+  // Category D: Internal application operations
+  return {
+    operation: op,
+    category: 'CATEGORY_D_INTERNAL',
+    shouldAddAttribution: false,
+    description: 'Internal backend/frontend operation (SQLite persistence, report formatting, exports); untagged.'
+  };
+}
 
 export interface OutgoingTransactionRequest {
   to: `0x${string}`;
@@ -35,6 +152,22 @@ export interface TaggedTransactionPayload {
   attributionTag: string;
   dataSuffix: `0x${string}`;
   verifiedCodes: string[];
+}
+
+export interface AttributionCheckResult {
+  status: 'TAGGED_CORRECTLY' | 'NO_ATTRIBUTION' | 'WRONG_ATTRIBUTION' | 'MALFORMED_SUFFIX';
+  hasExpectedTag: boolean;
+  codes: string[];
+  schemaId?: number;
+  reason?: string;
+}
+
+export interface OnChainVerificationResult {
+  verified: boolean;
+  status: 'VERIFIED' | 'NOT_TAGGED' | 'WRONG_TAG' | 'RPC_ERROR' | 'UNSUPPORTED';
+  codes: string[];
+  schemaId?: number;
+  reason?: string;
 }
 
 export interface Erc8004AgentMetadata {
@@ -63,20 +196,30 @@ export class AttributionError extends Error {
 
 /**
  * CeloAttributionService
- * 
- * Enforces official ERC-8021 attribution tagging for all outgoing Celo Mainnet transactions.
+ *
+ * Enforces official ERC-8021 attribution tagging for all outgoing Celo Mainnet transactions
+ * using the official @celo/attribution-tags SDK.
+ *
  * Strict Invariants:
  * 1. Only allows Celo Mainnet (chain ID 42220).
  * 2. Injects the immutable official hackathon tag ('celo_235f6ef56f5b').
  * 3. Never modifies read-only RPC calls (eth_call, eth_getTransactionReceipt, etc.).
- * 4. Verifies the appended data suffix via fromDataSuffix() before returning payload.
+ * 4. Preserves base contract calldata byte-for-byte as prefix.
+ * 5. Handles existing attribution suffixes idempotently without duplication.
+ * 6. Verifies the appended data suffix via fromDataSuffix() before returning payload.
  */
 export class CeloAttributionService {
   private readonly officialTag: string;
 
   constructor(customTag?: string) {
-    // Preserves exact official hackathon tag
-    this.officialTag = customTag || OFFICIAL_CELO_ATTRIBUTION_TAG;
+    this.officialTag = customTag !== undefined ? customTag : OFFICIAL_CELO_ATTRIBUTION_TAG;
+    const validation = validateAttributionTag(this.officialTag);
+    if (!validation.valid) {
+      throw new AttributionError(
+        `Attribution tag '${this.officialTag}' is invalid: ${validation.reason}`,
+        'INVALID_ATTRIBUTION_TAG'
+      );
+    }
     if (this.officialTag !== OFFICIAL_CELO_ATTRIBUTION_TAG) {
       throw new AttributionError(
         `Attribution tag '${this.officialTag}' does not match official hackathon tag '${OFFICIAL_CELO_ATTRIBUTION_TAG}'.`,
@@ -85,16 +228,160 @@ export class CeloAttributionService {
     }
   }
 
+  /**
+   * Returns the configured attribution tag for the service.
+   */
+  public getConfiguredAttributionTag(): string {
+    return this.officialTag;
+  }
+
+  /**
+   * Alias for getConfiguredAttributionTag for backward compatibility.
+   */
   public getOfficialTag(): string {
     return this.officialTag;
   }
 
-  public getDataSuffix(): `0x${string}` {
+  /**
+   * Generates the raw ERC-8021 hex suffix for the configured tag via @celo/attribution-tags.
+   */
+  public createAttributionSuffix(): `0x${string}` {
     return toDataSuffix(this.officialTag) as `0x${string}`;
   }
 
   /**
+   * Alias for createAttributionSuffix for backward compatibility.
+   */
+  public getDataSuffix(): `0x${string}` {
+    return this.createAttributionSuffix();
+  }
+
+  /**
+   * Decodes attribution data from full calldata or standalone suffix via official SDK fromDataSuffix().
+   */
+  public decodeAttributionData(data: `0x${string}` | string): {
+    codes: string[];
+    schemaId: number;
+    app?: string;
+    wallet?: string;
+    service?: string[];
+  } | null {
+    if (typeof data !== 'string' || data.length < 2) {
+      return null;
+    }
+    const hex = (data.startsWith('0x') ? data : `0x${data}`) as `0x${string}`;
+    try {
+      return fromDataSuffix(hex);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Cryptographically verifies whether calldata contains the expected official attribution tag.
+   * Distinguishes TAGGED_CORRECTLY, NO_ATTRIBUTION, WRONG_ATTRIBUTION, and MALFORMED_SUFFIX.
+   */
+  public hasExpectedAttribution(data: `0x${string}` | string): AttributionCheckResult {
+    if (typeof data !== 'string' || data.length < 2) {
+      return {
+        status: 'NO_ATTRIBUTION',
+        hasExpectedTag: false,
+        codes: [],
+        reason: 'Empty or non-string calldata.'
+      };
+    }
+
+    const hex = (data.startsWith('0x') ? data : `0x${data}`) as `0x${string}`;
+    const decoded = this.decodeAttributionData(hex);
+
+    if (!decoded) {
+      // Check if data ends with the 16-byte ERC-8021 marker to detect malformed suffixes
+      const markerHex = ERC_8021_MARKER.slice(2).toLowerCase();
+      if (hex.toLowerCase().endsWith(markerHex)) {
+        return {
+          status: 'MALFORMED_SUFFIX',
+          hasExpectedTag: false,
+          codes: [],
+          reason: 'Calldata terminates with ERC-8021 marker but contains malformed length, schema, or code payload.'
+        };
+      }
+      return {
+        status: 'NO_ATTRIBUTION',
+        hasExpectedTag: false,
+        codes: [],
+        reason: 'No ERC-8021 attribution suffix found in calldata.'
+      };
+    }
+
+    const hasTag = decoded.codes.includes(this.officialTag);
+    if (hasTag) {
+      return {
+        status: 'TAGGED_CORRECTLY',
+        hasExpectedTag: true,
+        codes: decoded.codes,
+        schemaId: decoded.schemaId
+      };
+    }
+
+    return {
+      status: 'WRONG_ATTRIBUTION',
+      hasExpectedTag: false,
+      codes: decoded.codes,
+      schemaId: decoded.schemaId,
+      reason: `Calldata contains attribution codes [${decoded.codes.join(', ')}] but missing expected official tag "${this.officialTag}".`
+    };
+  }
+
+  /**
+   * Appends the official attribution suffix to calldata safely and idempotently.
+   * - Preserves original calldata prefix byte-for-byte.
+   * - If existing Schema 0 suffix is present, merges codes idempotently without duplication.
+   * - If existing Schema 2 or non-Schema-0 suffix is present, preserves existing attribution as per SDK.
+   */
+  public appendAttribution(calldata?: string): `0x${string}` {
+    const base = typeof calldata === 'string' && calldata.startsWith('0x') ? calldata : '0x';
+    const existing = this.decodeAttributionData(base);
+
+    if (!existing) {
+      const suffix = this.createAttributionSuffix();
+      return (base + suffix.slice(2)) as `0x${string}`;
+    }
+
+    // Non-Schema-0 (e.g. Schema 2 role-based attribution): preserve existing as per SDK specification
+    if (existing.schemaId !== 0) {
+      return base as `0x${string}`;
+    }
+
+    // Schema 0: idempotent code merge
+    const merged = [...existing.codes];
+    if (!merged.includes(this.officialTag)) {
+      merged.push(this.officialTag);
+    } else if (existing.codes.length === 1 && existing.codes[0] === this.officialTag) {
+      // Already has exactly this tag; return base unchanged (idempotent)
+      return base as `0x${string}`;
+    }
+
+    // Strip existing Schema 0 suffix bytes and re-encode with merged codes:
+    // Suffix byte length = code string length + 1 byte length + 1 byte schemaId + 16 bytes marker = length + 18 bytes
+    const markerBytes = 16;
+    const existingBytes = existing.codes.join(',').length + 1 + 1 + markerBytes;
+    const stripped = base.slice(0, base.length - existingBytes * 2);
+
+    try {
+      const newSuffix = toDataSuffix(merged);
+      return (stripped + newSuffix.slice(2)) as `0x${string}`;
+    } catch {
+      return base as `0x${string}`;
+    }
+  }
+
+  /**
    * Prepares and cryptographically verifies an outgoing Celo transaction with the official ERC-8021 data suffix.
+   * Invariants:
+   * - Caller transaction object is never mutated.
+   * - Original calldata is preserved byte-for-byte as prefix.
+   * - Destination and value fields are preserved exactly.
+   * - Validates target chain ID is strictly Celo Mainnet (42220).
    */
   public prepareTaggedTransaction(tx: OutgoingTransactionRequest): TaggedTransactionPayload {
     // 1. Validate Chain ID
@@ -115,16 +402,14 @@ export class CeloAttributionService {
       throw new AttributionError(`Invalid sender address: '${tx.from}'.`, 'INVALID_SENDER');
     }
 
-    // 4. Construct Calldata with ERC-8021 suffix
-    const baseData: `0x${string}` = tx.data && tx.data.startsWith('0x') ? tx.data : '0x';
-    const suffix = this.getDataSuffix();
-    const taggedData = concat([baseData, suffix]) as `0x${string}`;
+    // 4. Construct Calldata with ERC-8021 suffix idempotently
+    const taggedData = this.appendAttribution(tx.data);
 
     // 5. Verify Tag is present and decodable in the output calldata
-    const decoded = fromDataSuffix(taggedData);
-    if (!decoded || !decoded.codes || !decoded.codes.includes(this.officialTag)) {
+    const check = this.hasExpectedAttribution(taggedData);
+    if (!check.hasExpectedTag) {
       throw new AttributionError(
-        `Failed to verify attribution tag in tagged calldata. Decoded: ${JSON.stringify(decoded)}`,
+        `Failed to verify attribution tag in tagged calldata: ${check.reason}`,
         'TAG_VERIFICATION_FAILED'
       );
     }
@@ -140,8 +425,8 @@ export class CeloAttributionService {
       chainId: REQUIRED_CELO_CHAIN_ID,
       gasLimit: gasLimitBigInt,
       attributionTag: this.officialTag,
-      dataSuffix: suffix,
-      verifiedCodes: decoded.codes
+      dataSuffix: this.createAttributionSuffix(),
+      verifiedCodes: check.codes
     };
   }
 
@@ -223,6 +508,68 @@ export class CeloAttributionService {
   }
 
   /**
+   * Verifies on-chain transaction attribution using official SDK verifyTx().
+   * Read-only inspection; does not sign, mutate, or broadcast any transaction.
+   */
+  public async verifyOnChainAttribution(
+    hash: `0x${string}`,
+    client: { getTransaction: (args: { hash: `0x${string}` }) => Promise<{ input?: `0x${string}` | string } | null> }
+  ): Promise<OnChainVerificationResult> {
+    try {
+      // Direct call to surface network/RPC errors explicitly rather than letting verifyTx silently swallow
+      const tx = await client.getTransaction({ hash });
+      if (!tx || !tx.input) {
+        return {
+          verified: false,
+          status: 'NOT_TAGGED',
+          codes: [],
+          reason: 'Transaction not found or has no input data.'
+        };
+      }
+
+      const result = await verifyTx({ hash, client: client as any });
+      if (!result || !result.codes || result.codes.length === 0) {
+        return {
+          verified: false,
+          status: 'NOT_TAGGED',
+          codes: [],
+          reason: 'No ERC-8021 attribution found on-chain for transaction.'
+        };
+      }
+      const hasTag = result.codes.includes(this.officialTag);
+      if (hasTag) {
+        return {
+          verified: true,
+          status: 'VERIFIED',
+          codes: result.codes,
+          schemaId: result.schemaId
+        };
+      }
+      return {
+        verified: false,
+        status: 'WRONG_TAG',
+        codes: result.codes,
+        schemaId: result.schemaId,
+        reason: `On-chain transaction contains attribution tags [${result.codes.join(', ')}] but missing expected official tag "${this.officialTag}".`
+      };
+    } catch (err) {
+      return {
+        verified: false,
+        status: 'RPC_ERROR',
+        codes: [],
+        reason: err instanceof Error ? err.message : String(err)
+      };
+    }
+  }
+
+  /**
+   * Returns official viem wallet client extension configured with the official attribution tag.
+   */
+  public getWalletClientExtension() {
+    return withAttribution(this.officialTag);
+  }
+
+  /**
    * Asserts that read-only RPC requests are strictly protected from modification.
    * Throws an error if any caller attempts to apply attribution tags to read-only RPC calls.
    */
@@ -246,5 +593,12 @@ export class CeloAttributionService {
         );
       }
     }
+  }
+
+  /**
+   * Static helper delegating to request classifier.
+   */
+  public static classifyOperation(operation: string): RequestClassification {
+    return classifyOperation(operation);
   }
 }
