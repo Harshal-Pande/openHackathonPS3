@@ -21,6 +21,18 @@ const booleanField = z
   ])
   .default(false);
 
+const trustProxyField = z
+  .union([
+    z.boolean(),
+    z.string().transform((val) => {
+      const trimmed = val.trim().toLowerCase();
+      if (trimmed === 'true') return true;
+      if (trimmed === 'false' || trimmed === '') return false;
+      return val.trim();
+    })
+  ])
+  .default(false);
+
 const tokenContractsField = z
   .union([
     z.array(z.string()).transform((arr) => arr.map((s) => s.trim().toLowerCase())),
@@ -57,7 +69,7 @@ const envSchema = z.object({
   RATE_LIMIT_INVESTIGATIONS_WINDOW_MS: z.coerce.number().int().positive().default(60000),
 
   // Reverse Proxy header trust configuration (false by default for safety against spoofing)
-  TRUST_PROXY: booleanField,
+  TRUST_PROXY: trustProxyField,
 
   // Direct Chainstack Celo Mainnet RPC Endpoint (Growth plan)
   // Kept server-side only; never leaked to frontend or logs

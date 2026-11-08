@@ -488,3 +488,42 @@ Implemented production-grade security boundary hardening across operator authent
 - `DECISIONS.md` (recorded AD-013)
 - `TEST_RESULTS.md` (updated: 166 tests, 28 routes)
 - `MASTER_CHANGELOG.md` (appended Phase 14 entry)
+
+---
+
+## Phase 14.1 — Module 2.1: Independent Source Audit Corrections (MOD-02.1)
+**Date:** 2026-11-08
+**Scope:** Strict scrypt hash parsing, trusted reverse-proxy hardening, genuine sliding-window rate limiting, session lifecycle boundary enforcement, and documented token delivery architecture.
+
+### 1. Summary of Changes
+Following an independent source audit of the MOD-02 Gitingest snapshot, five specific implementation enhancements were completed and fully verified:
+
+1. **Strict scrypt Hash Parsing (Correction A):**
+   - Replaced permissive numeric parsing with `parseStrictDecimal()`, strictly rejecting signs (`+`, `-`), trailing non-decimal characters, whitespace, and NaN.
+   - Enforced canonical Base64 encoding by checking that `Buffer.from(b64, 'base64').toString('base64') === b64`, rejecting non-canonical encodings, illegal characters, and padding mismatches.
+   - Enforced exact expected salt length of 16 bytes and exact expected derived-key length of 32 bytes.
+   - Bounded parameters to explicit production policy: $1024 \le N \le 65536$ (must be a power of 2), $1 \le r \le 16$, $1 \le p \le 4$, with a fixed 64 MiB memory budget (`maxmem = 67_108_864`).
+   - Added validation of hash-generation options in `hashPassword()`.
+2. **Trusted Reverse-Proxy Hardening (Correction B):**
+   - Integrated Fastify native `trustProxy` setting via `resolveTrustProxy(appConfig.TRUST_PROXY)`.
+   - Prevented header spoofing: when `trustProxy` is false or untrusted, Fastify ignores `X-Forwarded-For` and reports the immediate TCP socket peer.
+   - Implemented strict IP validation via `net.isIP()` on resolved client addresses.
+3. **Genuine Sliding-Window Rate Limiter (Correction C):**
+   - Refactored `RateLimiter` to track explicit timestamp arrays per identity, rolling off entries where `now - timestamp > windowMs`.
+   - Added clock injection (`clock: () => number`) for deterministic time-travel testing.
+   - Added dynamic calculation of `remaining` and `retryAfterSeconds`.
+   - Added fail-closed guard when tracked entry capacity (`maxEntries = 10,000`) is exhausted.
+4. **Session Lifecycle & Bounds Enforcement (Correction D):**
+   - Enforced exact expiration boundary `now >= expiresAt`.
+   - Added bounded automatic pruning of expired sessions during session operations (`pruneExpiredSessions()`).
+   - Added strict 64-character lowercase hex format validation for `sessionId` and signature.
+   - Automatically reset stale failed login attempt counters older than 15 minutes.
+5. **Token Delivery Architecture (Correction E):**
+   - Documented the dual token delivery model in `SECURITY.md`: HttpOnly cookie for browser security + in-memory React state for frontend/testing compatibility without disk storage.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **18/18 test files, 172/172 tests passing** (added 6 new regression tests in `operatorAuth.test.ts` and `rateLimiter.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop and Mobile viewports.

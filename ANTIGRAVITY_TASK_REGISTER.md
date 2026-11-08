@@ -93,20 +93,20 @@ This register contains all technical and operational tasks owned and executed di
 - **Acceptance Criteria:** All individual JS chunks are below 350 kB; no build chunk warnings.
 - **Evidence:** Build terminal output showing chunks < 350 kB.
 
-### TASK AGY-05: Separate Operator Auth Password from Session Secret (DEF-14)
+### TASK AGY-05: Separate Operator Auth Password from Session Secret (DEF-14 & MOD-02.1 Hardening)
 - **Objective:** Resolve DEF-14 by ensuring `OperatorAuthService` verifies passwords against `OPERATOR_PASSWORD_HASH` using asynchronous salted scrypt, completely separating password verification from HMAC session signing with `SESSION_SECRET`.
 - **Files Involved:** `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/config.ts`, `scripts/generate_password_hash.mjs`
-- **Implementation:** Implemented `hashPassword` and `verifyPassword` using Node.js built-in `crypto.scrypt` with OWASP-standard parameters ($N=16384, r=8, p=1$, random 16-byte salt, constant-time `timingSafeEqual`). Implemented HMAC-SHA256 signed session tokens (`<sessionId>.<hmacHex>`) with 2-hour hard lifetime. Implemented IP brute-force limiter (max 5 failed attempts per 15 min returning HTTP 429 with `Retry-After`). Provided CLI generator `scripts/generate_password_hash.mjs`.
-- **Security Considerations:** Protects against side-channel timing attacks, brute force, secret reuse, and token tampering.
-- **Required Tests:** `tests/operatorAuth.test.ts` (15/15 passed), `tests/config.test.ts` (22/22 passed), `tests/buySecurity.test.ts` (4/4 passed).
-- **Acceptance Criteria:** Supplying `SESSION_SECRET` as password returns HTTP 401. Supplying valid password returns signed session token. Token tampering is rejected.
-- **Evidence:** 15 passing tests in `tests/operatorAuth.test.ts` and route test 11 in `scripts/verify_all_routes.mjs`.
+- **Implementation & Hardening:** Implemented `hashPassword` and `verifyPassword` using Node.js built-in `crypto.scrypt` with OWASP-standard parameters ($N=16384, r=8, p=1$, random 16-byte salt, constant-time `timingSafeEqual`). Hardened in MOD-02.1 with `parseStrictDecimal` rejecting signs and trailing junk, canonical Base64 verification, exact 16-byte salt / 32-byte key checks, strict parameter policy ($1024 \le N \le 65536, 1 \le r \le 16, 1 \le p \le 4$, 64 MiB ceiling), bounded session pruning, and stale failed-attempt counter resets.
+- **Security Considerations:** Protects against side-channel timing attacks, brute force, secret reuse, parameter DoS, and token tampering.
+- **Required Tests:** `tests/operatorAuth.test.ts` (17/17 passed), `tests/config.test.ts` (22/22 passed), `tests/buySecurity.test.ts` (4/4 passed).
+- **Acceptance Criteria:** Supplying `SESSION_SECRET` as password returns HTTP 401. Supplying valid password returns signed session token. Token tampering is rejected. Strict decimal parsing and Base64 round-trip verified.
+- **Evidence:** 17 passing tests in `tests/operatorAuth.test.ts` and route test 11 in `scripts/verify_all_routes.mjs`.
 
-### TASK AGY-06: Public Forensic Ingestion Rate Limiting
+### TASK AGY-06: Public Forensic Ingestion Rate Limiting (MOD-02.1 Hardening)
 - **Objective:** Protect `POST /api/investigations` against abusive automated volume and upstream Chainstack RPC quota exhaustion without external infrastructure dependencies.
 - **Files Involved:** `src/server/auth/rateLimiter.ts`, `src/server/app.ts`, `src/server/config.ts`
-- **Implementation:** Built sliding window in-memory rate limiter `RateLimiter` configured with defaults `RATE_LIMIT_INVESTIGATIONS_MAX=10` and `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS=60000`. Returns HTTP 429 `RATE_LIMITED` with `Retry-After` header and standard JSON API envelope. Extracts socket IP safely while ignoring spoofed `X-Forwarded-For` unless `TRUST_PROXY=true` is set.
-- **Security Considerations:** Memory is strictly bounded (max 10,000 entries) with automated pruning of expired windows. Excludes health checks, static assets, and operator controls.
-- **Required Tests:** `tests/rateLimiter.test.ts` (6/6 passed).
-- **Acceptance Criteria:** Requests 1-10 succeed; request 11 receives HTTP 429 with `Retry-After` and standard envelope. Independent limits per IP.
-- **Evidence:** 6 passing tests in `tests/rateLimiter.test.ts`.
+- **Implementation & Hardening:** Built genuine sliding window in-memory rate limiter `RateLimiter` recording timestamp arrays per client IP. Configured with defaults `RATE_LIMIT_INVESTIGATIONS_MAX=10` and `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS=60000`. Returns HTTP 429 `RATE_LIMITED` with `Retry-After` header and standard JSON API envelope. Hardened in MOD-02.1 with Fastify native `trustProxy` integration, `net.isIP()` address validation, clock injection, dynamic roll-off calculation, and fail-closed capacity limits (`maxEntries=10,000`).
+- **Security Considerations:** Memory is strictly bounded with automated pruning of expired timestamps. Excludes health checks, static assets, and operator controls. Rejects spoofed forwarding headers from untrusted socket peers.
+- **Required Tests:** `tests/rateLimiter.test.ts` (10/10 passed).
+- **Acceptance Criteria:** Requests 1-10 succeed; request 11 receives HTTP 429 with `Retry-After` and standard envelope. Independent limits per IP. Sliding window rolls off dynamically. Capacity exhaustion fails closed.
+- **Evidence:** 10 passing tests in `tests/rateLimiter.test.ts`.

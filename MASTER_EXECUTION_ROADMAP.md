@@ -68,30 +68,30 @@ flowchart TD
 ---
 
 ### MODULE 2 — Security & Operator Authentication Hardening
-- **Module ID:** `MOD-02`
-- **Status:** `COMPLETED` (AGY-05 and AGY-06 implemented and verified)
-- **Objective:** Separate operator password authentication from session signing secrets and harden production configuration invariants.
+- **Module ID:** `MOD-02` (including `MOD-02.1` Independent Audit Hardening)
+- **Status:** `COMPLETED` (AGY-05 and AGY-06 implemented, audited, and hardened)
+- **Objective:** Separate operator password authentication from session signing secrets, harden production configuration invariants, and implement strict scrypt parsing and sliding-window rate limiting.
 - **Hackathon Relevance:** Ensures zero unauthorized spending from the project wallet and institutional-grade security architecture for judge review.
 - **Exact Tasks:**
-  1. `AGY-05`: Refactor `OperatorAuthService` to verify operator passwords against `OPERATOR_PASSWORD_HASH` using salted scrypt hashing ($N=16384, r=8, p=1$), completely decoupling it from `SESSION_SECRET` (DEF-14). [COMPLETED]
-  2. `AGY-06`: Add IP rate limiting for public transaction ingestion endpoints (`POST /api/investigations`) to prevent RPC quota exhaustion. [COMPLETED]
+  1. `AGY-05`: Refactor `OperatorAuthService` to verify operator passwords against `OPERATOR_PASSWORD_HASH` using salted scrypt hashing ($N=16384, r=8, p=1$), completely decoupling it from `SESSION_SECRET` (DEF-14). Hardened in MOD-02.1 with strict decimal parsing, canonical Base64 verification, exact 16-byte salt and 32-byte key lengths, 64 MiB memory budget, session boundary checks, and stale attempt resets. [COMPLETED]
+  2. `AGY-06`: Add IP rate limiting for public transaction ingestion endpoints (`POST /api/investigations`) to prevent RPC quota exhaustion. Hardened in MOD-02.1 with genuine sliding-window timestamp tracking, clock injection, fail-closed capacity limits, and Fastify native `trustProxy` integration. [COMPLETED]
   3. Update `config.ts` production invariants to assert scrypt hash format, reject placeholder secrets, and forbid secret reuse. [COMPLETED]
 - **User Dependencies:** None during implementation; user provides production secret in cloud dashboard later.
 - **Antigravity Tasks:** `AGY-05`, `AGY-06`.
 - **Files Changed:** `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/auth/rateLimiter.ts`, `src/server/config.ts`, `src/server/app.ts`, `tests/buySecurity.test.ts`, `tests/config.test.ts`, `tests/operatorAuth.test.ts`, `tests/rateLimiter.test.ts`, `scripts/generate_password_hash.mjs`, `scripts/verify_all_routes.mjs`.
-- **Security Impact:** Closes DEF-14; prevents credential confusion attacks, timing attacks, and brute-force flooding.
+- **Security Impact:** Closes DEF-14; prevents credential confusion attacks, timing attacks, parameter DoS, and brute-force flooding.
 - **Prerequisites:** `MOD-01`.
 - **Acceptance Criteria:**
   - Operator login validates against `OPERATOR_PASSWORD_HASH` using salted scrypt. [VERIFIED]
   - `SESSION_SECRET` is used exclusively for HMAC session tokens. [VERIFIED]
   - Supplying `SESSION_SECRET` as password returns HTTP 401. [VERIFIED]
   - Rate limiting triggers HTTP 429 upon abusive traffic. [VERIFIED]
-- **Verification Commands:** `npm test` (166/166 pass), `node scripts/verify_all_routes.mjs` (28/28 pass), `npm run typecheck`, `npm run build`.
-- **Evidence Required:** Test suite output proving constant-time comparison, scrypt derivation, token signing, and rate limiting. [VERIFIED]
-- **Est. Implementation Time:** 45 minutes. (Actual: 25 minutes)
+- **Verification Commands:** `npm test` (172/172 pass), `node scripts/verify_all_routes.mjs` (28/28 pass), `npm run typecheck`, `npm run build`.
+- **Evidence Required:** Test suite output proving constant-time comparison, scrypt derivation, token signing, sliding window rate limiting, and CDP E2E verification. [VERIFIED]
+- **Est. Implementation Time:** 45 minutes. (Actual: 35 minutes across MOD-02 and MOD-02.1)
 - **Est. User Time:** 0 minutes.
 - **Blockers:** None.
-- **Completion Definition:** DEF-14 resolved; 100% tests passing; clean build. [COMPLETED]
+- **Completion Definition:** DEF-14 resolved; audit recommendations implemented; 100% tests passing; clean build. [COMPLETED]
 
 ---
 

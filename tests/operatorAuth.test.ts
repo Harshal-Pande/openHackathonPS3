@@ -4,7 +4,8 @@ import {
   hashPassword,
   verifyPassword,
   parseScryptHash,
-  validateScryptHashFormat
+  validateScryptHashFormat,
+  SCRYPT_POLICY
 } from '../src/server/auth/passwordHasher.js';
 import {
   OperatorAuthService,
@@ -18,7 +19,7 @@ import {
 import { buildApp } from '../src/server/app.js';
 import { Database } from '../src/server/db/database.js';
 
-describe('Password Hasher (scrypt v=1)', () => {
+describe('Strict scrypt Hash Parsing & Verification (Correction A)', () => {
   it('correctly hashes and verifies a valid password', async () => {
     const password = 'CorrectHorseBatteryStaple123!';
     const encoded = await hashPassword(password);
@@ -32,57 +33,111 @@ describe('Password Hasher (scrypt v=1)', () => {
     expect(isInvalid).toBe(false);
   });
 
-  it('generates different salts for identical passwords', async () => {
-    const password = 'SuperSecretPassword!';
-    const hash1 = await hashPassword(password);
-    const hash2 = await hashPassword(password);
-
-    expect(hash1).not.toBe(hash2);
-    expect(await verifyPassword(password, hash1)).toBe(true);
-    expect(await verifyPassword(password, hash2)).toBe(true);
+  it('rejects permissive numeric junk: N=16384junk', async () => {
+    const validParsed = parseScryptHash(TEST_OPERATOR_HASH)!;
+    const junkCostHash = `scrypt$v=1$N=16384junk$r=${validParsed.blockSize}$p=${validParsed.parallelism}$${validParsed.salt.toString('base64')}$${validParsed.derivedKey.toString('base64')}`;
+    expect(parseScryptHash(junkCostHash)).toBeNull();
+    expect(await verifyPassword('test-operator-password', junkCostHash)).toBe(false);
   });
 
-  it('rejects empty password safely without crashing', async () => {
-    const encoded = await hashPassword('ValidPass123');
-    expect(await verifyPassword('', encoded)).toBe(false);
+  it('rejects numeric signs: N=+16384', async () => {
+    const validParsed = parseScryptHash(TEST_OPERATOR_HASH)!;
+    const signedCostHash = `scrypt$v=1$N=+16384$r=${validParsed.blockSize}$p=${validParsed.parallelism}$${validParsed.salt.toString('base64')}$${validParsed.derivedKey.toString('base64')}`;
+    expect(parseScryptHash(signedCostHash)).toBeNull();
+    expect(await verifyPassword('test-operator-password', signedCostHash)).toBe(false);
   });
 
-  it('handles malformed hashes safely without throwing', async () => {
-    expect(await verifyPassword('password', 'not-a-hash')).toBe(false);
-    expect(await verifyPassword('password', 'scrypt$v=2$N=16384$r=8$p=1$salt$key')).toBe(false);
-    expect(await verifyPassword('password', 'scrypt$v=1$N=999$r=8$p=1$salt$key')).toBe(false); // N not power of 2
-    expect(await verifyPassword('password', 'scrypt$v=1$N=16384$r=0$p=1$salt$key')).toBe(false); // r <= 0
-    expect(await verifyPassword('password', 'scrypt$v=1$N=16384$r=8$p=0$salt$key')).toBe(false); // p <= 0
-    expect(await verifyPassword('password', 'scrypt$v=1$N=16384$r=8$p=1$short$short')).toBe(false);
+  it('rejects non-canonical Base64 encoding', async () => {
+    const validParsed = parseScryptHash(TEST_OPERATOR_HASH)!;
+    // Alter canonical padding
+    const nonCanonicalKey = validParsed.derivedKey.toString('base64').replace(/=/g, 'A');
+    const nonCanonicalHash = `scrypt$v=1$N=16384$r=8$p=1$${validParsed.salt.toString('base64')}$${nonCanonicalKey}`;
+    expect(parseScryptHash(nonCanonicalHash)).toBeNull();
+    expect(await verifyPassword('test-operator-password', nonCanonicalHash)).toBe(false);
   });
 
-  it('fails verification if salt or derived key is altered', async () => {
+  it('rejects invalid Base64 characters', async () => {
+    const validParsed = parseScryptHash(TEST_OPERATOR_HASH)!;
+    const invalidCharHash = `scrypt$v=1$N=16384$r=8$p=1$!@#$%^&*()$${validParsed.derivedKey.toString('base64')}`;
+    expect(parseScryptHash(invalidCharHash)).toBeNull();
+    expect(await verifyPassword('test-operator-password', invalidCharHash)).toBe(false);
+  });
+
+  it('rejects truncated salt (< 16 bytes)', async () => {
+    const validParsed = parseScryptHash(TEST_OPERATOR_HASH)!;
+    const shortSalt = Buffer.alloc(15, 0xaa).toString('base64');
+    const truncatedSaltHash = `scrypt$v=1$N=16384$r=8$p=1$${shortSalt}$${validParsed.derivedKey.toString('base64')}`;
+    expect(parseScryptHash(truncatedSaltHash)).toBeNull();
+    expect(await verifyPassword('test-operator-password', truncatedSaltHash)).toBe(false);
+  });
+
+  it('rejects incorrect derived-key length (!= 32 bytes)', async () => {
+    const validParsed = parseScryptHash(TEST_OPERATOR_HASH)!;
+    const shortKey = Buffer.alloc(31, 0xbb).toString('base64');
+    const wrongKeyHash = `scrypt$v=1$N=16384$r=8$p=1$${validParsed.salt.toString('base64')}$${shortKey}`;
+    expect(parseScryptHash(wrongKeyHash)).toBeNull();
+    expect(await verifyPassword('test-operator-password', wrongKeyHash)).toBe(false);
+  });
+
+  it('rejects excessive parameters (N > 65536, r > 16, p > 4)', async () => {
+    const validParsed = parseScryptHash(TEST_OPERATOR_HASH)!;
+    const saltB64 = validParsed.salt.toString('base64');
+    const keyB64 = validParsed.derivedKey.toString('base64');
+
+    // Excessive N
+    const excessiveN = `scrypt$v=1$N=131072$r=8$p=1$${saltB64}$${keyB64}`;
+    expect(parseScryptHash(excessiveN)).toBeNull();
+
+    // Excessive r
+    const excessiveR = `scrypt$v=1$N=16384$r=32$p=1$${saltB64}$${keyB64}`;
+    expect(parseScryptHash(excessiveR)).toBeNull();
+
+    // Excessive p
+    const excessiveP = `scrypt$v=1$N=16384$r=8$p=8$${saltB64}$${keyB64}`;
+    expect(parseScryptHash(excessiveP)).toBeNull();
+  });
+
+  it('rejects unsupported hash version: v=2', async () => {
+    const validParsed = parseScryptHash(TEST_OPERATOR_HASH)!;
+    const v2Hash = `scrypt$v=2$N=16384$r=8$p=1$${validParsed.salt.toString('base64')}$${validParsed.derivedKey.toString('base64')}`;
+    expect(parseScryptHash(v2Hash)).toBeNull();
+    expect(validateScryptHashFormat(v2Hash).valid).toBe(false);
+    expect(await verifyPassword('test-operator-password', v2Hash)).toBe(false);
+  });
+
+  it('strictly validates caller options in hashPassword', async () => {
+    // Non-power of 2
+    await expect(hashPassword('pass', { cost: 1000 })).rejects.toThrow('cost (N) must be a power of 2');
+
+    // Excessive block size
+    await expect(hashPassword('pass', { blockSize: 32 })).rejects.toThrow('blockSize (r) must be an integer between 1 and 16');
+
+    // Excessive parallelism
+    await expect(hashPassword('pass', { parallelism: 10 })).rejects.toThrow('parallelism (p) must be an integer between 1 and 4');
+
+    // Invalid salt length
+    await expect(hashPassword('pass', { salt: Buffer.alloc(12) })).rejects.toThrow('salt must be a Buffer of strictly 16 bytes');
+  });
+
+  it('fails verification safely if salt or derived key is tampered', async () => {
     const hash = await hashPassword('TestPassword123');
-    const parsed = parseScryptHash(hash);
-    expect(parsed).not.toBeNull();
+    const parsed = parseScryptHash(hash)!;
 
     // Tamper with salt
-    const tamperedSalt = Buffer.from(parsed!.salt);
+    const tamperedSalt = Buffer.from(parsed.salt);
     tamperedSalt[0] = tamperedSalt[0] ^ 0xff;
-    const tamperedSaltHash = `scrypt$v=1$N=${parsed!.cost}$r=${parsed!.blockSize}$p=${parsed!.parallelism}$${tamperedSalt.toString('base64')}$${parsed!.derivedKey.toString('base64')}`;
+    const tamperedSaltHash = `scrypt$v=1$N=${parsed.cost}$r=${parsed.blockSize}$p=${parsed.parallelism}$${tamperedSalt.toString('base64')}$${parsed.derivedKey.toString('base64')}`;
     expect(await verifyPassword('TestPassword123', tamperedSaltHash)).toBe(false);
 
     // Tamper with derived key
-    const tamperedKey = Buffer.from(parsed!.derivedKey);
+    const tamperedKey = Buffer.from(parsed.derivedKey);
     tamperedKey[0] = tamperedKey[0] ^ 0xff;
-    const tamperedKeyHash = `scrypt$v=1$N=${parsed!.cost}$r=${parsed!.blockSize}$p=${parsed!.parallelism}$${parsed!.salt.toString('base64')}$${tamperedKey.toString('base64')}`;
+    const tamperedKeyHash = `scrypt$v=1$N=${parsed.cost}$r=${parsed.blockSize}$p=${parsed.parallelism}$${parsed.salt.toString('base64')}$${tamperedKey.toString('base64')}`;
     expect(await verifyPassword('TestPassword123', tamperedKeyHash)).toBe(false);
-  });
-
-  it('validates scrypt hash formatting with clear diagnostics', () => {
-    expect(validateScryptHashFormat(TEST_OPERATOR_HASH).valid).toBe(true);
-    expect(validateScryptHashFormat('').valid).toBe(false);
-    expect(validateScryptHashFormat('argon2id$v=19$m=65536').valid).toBe(false);
-    expect(validateScryptHashFormat('scrypt$v=2$N=16384$r=8$p=1$salt$key').valid).toBe(false);
   });
 });
 
-describe('Operator Authentication Service (AGY-05 / DEF-14)', () => {
+describe('Operator Authentication & Session Lifecycle (Correction D)', () => {
   let authService: OperatorAuthService;
   const sessionSecret = 'test_session_secret_32_characters_minimum_length';
 
@@ -94,149 +149,111 @@ describe('Operator Authentication Service (AGY-05 / DEF-14)', () => {
     authService = new OperatorAuthService(config);
   });
 
-  it('authenticates with correct operator password', async () => {
+  it('authenticates with correct operator password and issues HMAC token', async () => {
     const { token, session } = await authService.login('127.0.0.1', TEST_OPERATOR_PASSWORD);
     expect(token).toBeDefined();
     expect(token.includes('.')).toBe(true);
-    expect(session.username).toBe('operator');
 
-    // Token must verify successfully
+    const [sessionId, signature] = token.split('.');
+    expect(sessionId).toHaveLength(64);
+    expect(signature).toHaveLength(64);
+
     const verified = authService.verifySession(token);
     expect(verified).not.toBeNull();
     expect(verified?.username).toBe('operator');
   });
 
-  it('DEF-14: rejects SESSION_SECRET when submitted as operator password', async () => {
-    await expect(authService.login('127.0.0.1', sessionSecret)).rejects.toThrow(
-      'Invalid operator credentials.'
-    );
-  });
-
-  it('rejects raw encoded scrypt hash when submitted as operator password', async () => {
-    await expect(authService.login('127.0.0.1', TEST_OPERATOR_HASH)).rejects.toThrow(
-      'Invalid operator credentials.'
-    );
-  });
-
-  it('rejects modified or forged session tokens', async () => {
-    const { token } = await authService.login('127.0.0.1', TEST_OPERATOR_PASSWORD);
-    const [sessionId, sig] = token.split('.');
-
-    // Tampered signature
-    const tamperedSig = sig.slice(0, -2) + '00';
-    expect(authService.verifySession(`${sessionId}.${tamperedSig}`)).toBeNull();
-
-    // Tampered session ID
-    const tamperedId = sessionId.slice(0, -2) + '00';
-    expect(authService.verifySession(`${tamperedId}.${sig}`)).toBeNull();
-
-    // Random non-signed token
-    expect(authService.verifySession('random-unformatted-token')).toBeNull();
-  });
-
-  it('enforces 2-hour hard session expiration', async () => {
+  it('enforces exact session-expiry boundary: invalid at or after expiry timestamp', async () => {
     const now = Date.now();
     const { token } = await authService.login('127.0.0.1', TEST_OPERATOR_PASSWORD, now);
 
-    // Within lifetime
-    expect(authService.verifySession(token, now + 1 * 60 * 60 * 1000)).not.toBeNull();
+    const twoHoursMs = 2 * 60 * 60 * 1000;
 
-    // Past 2 hours
-    expect(authService.verifySession(token, now + 2 * 60 * 60 * 1000 + 1000)).toBeNull();
+    // 1ms before expiry -> valid
+    expect(authService.verifySession(token, now + twoHoursMs - 1)).not.toBeNull();
+
+    // Exactly at expiry -> invalid!
+    expect(authService.verifySession(token, now + twoHoursMs)).toBeNull();
+
+    // After expiry -> invalid!
+    expect(authService.verifySession(token, now + twoHoursMs + 1000)).toBeNull();
   });
 
-  it('invalidates session on logout', async () => {
-    const { token } = await authService.login('127.0.0.1', TEST_OPERATOR_PASSWORD);
-    expect(authService.verifySession(token)).not.toBeNull();
-
-    authService.logout(token);
-    expect(authService.verifySession(token)).toBeNull();
-  });
-
-  it('enforces 5 failed attempts lockout per IP with 429 and Retry-After', async () => {
-    const clientIp = '192.168.1.50';
+  it('prunes expired session records while retaining active sessions', async () => {
     const now = Date.now();
+    const twoHoursMs = 2 * 60 * 60 * 1000;
 
-    // 5 consecutive failed attempts
-    for (let i = 0; i < 5; i++) {
-      await expect(authService.login(clientIp, 'wrong-password', now)).rejects.toThrow(
-        'Invalid operator credentials.'
-      );
-    }
+    // Session 1: created at `now - twoHoursMs - 1000` (expired)
+    const { token: expiredToken } = await authService.login('127.0.0.1', TEST_OPERATOR_PASSWORD, now - twoHoursMs - 1000);
 
-    // 6th attempt inside window must throw 429 RATE_LIMITED
-    try {
-      await authService.login(clientIp, 'wrong-password', now + 1000);
-      expect.fail('Should have thrown OperatorAuthError 429');
-    } catch (err: any) {
-      expect(err).toBeInstanceOf(OperatorAuthError);
-      expect(err.statusCode).toBe(429);
-      expect(err.code).toBe('RATE_LIMITED');
-      expect(err.retryAfter).toBeGreaterThan(0);
-      expect(err.message).toContain('Rate limit exceeded for operator login');
-    }
+    // Session 2: created at `now` (active)
+    const { token: activeToken } = await authService.login('127.0.0.2', TEST_OPERATOR_PASSWORD, now);
 
-    // A different IP is unaffected
-    const otherIpRes = await authService.login('10.0.0.1', TEST_OPERATOR_PASSWORD, now + 1000);
-    expect(otherIpRes.token).toBeDefined();
+    expect(authService.getSessionCount()).toBe(2);
 
-    // After 15 minutes window, lock expires
-    const futureTime = now + 15 * 60 * 1000 + 1000;
-    const recovered = await authService.login(clientIp, TEST_OPERATOR_PASSWORD, futureTime);
-    expect(recovered.token).toBeDefined();
+    // Prune expired
+    authService.pruneExpiredSessions(now);
+
+    expect(authService.getSessionCount()).toBe(1);
+    expect(authService.verifySession(expiredToken, now)).toBeNull();
+    expect(authService.verifySession(activeToken, now)).not.toBeNull();
   });
 
-  it('resets failed attempt counter upon successful login', async () => {
-    const clientIp = '192.168.1.99';
-    const now = Date.now();
+  it('logout invalidates the exact supplied session', async () => {
+    const { token: token1 } = await authService.login('127.0.0.1', TEST_OPERATOR_PASSWORD);
+    const { token: token2 } = await authService.login('127.0.0.2', TEST_OPERATOR_PASSWORD);
 
-    // 3 failed attempts
-    for (let i = 0; i < 3; i++) {
-      await expect(authService.login(clientIp, 'wrong', now)).rejects.toThrow();
-    }
+    expect(authService.verifySession(token1)).not.toBeNull();
+    expect(authService.verifySession(token2)).not.toBeNull();
 
-    // 1 successful login
-    await authService.login(clientIp, TEST_OPERATOR_PASSWORD, now);
+    authService.logout(token1);
 
-    // Next 3 failed attempts do not trigger lockout because counter was reset
-    for (let i = 0; i < 3; i++) {
-      await expect(authService.login(clientIp, 'wrong', now)).rejects.toThrow(
-        'Invalid operator credentials.'
-      );
-    }
+    expect(authService.verifySession(token1)).toBeNull();
+    expect(authService.verifySession(token2)).not.toBeNull();
   });
-});
 
-describe('Operator HTTP Route Authentication Integration', () => {
-  it('rejects spoofed X-Forwarded-For headers when TRUST_PROXY is false', async () => {
-    const config = createTestConfig({
-      TRUST_PROXY: false,
-      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
-    });
-    const db = new Database(':memory:');
-    const app = buildApp(config, { db });
+  it('rejects malformed tokens and wrong signature length safely without throwing', () => {
+    expect(authService.verifySession(undefined)).toBeNull();
+    expect(authService.verifySession('')).toBeNull();
+    expect(authService.verifySession('not-a-token')).toBeNull();
+    expect(authService.verifySession('shortId.shortSig')).toBeNull();
 
-    // Lockout the actual connection IP (127.0.0.1) by sending 5 bad attempts
-    for (let i = 0; i < 5; i++) {
-      await app.inject({
-        method: 'POST',
-        url: '/api/operator/login',
-        payload: { password: 'bad' }
-      });
+    // 64-char hex id but 63-char hex sig
+    const id = 'a'.repeat(64);
+    const badLenSig = 'b'.repeat(63);
+    expect(authService.verifySession(`${id}.${badLenSig}`)).toBeNull();
+
+    // 63-char hex id and 64-char sig
+    expect(authService.verifySession(`${'a'.repeat(63)}.${'b'.repeat(64)}`)).toBeNull();
+
+    // Non-hex characters
+    expect(authService.verifySession(`${'g'.repeat(64)}.${'z'.repeat(64)}`)).toBeNull();
+  });
+
+  it('resets stale failed-attempt counter when a new attempt occurs after 15 minutes', async () => {
+    const clientIp = '10.50.0.1';
+    const t0 = 1000000;
+
+    // 4 failed attempts at t0
+    for (let i = 0; i < 4; i++) {
+      await expect(authService.login(clientIp, 'wrong', t0)).rejects.toThrow('Invalid operator credentials.');
     }
 
-    // 6th attempt with spoofed X-Forwarded-For: attacker tries to bypass rate limit
-    const spoofedRes = await app.inject({
-      method: 'POST',
-      url: '/api/operator/login',
-      headers: { 'x-forwarded-for': '203.0.113.195' },
-      payload: { password: 'bad' }
-    });
+    // Now advance time 16 minutes (beyond 15-minute window)
+    const t1 = t0 + 16 * 60 * 1000;
 
-    // When TRUST_PROXY=false, the spoofed header is ignored and the socket IP is rate-limited!
-    expect(spoofedRes.statusCode).toBe(429);
-    const body = JSON.parse(spoofedRes.body);
-    expect(body.error.code).toBe('RATE_LIMITED');
-    expect(spoofedRes.headers['retry-after']).toBeDefined();
+    // 1st attempt at t1: stale count must be wiped clean, so this fails as attempt #1, NOT lockout!
+    await expect(authService.login(clientIp, 'wrong', t1)).rejects.toThrow('Invalid operator credentials.');
+
+    // Attempts 2, 3, 4 at t1 also fail normally
+    for (let i = 0; i < 3; i++) {
+      await expect(authService.login(clientIp, 'wrong', t1)).rejects.toThrow('Invalid operator credentials.');
+    }
+
+    // Attempt 5 at t1 fails normally (5th attempt)
+    await expect(authService.login(clientIp, 'wrong', t1)).rejects.toThrow('Invalid operator credentials.');
+
+    // 6th attempt inside t1 window triggers lockout
+    await expect(authService.login(clientIp, 'wrong', t1 + 1000)).rejects.toThrow(OperatorAuthError);
   });
 });

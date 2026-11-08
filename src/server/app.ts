@@ -44,11 +44,21 @@ const KillSwitchBodySchema = z.object({
   enabled: z.boolean()
 });
 
+function resolveTrustProxy(trustProxyConfig: boolean | string): boolean | string[] {
+  if (trustProxyConfig === false) return false;
+  if (typeof trustProxyConfig === 'string' && trustProxyConfig.trim() !== '') {
+    return trustProxyConfig.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  // When true: trust standard reverse-proxy loopback and private subnets (Render, Railway, Fly.io, Docker)
+  return ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
+}
+
 export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: AppDependencies = {}): FastifyInstance {
   const appConfig = ensureAppConfig(rawConfig);
   const server = fastify({
     logger: false,
-    genReqId: () => randomUUID()
+    genReqId: () => randomUUID(),
+    trustProxy: resolveTrustProxy(appConfig.TRUST_PROXY)
   });
 
   const db = deps.db || new Database(appConfig.DATABASE_PATH);
@@ -162,7 +172,7 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
 
   // POST /api/investigations - Execute or retrieve investigation with IP-based rate limiting
   server.post('/api/investigations', async (request, reply) => {
-    const clientIp = getClientIp(request, appConfig.TRUST_PROXY);
+    const clientIp = getClientIp(request);
     const rateCheck = investigationRateLimiter.check(clientIp);
     if (!rateCheck.allowed) {
       reply.header('Retry-After', rateCheck.retryAfterSeconds.toString());
@@ -314,7 +324,7 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       throw err;
     }
 
-    const clientIp = getClientIp(request, appConfig.TRUST_PROXY);
+    const clientIp = getClientIp(request);
     try {
       const { token, session } = await authService.login(clientIp, parseResult.data.password);
       const secureSuffix = appConfig.NODE_ENV === 'production' ? '; Secure' : '';

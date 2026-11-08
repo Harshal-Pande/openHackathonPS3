@@ -49,40 +49,65 @@ Implemented in `src/server/config.ts` via `enforceProductionInvariants()`:
 
 ---
 
-## 4.1 Operator Authentication Architecture & Password Hashing (AGY-05 / DEF-14)
+## 4.1 Operator Authentication Architecture & Password Hashing (AGY-05 / DEF-14 / MOD-02.1)
 
 Operator access controls are strictly decoupled between authentication and session authorization:
 
 1. **Independent Secrets:**
    - `OPERATOR_PASSWORD_HASH`: Stores the salted, computationally expensive scrypt password hash. Used exclusively for verifying operator passwords during login. Supplying `SESSION_SECRET` or the raw hash string as a password will fail authentication.
    - `SESSION_SECRET`: Used exclusively for HMAC-SHA256 signing and verifying session tokens. Never used as a password or password hash substitute.
-2. **scrypt Hashing Specification:**
+2. **scrypt Hashing Specification & Hardened Parsing (MOD-02.1):**
    - Algorithm: Node.js built-in `crypto.scrypt` (asynchronous, non-blocking).
    - Format: `scrypt$v=1$N=<cost>$r=<blockSize>$p=<parallelism>$<salt-base64>$<derived-key-base64>`
-   - Production parameters: $N=16384$ ($2^{14}$), $r=8$, $p=1$, derived key length = 32 bytes, cryptographically secure 16-byte random salt.
+   - Strict Parameter Parsing: Implements `parseStrictDecimal()` rejecting signs (`+`, `-`), trailing junk, whitespace, non-integers, and NaN.
+   - Parameter Policy Limits:
+     - Cost factor $N$: must be a power of 2 between $1024$ and $65536$ ($2^{10}$ to $2^{16}$).
+     - Block size $r$: integer between $1$ and $16$.
+     - Parallelism $p$: integer between $1$ and $4$.
+     - Memory ceiling: fixed strict 64 MiB (`maxmem = 67_108_864`) preventing denial-of-service via resource exhaustion.
+   - Cryptographic Bounds & Canonical Base64:
+     - Salt length: exactly 16 bytes.
+     - Key length: exactly 32 bytes.
+     - Canonical encoding: Base64 strings must round-trip exactly to their encoded representation, rejecting padded/unpadded discrepancies and non-base64 characters.
    - Verification: Constant-time buffer comparison via `crypto.timingSafeEqual` after buffer length verification.
    - Fault Tolerance: Malformed hashes, unsupported versions, or invalid parameter ranges return `false` gracefully without crashing the server process.
-3. **Session Management & Tokens:**
-   - Tokens are formatted as `<sessionId>.<hmacHex>`, where `sessionId` is a 32-byte cryptographically random hex string, and `hmacHex` is an HMAC-SHA256 signature generated with `SESSION_SECRET`.
-   - Token signatures are verified before checking internal state.
-   - Hard session lifetime is enforced at 2 hours.
-   - Sessions are revocable on logout (`POST /api/operator/logout`), which removes the session ID and clears cookies.
-   - Cookie protections: `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure` in production deployments.
+3. **Session Management, Lifecycle & Dual Delivery Model (MOD-02.1):**
+   - Tokens are formatted as `<sessionId>.<hmacHex>`, where `sessionId` is a strict 64-character lowercase hexadecimal string (32 bytes entropy), and `hmacHex` is a strict 64-character lowercase hexadecimal HMAC-SHA256 signature generated with `SESSION_SECRET`.
+   - Expiration Boundary: Enforces hard boundary check `now >= expiresAt`.
+   - Session Pruning: Bounded automatic cleanup of expired sessions runs during session operations without dropping valid concurrent sessions.
+   - Stale Failed-Attempt Cleanup: Stale failed login records older than 15 minutes are discarded during rate limit checks.
+   - Dual Token Delivery:
+     - Login responses set an `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure` (in production) cookie for browser session handling.
+     - Login responses also return the token in the JSON envelope (`token` field). In the React client, this token is held strictly in transient React component state (`useState`) without persisting to `localStorage` or `sessionStorage`. This provides automated script and CLI compatibility without exposing persistent storage to cross-site script extraction.
 4. **Login Brute-Force Rate Limiting:**
-   - Enforces a maximum of 5 failed login attempts per client IP within a rolling 15-minute window.
+   - Enforces a maximum of 5 failed login attempts per client IP within a rolling 15-minute sliding window.
    - Subsequent attempts receive HTTP 429 (`RATE_LIMITED`) with a standard `Retry-After` header indicating remaining wait time in seconds.
    - Successful authentication resets the failed-attempt counter for that IP.
    - Tracking memory is bounded (max 5,000 tracked IPs) with automatic cleanup of expired entries.
 
 ---
 
-## 4.2 Public Forensic Ingestion Rate Limiting (AGY-06)
+## 4.2 Public Forensic Ingestion Rate Limiting (AGY-06 / MOD-02.1)
 
 To protect the server and upstream Chainstack RPC quotas from abuse, public forensic ingestion is rate-limited:
 
 1. **Scope:** Applies strictly to `POST /api/investigations`. Health checks (`/api/health`, `/healthz`, `/readyz`), static assets, report retrieval (`GET /api/investigations/:id`), history list browsing (`GET /api/investigations`), and operator control endpoints are excluded.
-2. **Policy:** Configurable via `RATE_LIMIT_INVESTIGATIONS_MAX` (default: 10 requests) and `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS` (default: 60,000 ms / 1 minute).
-3. **Envelope & Response:** Requests exceeding the quota receive HTTP 429 with `Retry-After` header and standard JSON envelope:
+2. **Sliding-Window Tracking Algorithm (MOD-02.1):**
+   - Implements a true sliding-window algorithm that records request timestamps per client IP.
+   - Bounded timestamps roll off as `now - timestamp > windowMs`.
+   - Accurate dynamic calculation of `remaining` and `retryAfterSeconds` (ceiling of milliseconds until the oldest timestamp within the window rolls off).
+   - Clock injection support (`clock: () => number`) for deterministic testing.
+3. **Capacity Exhaustion & Fail-Closed Guard (MOD-02.1):**
+   - Maximum tracked entries is capped at `maxEntries` (default: 10,000).
+   - If capacity is reached and no expired entries can be freed, new identities fail closed with HTTP 429 rather than bypassing rate limiting.
+4. **Trusted Reverse-Proxy Integration (MOD-02.1):**
+   - Fastify's native `trustProxy` setting is configured via `resolveTrustProxy(appConfig.TRUST_PROXY)`.
+   - When set to `false`, Fastify ignores `X-Forwarded-For` and uses the immediate TCP socket peer.
+   - When configured with trusted CIDRs/proxies, `X-Forwarded-For` is honored only if the immediate socket peer is a verified trusted proxy.
+   - Resolved client IPs are strictly validated via `net.isIP()` before tracking.
+5. **Policy & Envelope:**
+   - Configurable via `RATE_LIMIT_INVESTIGATIONS_MAX` (default: 10 requests) and `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS` (default: 60,000 ms / 1 minute).
+   - Requests exceeding the quota receive HTTP 429 with `Retry-After` header and standard JSON envelope:
    ```json
    {
      "data": null,
@@ -93,10 +118,7 @@ To protect the server and upstream Chainstack RPC quotas from abuse, public fore
      "requestId": "<uuid>"
    }
    ```
-4. **Client IP Resolution & Reverse Proxy Security:**
-   - Client IP is resolved from socket connection `request.ip`.
-   - `X-Forwarded-For` headers are strictly ignored unless `TRUST_PROXY=true` is explicitly configured behind a verified reverse proxy.
-5. **Operational Limitations:** Enforcement is process-local in memory. For multi-replica horizontally scaled deployments, shared external storage (e.g. Redis) is required for globally synchronized rate limits.
+6. **Operational Limitations:** Enforcement is process-local in memory. For multi-replica horizontally scaled deployments, shared external storage (e.g. Redis) is required for globally synchronized rate limits.
 
 ---
 
