@@ -202,6 +202,65 @@ To maintain strict truth-in-reporting and avoid premature claims:
 |:---|:---:|:---|
 | **Local Container Build** | **VERIFIED** | Multi-stage Dockerfile, non-root execution, health check, production dependencies. |
 | **Local SQLite Persistence** | **VERIFIED** | WAL mode, 5000ms timeout, persistent volume persistence verified across test suite. |
-| **Public Cloud Deployment** | **PENDING (MOD-06.2)** | Requires deploying container to Render, Railway, or Fly.io with public HTTPS URL. |
+| **Public Cloud Deployment** | **PENDING (MOD-06.2)** | Requires deploying container to Render or Railway with public HTTPS URL. |
 | **ERC-8004 Live Registration** | **BLOCKED (MOD-05B)** | Awaits live public HTTPS metadata endpoint before transaction signing and broadcast. |
 | **Paid Buy Settlements** | **DISABLED ($0.00)** | `BUY_ENABLED=false`. All operations run in zero-spend forensic mode. |
+
+---
+
+## 7. Cloud Hosting Provider Evaluation Matrix (MOD-06.2)
+
+To satisfy the **$0 spend mandate** while providing a live public HTTPS endpoint and evaluating persistent storage options:
+
+| Hosting Provider | Docker Build | Persistent Disk on Free Tier | Automatic HTTPS | Free Tier Policy & Ceilings | Payment Card Required? | Risk of Charges | Recommendation Status |
+|:---|:---:|:---:|:---:|:---|:---:|:---:|:---:|
+| **Railway** | **Yes** | **Yes (0.5 GB Volume)** | **Yes** (`.up.railway.app`) | 30-day free trial ($5 credit), 0.5 GB RAM, 1 vCPU | **No (Trial)** | None during trial | **RECOMMENDED (Persistence)** |
+| **Render** | **Yes** | **No (Ephemeral only)** | **Yes** (`.onrender.com`) | Free Web Service (0.5 CPU, 512 MB RAM), spins down after 15m | **No** | None ($0 permanent) | **RECOMMENDED (Zero-Card Permanent)** |
+| **Fly.io** | Yes | No ($0.15/GB/mo) | Yes | Trial only; perpetual free tier discontinued | **Yes** | Risk of monthly charges | **DISQUALIFIED ($0 violation)** |
+| **Koyeb** | Yes | No (Paid plans only) | Yes | 1 free instance, scales to zero after 1h | **Yes ($29 hold)** | Pre-auth hold required | **DISQUALIFIED ($0 violation)** |
+
+### 7.1 Detailed Provider Analysis
+
+1. **Option A: Railway (Best for True SQLite Persistence)**
+   - **How it works:** Railway allows signing up via GitHub with **no credit card required** for a 30-day trial with $5 usage credit.
+   - **Persistent Volume:** Allows creating and attaching a `0.5 GB` persistent volume mounted at `/app/data`.
+   - **Downtime/Sleep:** Does not sleep during the trial period as long as credits remain.
+   - **Trade-off:** After 30 days, the service pauses unless upgraded or re-provisioned.
+
+2. **Option B: Render (Best for Perpetual $0 Free Tier Without Credit Card)**
+   - **How it works:** Render allows creating a free Web Service directly from GitHub with **no credit card required**.
+   - **Persistent Storage Limitation:** Render's free tier strictly disallows persistent disks. Disk files are stored in the container's ephemeral layer and reset whenever the service spins down (after 15 minutes of idle traffic) or redeploys.
+   - **Trade-off:** Ideal for judge demonstrations and live testing, but forensic report history is cleared upon container sleep/reboot.
+
+---
+
+## 8. Operator Cloud Deployment Runbook
+
+### Step 1: Choose Provider
+- If persistent SQLite volume across restarts without a credit card is desired for the 30-day hackathon window: Select **Railway**.
+- If a permanent free URL without credit card is preferred (with ephemeral SQLite): Select **Render**.
+
+### Step 2: Configure Environment Variables in Provider Dashboard
+In the provider dashboard settings, configure:
+```env
+NODE_ENV=production
+PORT=3000
+HOST=0.0.0.0
+DATABASE_PATH=/app/data/revertlens.sqlite
+PUBLIC_BASE_URL=https://<YOUR_ASSIGNED_DOMAIN>
+SESSION_SECRET=<GENERATE_RANDOM_32_CHAR_STRING>
+OPERATOR_PASSWORD_HASH=scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=
+CORS_ORIGIN=https://<YOUR_ASSIGNED_DOMAIN>
+CHAINSTACK_CELO_MAINNET_RPC_URL=https://celo-mainnet.core.chainstack.com/<YOUR_KEY>
+BUY_ENABLED=false
+CENCORI_ENABLED=false
+```
+
+### Step 3: Attach Volume (If using Railway)
+- Add Volume -> Mount Path: `/app/data` -> Size: `0.5 GB`.
+
+### Step 4: Deploy and Verify
+Once deployed, provide the assigned domain to Antigravity to run the live verification suite:
+- `GET https://<YOUR_ASSIGNED_DOMAIN>/api/health`
+- `GET https://<YOUR_ASSIGNED_DOMAIN>/api/agent/metadata`
+- `GET https://<YOUR_ASSIGNED_DOMAIN>/`

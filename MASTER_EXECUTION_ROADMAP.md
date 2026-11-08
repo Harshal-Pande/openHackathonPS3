@@ -207,7 +207,7 @@ flowchart TD
 
 ### MODULE 6.2 — Public Cloud Deployment & Live Endpoint Verification
 - **Module ID:** `MOD-06.2`
-- **Status:** `PENDING (USER_INPUT_REQUIRED for cloud account)`
+- **Status:** `PARTIALLY_COMPLETED (Provider evaluation and production configuration ready; awaiting user cloud deployment)`
 - **Objective:** Deploy hardened container to Render/Railway with persistent volume and verify live public HTTPS endpoints.
 - **Hackathon Relevance:** Provides judges with a public, clickable demo URL and hosts the canonical ERC-8004 agent metadata endpoint.
 - **Exact Tasks:**

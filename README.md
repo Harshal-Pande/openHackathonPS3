@@ -269,7 +269,7 @@ All documentation is maintained with clean relative links:
 - **Audit & Governance:**
   - [`MASTER_PROJECT_AUDIT.md`](MASTER_PROJECT_AUDIT.md) — Definitive technical, architectural, and security audit.
   - [`MASTER_EXECUTION_ROADMAP.md`](MASTER_EXECUTION_ROADMAP.md) — Critical-path module roadmap (`MOD-01` through `MOD-08`).
-  - [`MASTER_CHANGELOG.md`](MASTER_CHANGELOG.md) — Unified chronological changelog (Phases 0 through 26 / MOD-06.1 Docker & Runtime Verification).
+  - [`MASTER_CHANGELOG.md`](MASTER_CHANGELOG.md) — Unified chronological changelog (Phases 0 through 26.1 / MOD-06.2 Deployment Preparation).
   - [`MASTER_DEFECT_REGISTER.md`](MASTER_DEFECT_REGISTER.md) — Defect register tracking all 59 historical findings to resolution.
   - [`SUBMISSION_CHECKLIST.md`](SUBMISSION_CHECKLIST.md) — Pre-flight compliance and release gate checklist.
 - **Technical & Security Specifications:**

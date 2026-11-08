@@ -50,7 +50,7 @@ This register contains all technical and operational tasks owned and executed di
 | **AGY-10** | Mod 5B | **P1** | `BLOCKED_PENDING_MOD06` | Update Public Base URL in ERC-8004 Metadata Generation | `src/server/config.ts`, `src/server/services/celoAttributionService.ts` | USR-05, AGY-05-04 |
 | **AGY-11** | Mod 5B | **P1** | `BLOCKED_PENDING_MOD06` | Verify Broadcasted ERC-8004 Registration Receipt & Token ID | `PROOF.md`, `GATE0_RESULTS.md` | USR-07, AGY-10 |
 | **AGY-12** | Mod 6.1 | **P1** | `COMPLETED` | Production Docker Audit, Container Hardening & Runtime Verification | `Dockerfile`, `.dockerignore`, `src/server/index.ts`, `src/server/app.ts`, `src/server/db/database.ts`, `tests/dockerRuntime.test.ts` | AGY-01 to AGY-05-04 |
-| **AGY-13** | Mod 6 | **P1** | `USER_INPUT_REQUIRED` | Verify Live Public Deployment Endpoints (`/api/health`, `/api/agent/metadata`) | Public URL | USR-05 |
+| **AGY-13** | Mod 6.2 | **P1** | `USER_INPUT_REQUIRED` | Deploy to Free Cloud Host & Verify Live Public HTTPS Endpoints | `DEPLOYMENT_READINESS.md`, Live HTTPS endpoints | USR-02, USR-03, USR-05 |
 | **AGY-14** | Mod 7 | **P2** | `USER_INPUT_REQUIRED` | Execute Independent User Testing Suite on Live Domain | `INDEPENDENT_USER_EVIDENCE.md` | AGY-13 |
 | **AGY-15** | Mod 8 | **P1** | `USER_INPUT_REQUIRED` | Final Pre-Submission Cleanliness Review & Git Push Verification | Git repository | USR-04 |
 | **AGY-16** | Mod 8 | **P1** | `USER_INPUT_REQUIRED` | Reconcile All Hackathon Claims in `PROOF.md` & `README.md` | `README.md`, `PROOF.md`, `MASTER_CHANGELOG.md` | AGY-08, AGY-11 |
