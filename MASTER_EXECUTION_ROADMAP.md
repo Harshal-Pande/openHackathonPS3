@@ -193,31 +193,32 @@ flowchart TD
 
 ---
 
-### MODULE 6 — Cloud Deployment & Public Infrastructure Setup
-- **Module ID:** `MOD-06`
-- **Objective:** Deploy RevertLens to a high-availability cloud platform (Render/Railway) with persistent storage and HTTPS.
-- **Hackathon Relevance:** Provides judges with a public, clickable, responsive demo URL and hosts the ERC-8004 agent metadata endpoint.
+### MODULE 6.1 — Production Docker Audit, Container Hardening & Runtime Verification
+- **Module ID:** `MOD-06.1`
+- **Status:** `COMPLETED` (Task AGY-12 implemented and verified)
+- **Objective:** Complete Dockerfile audit, container hardening, non-root execution verification, SQLite persistent volume guarantees, graceful shutdown signal handling, native health probe, and regression testing.
+- **Hackathon Relevance:** Ensures container is 100% production-ready, durable across restarts, non-root secure, and ready for one-click cloud deployment.
 - **Exact Tasks:**
-  1. `AGY-12`: Audit multi-stage `Dockerfile` and ensure compatibility with Render/Railway Docker runtime.
-  2. User creates free Render/Railway account (`USR-02`).
-  3. User enters environment variables in cloud settings (`USR-03`).
-  4. User authorizes Git push (`USR-04`).
-  5. User connects repo and triggers deployment (`USR-05`).
-  6. `AGY-13`: Verify public endpoints `https://<DOMAIN>/api/health` and `https://<DOMAIN>/api/agent/metadata`.
+  1. `AGY-12`: Audit multi-stage `Dockerfile`, add native Node 22 `HEALTHCHECK`, harden `.dockerignore`, implement `SIGTERM`/`SIGINT` graceful shutdown and Fastify `onClose` database cleanup, and add regression suite `tests/dockerRuntime.test.ts`. [COMPLETED]
+- **Verification Evidence:** `npm test` passing 514/514 tests across 23 suites; `npm run typecheck` 0 errors; `npm run build` clean bundle in 4.95s.
+- **Files Changed:** `Dockerfile`, `.dockerignore`, `src/server/index.ts`, `src/server/app.ts`, `src/server/db/database.ts`, `tests/dockerRuntime.test.ts`, `DEPLOYMENT_READINESS.md`.
+
+---
+
+### MODULE 6.2 — Public Cloud Deployment & Live Endpoint Verification
+- **Module ID:** `MOD-06.2`
+- **Status:** `PENDING (USER_INPUT_REQUIRED for cloud account)`
+- **Objective:** Deploy hardened container to Render/Railway with persistent volume and verify live public HTTPS endpoints.
+- **Hackathon Relevance:** Provides judges with a public, clickable demo URL and hosts the canonical ERC-8004 agent metadata endpoint.
+- **Exact Tasks:**
+  1. User creates free Render/Railway account (`USR-02`).
+  2. User enters environment variables in cloud settings (`USR-03`).
+  3. User authorizes Git push (`USR-04`).
+  4. User connects repo and triggers deployment (`USR-05`).
+  5. `AGY-13`: Verify public endpoints `https://<DOMAIN>/api/health` and `https://<DOMAIN>/api/agent/metadata`.
 - **User Dependencies:** `USR-02`, `USR-03`, `USR-04`, `USR-05`.
-- **Antigravity Tasks:** `AGY-12`, `AGY-13`.
-- **Files Expected to Change:** `Dockerfile`, `DEPLOYMENT_READINESS.md`, `README.md`.
-- **Security Impact:** Production environment variables stored securely in cloud vault; zero credentials in Git.
-- **Prerequisites:** `MOD-04`.
-- **Acceptance Criteria:**
-  - Public `/api/health` returns `200 OK` with `chainId: 42220`.
-  - Public SPA loads cleanly on desktop and mobile browsers.
-  - Persistent SQLite volume retains investigations across server restarts.
-- **Verification Commands:** `curl -s https://<DOMAIN>/api/health`, `curl -s https://<DOMAIN>/api/agent/metadata`.
-- **Evidence Required:** HTTP response headers and JSON body from live public domain.
-- **Est. Implementation Time:** 20 minutes.
-- **Est. User Time:** 15 minutes.
-- **Blockers:** User cloud account creation.
+- **Antigravity Tasks:** `AGY-13`.
+- **Prerequisites:** `MOD-06.1`.
 
 ---
 

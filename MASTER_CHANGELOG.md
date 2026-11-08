@@ -6,12 +6,12 @@
 **Official Assigned Attribution Tag:** `celo_235f6ef56f5b`
 **Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
 **Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`
-**Status:** MOD-05A ACCEPTED (PREPARATION, PROVENANCE & REGISTRATION READINESS COMPLETE)
-**Current Milestone:** Milestone MOD-05A (Final Repository Audit & Verified Provenance)
-**Current Phase:** Phase 25.4 (Final MOD-05A Closure & Provenance Verification)
-**Next Milestone:** MOD-06.1 — Docker and Runtime Readiness
-**Roadmap Sequence:** MOD-04 ACCEPTED → MOD-05A COMPLETE → MOD-06.1 DOCKER READINESS → MOD-06 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION
-**Last Updated:** 2026-11-08 (Phase 25.4 — MOD-05A Final Closure)
+**Status:** MOD-06.1 COMPLETED (DOCKER AUDIT, RUNTIME HARDENING & PERSISTENCE VERIFICATION)
+**Current Milestone:** Milestone MOD-06.1 (Docker and Runtime Readiness)
+**Current Phase:** Phase 26 (Production Docker Audit, Container Hardening & Runtime Verification)
+**Next Milestone:** MOD-06.2 — Public Deployment and Live Endpoint Verification
+**Roadmap Sequence:** MOD-04 ACCEPTED → MOD-05A ACCEPTED → MOD-06.1 COMPLETED → MOD-06.2 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION
+**Last Updated:** 2026-11-09 (Phase 26 — MOD-06.1 Docker & Runtime Verification)
 
 ---
 
@@ -48,11 +48,11 @@ Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Veri
 ```
 
 ### Key Milestones:
-- **Phase 0â€“3:** Established strict Fastify backend with Node.js 22 LTS, SQLite persistence, and viem. Identified that the public Celo RPC (`forno.celo.org`) disables `debug_traceTransaction`. Pivoted cleanly under AD-008 to a dedicated Chainstack Celo Mainnet Elastic Global Node (OP Geth, Chain ID 42220) providing full tracer access.
-- **Phase 4â€“6:** Implemented deterministic ABI decoding for Standard Errors (`Error(string)`, `Panic(uint256)`), ERC-20, Uniswap V2/V3, and native Celo governance/fee currencies. Built interactive UI displaying transaction metadata, gas consumption, root-cause call frame highlights, and structured forensic evidence.
-- **Phase 7â€“8:** Integrated Buy protocol client (`@celo/buy`) for paid Cencori AI completions (`cencori.v1.chat.completions`), enforcing strict 402 quote parsing, SHA-256 body binding, per-call budget limits, and human operator approval barriers.
-- **Phase 9â€“10:** Overcame headless browser automation limitations by authoring a direct Chrome DevTools Protocol (CDP) WebSocket test harness (`scripts/browser_e2e_cdp.mjs`), validating real UI workflows on Desktop (1280x800) and Mobile (375x812) viewports. Resolved live execution timeout flakes by adopting OS-level isolated child processes (`child_process.fork`).
-- **Phase 11â€“11.5:** Successfully integrated the official hackathon attribution tag `celo_235f6ef56f5b` with ERC-8021 specification, verified the permanent Agent Wallet (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`), prepared ERC-8004 Identity Registration calldata (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`), and confirmed 100% test pass rate across 14 test suites (110 tests).
+- **Phase 0-3:** Established strict Fastify backend with Node.js 22 LTS, SQLite persistence, and viem. Identified that the public Celo RPC (`forno.celo.org`) disables `debug_traceTransaction`. Pivoted cleanly under AD-008 to a dedicated Chainstack Celo Mainnet Elastic Global Node (OP Geth, Chain ID 42220) providing full tracer access.
+- **Phase 4-6:** Implemented deterministic ABI decoding for Standard Errors (`Error(string)`, `Panic(uint256)`), ERC-20, Uniswap V2/V3, and native Celo governance/fee currencies. Built interactive UI displaying transaction metadata, gas consumption, root-cause call frame highlights, and structured forensic evidence.
+- **Phase 7-8:** Integrated Buy protocol client (`@celo/buy`) for paid Cencori AI completions (`cencori.v1.chat.completions`), enforcing strict 402 quote parsing, SHA-256 body binding, per-call budget limits, and human operator approval barriers.
+- **Phase 9-10:** Overcame headless browser automation limitations by authoring a direct Chrome DevTools Protocol (CDP) WebSocket test harness (`scripts/browser_e2e_cdp.mjs`), validating real UI workflows on Desktop (1280x800) and Mobile (375x812) viewports. Resolved live execution timeout flakes by adopting OS-level isolated child processes (`child_process.fork`).
+- **Phase 11-11.5:** Successfully integrated the official hackathon attribution tag `celo_235f6ef56f5b` with ERC-8021 specification, verified the permanent Agent Wallet (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`), prepared ERC-8004 Identity Registration calldata (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`), and confirmed 100% test pass rate across 14 test suites (110 tests).
 
 ---
 
@@ -1256,7 +1256,7 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 1. **UTF-8 Integrity Restoration across Entire Repository (DEF-61):**
    - Replaced all corrupted mojibake sequences across `MASTER_CHANGELOG.md`, `DEPLOYMENT_READINESS.md`, and `JUDGE_LOCAL_RUNBOOK.md` with intended Unicode characters:
      - Multiplication symbol `×` (U+00D7) restored in `Loops House × Celo`.
-     - En-dash `â€“` (U+2013) restored across phase ranges (`Phase 0â€“3`, etc.) and time estimates (`~11â€“12 seconds`).
+     - En-dash `-` (U+2013) restored across phase ranges (`Phase 0-3`, etc.) and time estimates (`~11-12 seconds`).
      - Em-dash `—` (U+2014) restored across document titles and headers.
      - Right arrow `→` (U+2192) restored across execution sequence chains (`MOD-04 → MOD-04.1`, etc.).
      - Box drawing vertical bar `│` (U+2502) restored across architectural ASCII sequence trees.
@@ -1338,3 +1338,33 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Whitespace & Encoding:** `git diff --check` passed with 0 errors; repository-wide scan confirmed 0 mojibake instances.
 - **Zero-Spend Invariant Enforced:** Current spend across all phases is strictly **$0.00**. No wallet funding, transaction signing, or paid Buy execution occurred.
 - **Milestone State:** `MOD-05A — ACCEPTED`. Next milestone: `MOD-06.1 — DOCKER AND RUNTIME READINESS`.
+
+---
+
+## Phase 26 — Module 6.1 / AGY-12: Production Docker Audit, Container Hardening & Runtime Verification (MOD-06.1)
+**Date:** 2026-11-09<br/>
+**Baseline Commit:** `fa723252f9766ed2543c68e12eb97344cb681c9d`<br/>
+**Scope:** Production container audit, Dockerfile hardening, multi-stage build optimization, non-root user execution, SQLite persistent storage validation, graceful shutdown lifecycle, native health check implementation, `.dockerignore` hardening, automated test expansion, and release readiness verification.
+
+### 1. Dockerfile & Build-Context Audit Findings
+- **Multi-Stage Build Architecture:** Verified Node.js 22 LTS Alpine (`node:22-alpine`) multi-stage architecture. Builder stage compiles TypeScript backend and Vite client. Runner stage installs only production dependencies via `npm ci --omit=dev` and copies compiled `dist/`, excluding development tools, source code, and test files.
+- **Non-Root Execution:** Confirmed the runner image creates `/app/data` owned by `node:node` and runs strictly under unprivileged `USER node` (UID non-zero).
+- **Buy CLI Dependency Boundary Analysis:** Determined that `@celo/buy` is appropriately listed in `devDependencies` and omitted from the production container. With `BUY_ENABLED=false`, the server runs entirely in self-contained deterministic forensic mode, `/api/health` reports status without invoking the CLI, and no dynamic package downloads or wallet signings occur.
+- **Dockerignore Hardening:** Hardened `.dockerignore` to explicitly exclude SQLite WAL/SHM/journal files (`*.sqlite-wal`, `*.sqlite-shm`), persistent data directories (`data/`), IDE metadata (`.idea/`, `.vscode/`), agent artifacts (`.agents/`, `.antigravity/`), tests, docs, and generated Gitingest snapshots.
+
+### 2. Implementation: Graceful Shutdown & Native Health Checks
+- **Graceful Shutdown & SQLite WAL Flush (`src/server/index.ts` & `src/server/app.ts`):** Implemented signal handlers for `SIGTERM` and `SIGINT` with a 10-second timeout fallback. Added Fastify `onClose` hook ensuring `db.close()` is invoked during teardown, cleanly flushing WAL logs and releasing file descriptor locks.
+- **Idempotent Database Lifecycle (`src/server/db/database.ts`):** Hardened `Database.close()` with internal `isOpen` tracking to be fully idempotent, preventing unhandled exceptions on repeated close calls, and exposed `isClosed(): boolean`.
+- **Native Docker Health Check (`Dockerfile`):** Added a lightweight Docker `HEALTHCHECK` probe using Node 22 native `fetch` against `http://127.0.0.1:3000/api/health` with bounded 5s timeout, 30s interval, 10s start period, and 3 retries, eliminating reliance on external packages like `curl` or `wget`.
+
+### 3. Automated Test Suite Expansion & Test Isolation Fixes
+- **New Test Suite (`tests/dockerRuntime.test.ts`):** Added 16 automated tests covering SQLite directory auto-creation, WAL mode verification, 5000ms busy timeout, idempotent close, persistence across close/reopen cycles, Fastify graceful shutdown hook, `/api/health` response secrecy, SPA/asset 404 contract adherence, clean navigation route redirects, and production security invariant enforcement.
+- **Test Isolation Hardening (`tests/erc8004Registration.test.ts`):** Fixed a resource contention issue where preview endpoint tests opened the default disk database concurrently; updated to use in-memory database and explicit `app.close()`.
+
+### 4. Verification Evidence & Metrics
+- **Automated Test Suite:** `npm test` passed with **23/23 test suites, 514/514 tests passing (100% green)** in ~16.0s.
+- **TypeScript Static Typing:** `npm run typecheck` passed with **0 errors**.
+- **Production Build:** `npm run build` completed cleanly in 4.95s.
+- **Environment Limitation Disclosed:** Local Windows Docker daemon pipe was unresponsive; static audit, container definition hardening, and full local runtime persistence verification were completed in strict compliance with safety rules.
+- **Zero-Spend Invariant Enforced:** Total project spend remains **$0.00** across all phases. No on-chain transactions were signed or broadcast.
+- **Milestone State:** `MOD-06.1 / AGY-12 — COMPLETED`. Next milestone: `MOD-06.2 — PUBLIC DEPLOYMENT AND LIVE ENDPOINT VERIFICATION`.

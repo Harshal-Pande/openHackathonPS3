@@ -106,6 +106,15 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
     credentials: true
   });
 
+  // Graceful shutdown lifecycle: close database cleanly on Fastify close
+  server.addHook('onClose', async () => {
+    try {
+      db.close();
+    } catch {
+      // Ignore database close errors during teardown
+    }
+  });
+
   // Standard API Envelope Formatter
   server.addHook('onSend', async (request, reply, payload) => {
     const contentType = reply.getHeader('content-type');

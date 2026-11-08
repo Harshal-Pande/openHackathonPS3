@@ -1,29 +1,37 @@
-# RevertLens — Cloud Deployment & Production Container Readiness Guide
+# RevertLens — Production Container & Cloud Deployment Readiness Guide
 
-**Document Version:** 2.0.0 (MOD-05A.1 Pre-Deployment Audit)
+**Document Version:** 2.1.0 (MOD-06.1 Docker & Container Runtime Verification)
 **Hackathon:** Agents on Open Rails 2026 | Track PS3 — Build with Buy
 **Target Blockchain:** Celo Mainnet (`eip155:42220` / `0xa4ec`)
-**Deployment Target:** Cloud Container (Render, Railway, or Fly.io Docker Web Service)
-**Current Lifecycle State:** `READY_FOR_PUBLIC_CLOUD_DEPLOYMENT` (Scheduled for Module MOD-06)
+**Deployment Target:** Local Container Runtime / Cloud Container (Render, Railway, or Fly.io Docker Web Service)
+**Current Milestone:** `MOD-06.1 — DOCKER AND RUNTIME READINESS`
+**Downstream Milestone:** `MOD-06.2 — PUBLIC DEPLOYMENT AND LIVE ENDPOINT VERIFICATION`
 
 ---
 
-## 1. Overview & Single-Container Architecture
+## 1. Container Architecture & Multi-Stage Build
 
-RevertLens is engineered as a single, self-contained, high-performance containerized application:
-- **Fastify 5 Backend:** Serves the REST API (`/api/*`), health probes (`/api/health`), ERC-8004 metadata (`/api/agent/metadata`), and static frontend assets.
-- **React 19 + Vite Frontend:** Pre-compiled into `dist/client/` and served directly by Fastify with SPA routing fallback.
-- **Native SQLite Persistence:** Operates via Node.js 22 native `node:sqlite` with Write-Ahead Logging (`PRAGMA journal_mode = WAL;`) and busy timeout (5,000 ms) stored on a persistent volume mounted at `/app/data`.
-- **Zero Daemon Dependencies:** Requires no external database daemon (PostgreSQL/Redis); fully self-contained.
+RevertLens is packaged as a single, multi-stage, production-hardened container:
 
----
-
-## 2. Multi-Stage Dockerfile Verification
-
-The project root contains a verified production `Dockerfile`:
+- **Base Image:** Node.js 22 LTS Alpine (`node:22-alpine`) providing a minimal attack surface and lightweight image footprint (~180 MB).
+- **Builder Stage:**
+  - Installs full dependencies via `npm ci` strictly pinned to `package-lock.json`.
+  - Compiles TypeScript Fastify backend (`tsc -p tsconfig.server.json` -> `dist/server`).
+  - Bundles React 19 frontend (`vite build` -> `dist/client`).
+- **Runner Stage:**
+  - Fresh `node:22-alpine` container with development dependencies and source code excluded.
+  - Installs production-only dependencies using `npm ci --omit=dev`.
+  - Copies compiled artifacts (`dist/`) from the builder stage.
+  - Creates persistent volume directory `/app/data` owned by `node:node`.
+  - Runs strictly as unprivileged user `USER node` (UID non-zero).
+  - Binds to `0.0.0.0:3000`.
+  - Includes a native Node.js 22 health check probe (no `curl` or `wget` dependencies).
+  - Handles `SIGTERM` and `SIGINT` signals with graceful Fastify request draining and SQLite WAL flush.
 
 ```dockerfile
-# Multi-stage container build for Node.js 22 LTS
+# RevertLens Production Containerfile
+# Single multi-stage container build for Node 22 LTS
+
 FROM node:22-alpine AS builder
 WORKDIR /app
 
@@ -31,11 +39,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Copy source and configurations
+# Copy source files
 COPY tsconfig*.json vite.config.ts index.html ./
 COPY src ./src
 
-# Compile server and bundle client
+# Build server and client
 RUN npm run build
 
 # Production runtime stage
@@ -51,115 +59,149 @@ ENV DATABASE_PATH=/app/data/revertlens.sqlite
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Copy compiled artifacts from builder
+# Copy compiled artifacts from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Create persistent storage mountpoint and set permissions
+# Create persistent data volume mountpoint
 RUN mkdir -p /app/data && chown -R node:node /app
 
 USER node
 EXPOSE 3000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+
 CMD ["node", "dist/server/index.js"]
 ```
 
-### Dockerfile Key Security & Operational Properties:
-1. **Node 22 Alpine Base:** Minimal attack surface and lightweight image size (~180 MB).
-2. **Deterministic Builds:** Uses `npm ci` strictly pinned to `package-lock.json`.
-3. **Non-Root User:** Runs as unprivileged `node` user (`USER node`).
-4. **Host Binding:** Binds strictly to `0.0.0.0` for container ingress routing.
-5. **Persistent Mountpoint:** Uses `/app/data` with ownership assigned to `node`.
+---
+
+## 2. Local Docker Commands & Volume Management
+
+The following commands operate RevertLens locally using Docker and a persistent named volume:
+
+### 2.1 Build Production Image
+```bash
+docker build -t revertlens:mod06-1 .
+```
+
+### 2.2 Create Persistent Named Volume
+```bash
+docker volume create revertlens-data
+```
+
+### 2.3 Run Production Container (Local Verification Mode)
+> [!NOTE]
+> Pass strong secrets via environment variables. `BUY_ENABLED=false` ensures zero-spend operation.
+```bash
+docker run -d \
+  --name revertlens \
+  -p 3000:3000 \
+  -v revertlens-data:/app/data \
+  -e NODE_ENV=production \
+  -e PORT=3000 \
+  -e HOST=0.0.0.0 \
+  -e DATABASE_PATH=/app/data/revertlens.sqlite \
+  -e SESSION_SECRET="example_random_session_secret_32_chars_minimum" \
+  -e OPERATOR_PASSWORD_HASH="scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=" \
+  -e CORS_ORIGIN="http://localhost:3000" \
+  -e PUBLIC_BASE_URL="https://revertlens.net" \
+  -e CHAINSTACK_CELO_MAINNET_RPC_URL="https://celo-mainnet.core.chainstack.com/your-endpoint-key" \
+  -e BUY_ENABLED=false \
+  -e CENCORI_ENABLED=false \
+  revertlens:mod06-1
+```
+
+### 2.4 Verify Container Health & Status
+```bash
+# Check container status and Docker health check status
+docker ps --filter "name=revertlens"
+
+# Probe health endpoint from host
+curl -s http://127.0.0.1:3000/api/health | jq
+
+# View container runtime logs
+docker logs revertlens
+```
+
+### 2.5 Stop and Restart (Verifying SQLite Persistence)
+```bash
+# Graceful stop (triggers SIGTERM, Fastify close, and SQLite WAL checkpoint)
+docker stop revertlens
+
+# Restart container using existing persistent volume
+docker start revertlens
+
+# Inspect persistent volume contents
+docker run --rm -v revertlens-data:/data alpine ls -la /data
+```
 
 ---
 
-## 3. Production Environment Safeguards (`src/server/config.ts`)
+## 3. Production Environment Configuration Specification
 
-When `NODE_ENV=production`, RevertLens automatically runs `enforceProductionInvariants()` on startup, failing fast if security invariants are violated:
+The container configuration is strictly validated by `enforceProductionInvariants()` in `src/server/config.ts`. Insecure or placeholder configurations fail fast on boot:
 
-| Variable | Requirement in Production | Invariant Enforcement |
+### 3.1 Required Production Variables
+| Variable | Validation Rule | Purpose |
+|:---|:---|:---|
+| `NODE_ENV` | Must equal `'production'`. | Enables production security invariants. |
+| `PORT` | Number (default `3000`). | Container HTTP port. |
+| `HOST` | Must be `'0.0.0.0'` in container. | Ingress network binding. |
+| `DATABASE_PATH` | Non-empty persistent path. Cannot be `:memory:`. | SQLite database location. |
+| `PUBLIC_BASE_URL` | Valid absolute HTTPS URL. No loopback, link-local, or private RFC 1918 IPs. | Canonical agent origin for metadata. |
+| `SESSION_SECRET` | String >= 32 chars. Cannot be placeholder. | Signs operator session tokens. |
+| `OPERATOR_PASSWORD_HASH` | Valid scrypt format string. Cannot match `SESSION_SECRET`. | Authenticates operator operations. |
+| `CORS_ORIGIN` | Explicit URL allowlist. Wildcard `*` rejected. | Cross-origin resource sharing. |
+| `CHAINSTACK_CELO_MAINNET_RPC_URL` | HTTPS RPC endpoint to Celo Mainnet node. | Node RPC for forensic analysis. |
+
+### 3.2 Fixed Product Identifiers (Immutable)
+| Variable | Value | Purpose |
+|:---|:---|:---|
+| `CELO_ATTRIBUTION_TAG` | `celo_235f6ef56f5b` | ERC-8021 ecosystem attribution tag. |
+| `AGENT_WALLET_ADDRESS` | `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` | Intended agent operator wallet. |
+
+### 3.3 Buy Marketplace Integration (Disabled by Default)
+| Variable | Default Value | Notes |
 |:---|:---:|:---|
-| `NODE_ENV` | Mandatory | Must equal `'production'`. |
-| `PORT` | Optional | Defaults to `3000`. |
-| `HOST` | Mandatory | Set to `0.0.0.0` in container. |
-| `DATABASE_PATH` | Mandatory | Must be an absolute path (e.g. `/app/data/revertlens.sqlite`). `:memory:` is rejected. |
-| `PUBLIC_BASE_URL` | Mandatory | Must be an absolute HTTPS URL (`https://...`). Embedded credentials, `localhost`, loopback IPs (`127.0.0.0/8`, `::1`), and private RFC 1918 IPs are strictly rejected. |
-| `SESSION_SECRET` | Mandatory | High-entropy secret (>= 32 chars). Placeholders like `REPLACE_WITH...` are rejected. |
-| `OPERATOR_PASSWORD_HASH` | Mandatory | Versioned scrypt hash (`scrypt$v=1$N=16384$r=8$p=1$...`). Cannot match `SESSION_SECRET`. |
-| `CORS_ORIGIN` | Mandatory | Explicit origin (e.g. `https://revertlens.onrender.com`). Wildcard `*` is rejected. |
-| `CHAINSTACK_CELO_MAINNET_RPC_URL` | Mandatory | Valid HTTPS RPC URL to Celo Mainnet archive node. |
-| `CELO_ATTRIBUTION_TAG` | Immutable | Must match `celo_235f6ef56f5b`. |
-| `AGENT_WALLET_ADDRESS` | Immutable | Must match `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`. |
+| `BUY_ENABLED` | `false` | Disabled for MOD-06.1 container runtime. Zero spend. |
+| `CENCORI_ENABLED` | `false` | Disabled. Uses deterministic heuristic classifier. |
+| `BUY_DAILY_BUDGET_ATOMIC` | `'0'` | Enforced in deterministic server code. |
+| `BUY_PER_CALL_CAP_ATOMIC` | `'0'` | Atomic cap per transaction. |
 
 ---
 
-## 4. Health Check Probes & Graceful Shutdown
+## 4. SQLite Persistent Storage & WAL Guarantees
 
-### Health Check Endpoint:
-- **Path:** `GET /api/health`
-- **Port:** `3000`
-- **Expected Status:** `200 OK`
-- **Readiness Response:**
-  ```json
-  {
-    "data": {
-      "status": "ok",
-      "version": "0.1.0",
-      "chainId": 42220,
-      "featureFlags": {
-        "buyEnabled": false,
-        "cencoriEnabled": false,
-        "chainstackConfigured": true
-      },
-      "buyReady": false
-    },
-    "error": null,
-    "requestId": "..."
-  }
-  ```
-
-### Graceful Shutdown:
-The Fastify server intercepts `SIGTERM` and `SIGINT` signals:
-1. Stops accepting new inbound HTTP requests.
-2. Waits for active requests to finish (with 10-second timeout).
-3. Safely checkpoints SQLite WAL and closes database connection.
-4. Exits with status `0`.
+RevertLens utilizes Node.js 22 built-in `node:sqlite`:
+- **Mount Path:** `/app/data` (mapped to persistent storage volume).
+- **Database File:** `/app/data/revertlens.sqlite`.
+- **Journal Mode:** Write-Ahead Logging (`PRAGMA journal_mode = WAL;`) allowing concurrent reads while writes are active.
+- **Busy Timeout:** `PRAGMA busy_timeout = 5000;` preventing lock starvation.
+- **Synchronous Mode:** `PRAGMA synchronous = NORMAL;` optimal for WAL integrity.
+- **Persistence Across Restarts:** Investigation reports, evidence items, and payment ledgers remain fully durable across container restarts.
 
 ---
 
-## 5. Operator Deployment Runbook (For Module MOD-06)
+## 5. Graceful Shutdown & Signal Handling
 
-> [!IMPORTANT]
-> The steps below are executed by the human operator during **Module MOD-06**.
-> Antigravity does not execute cloud provisioning without operator authorization.
-
-### Option A: Render Deployment (Recommended)
-1. Log into [Render Dashboard](https://dashboard.render.com).
-2. Click **New +** -> **Web Service**.
-3. Connect repository: `https://github.com/Harshal-Pande/openHackathonPS3`.
-4. Choose **Docker** runtime environment.
-5. In **Disks**, add a persistent volume:
-   - **Name:** `revertlens-data`
-   - **Mount Path:** `/app/data`
-   - **Size:** 1 GB
-6. In **Environment Variables**, configure the production variables from Section 3.
-7. Click **Create Web Service**.
-8. Once deployment is healthy, copy the assigned HTTPS domain (e.g. `https://revertlens.onrender.com`) and update `PUBLIC_BASE_URL` in Render settings.
-
-### Option B: Railway Deployment
-1. Log into [Railway Dashboard](https://railway.app).
-2. Click **New Project** -> **Deploy from GitHub repo**.
-3. Select `openHackathonPS3`.
-4. Add Volume: mount `/app/data`.
-5. Configure Environment Variables.
-6. Generate public domain under **Settings** -> **Domains**.
+The server lifecycle in `src/server/index.ts` and `src/server/app.ts` traps `SIGTERM` and `SIGINT`:
+1. `handleSignal(signal)` sets an atomic shutdown flag.
+2. Fastify stops accepting new inbound connections and drains existing in-flight HTTP requests.
+3. Fastify `onClose` hook cleanly executes `db.close()`, flushing pending SQLite WAL records to disk and closing file descriptors.
+4. An unref'd 10-second timeout ensures the process exits cleanly even if external connections hang.
+5. Exit code `0` is emitted.
 
 ---
 
-## 6. Post-Deployment Verification Checklist (MOD-06 Acceptance)
+## 6. Deployment Limitations & Separation of Concerns
 
-Once deployed to public cloud:
-1. `curl https://<DEPLOYED_DOMAIN>/api/health` -> returns `200 OK`.
-2. `curl https://<DEPLOYED_DOMAIN>/api/agent/metadata` -> returns valid ERC-8004 JSON metadata with public domain endpoints.
-3. `curl https://<DEPLOYED_DOMAIN>/api/agent/erc8004-registration-tx` -> returns `readinessStatus: "READY_FOR_OPERATOR_SIGNATURE"`.
-4. Run live investigation in web browser against transaction `0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445`.
-5. Proceed to **MOD-05B** for live on-chain ERC-8004 registration transaction broadcast.
+To maintain strict truth-in-reporting and avoid premature claims:
+
+| Milestone / Capability | State | Scope & Boundaries |
+|:---|:---:|:---|
+| **Local Container Build** | **VERIFIED** | Multi-stage Dockerfile, non-root execution, health check, production dependencies. |
+| **Local SQLite Persistence** | **VERIFIED** | WAL mode, 5000ms timeout, persistent volume persistence verified across test suite. |
+| **Public Cloud Deployment** | **PENDING (MOD-06.2)** | Requires deploying container to Render, Railway, or Fly.io with public HTTPS URL. |
+| **ERC-8004 Live Registration** | **BLOCKED (MOD-05B)** | Awaits live public HTTPS metadata endpoint before transaction signing and broadcast. |
+| **Paid Buy Settlements** | **DISABLED ($0.00)** | `BUY_ENABLED=false`. All operations run in zero-spend forensic mode. |

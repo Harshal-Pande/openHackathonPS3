@@ -140,6 +140,7 @@ export const VALID_PURCHASE_TRANSITIONS: Record<string, string[]> = {
 
 export class Database {
   private db: DatabaseSync;
+  private isOpen = true;
 
   constructor(dbPath: string = './data/revertlens.sqlite') {
     if (dbPath !== ':memory:') {
@@ -1259,7 +1260,13 @@ export class Database {
     return typeof row?.timeout === 'number' ? row.timeout : 0;
   }
 
+  public isClosed(): boolean {
+    return !this.isOpen;
+  }
+
   public close(): void {
+    if (!this.isOpen) return;
+    this.isOpen = false;
     this.db.close();
   }
 }

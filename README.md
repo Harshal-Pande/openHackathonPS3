@@ -179,7 +179,7 @@ npm run gitingest:check
 
 ### Latest Verified Test Execution Results:
 - **TypeScript Typecheck:** `0 errors` (Server `tsconfig.server.json` & client `tsconfig.client.json`).
-- **Vitest Test Suite:** **22 test files passed, 498/498 tests passed (100% pass rate)** in ~11.5 seconds.
+- **Vitest Test Suite:** **23 test files passed, 514/514 tests passed (100% pass rate)** in ~16.0 seconds.
 - **Route Surface Verification:** **36/36 scenarios passed** across 25 unique Fastify endpoints.
 - **Browser Automation (CDP):** **100% assertions passed** on Desktop (1280x800) and Mobile (375x812) viewports.
 - **Full Results Log:** Documented in [`TEST_RESULTS.md`](TEST_RESULTS.md).
@@ -269,7 +269,7 @@ All documentation is maintained with clean relative links:
 - **Audit & Governance:**
   - [`MASTER_PROJECT_AUDIT.md`](MASTER_PROJECT_AUDIT.md) — Definitive technical, architectural, and security audit.
   - [`MASTER_EXECUTION_ROADMAP.md`](MASTER_EXECUTION_ROADMAP.md) — Critical-path module roadmap (`MOD-01` through `MOD-08`).
-  - [`MASTER_CHANGELOG.md`](MASTER_CHANGELOG.md) — Unified chronological changelog (Phases 0 through 25.4 / MOD-05A Final Closure).
+  - [`MASTER_CHANGELOG.md`](MASTER_CHANGELOG.md) — Unified chronological changelog (Phases 0 through 26 / MOD-06.1 Docker & Runtime Verification).
   - [`MASTER_DEFECT_REGISTER.md`](MASTER_DEFECT_REGISTER.md) — Defect register tracking all 59 historical findings to resolution.
   - [`SUBMISSION_CHECKLIST.md`](SUBMISSION_CHECKLIST.md) — Pre-flight compliance and release gate checklist.
 - **Technical & Security Specifications:**

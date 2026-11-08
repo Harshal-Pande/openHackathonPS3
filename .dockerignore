@@ -5,7 +5,13 @@ coverage
 .env.*
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
 *.db
+*.db-wal
+*.db-shm
+data
 logs
 *.log
 .git
@@ -16,3 +22,12 @@ test-results
 artifacts/private
 secrets
 wallet
+.idea
+.vscode
+.agents
+.antigravity
+.system_generated
+tests
+docs
+*gitingest*.txt
+*gitingest_manifest*

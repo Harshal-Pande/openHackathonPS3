@@ -160,6 +160,7 @@ describe('MOD-05A: ERC-8004 Registration Preparation & Verification Suite', () =
       const localApp = buildApp(
         loadConfig({
           NODE_ENV: 'test',
+          DATABASE_PATH: ':memory:',
           PUBLIC_BASE_URL: 'http://localhost:3000'
         })
       );
@@ -168,6 +169,7 @@ describe('MOD-05A: ERC-8004 Registration Preparation & Verification Suite', () =
         method: 'GET',
         url: '/api/agent/erc8004-registration-tx'
       });
+      await localApp.close();
 
       expect(res.statusCode).toBe(200);
       const json = JSON.parse(res.body);
@@ -190,6 +192,7 @@ describe('MOD-05A: ERC-8004 Registration Preparation & Verification Suite', () =
       const publicApp = buildApp(
         loadConfig({
           NODE_ENV: 'test',
+          DATABASE_PATH: ':memory:',
           PUBLIC_BASE_URL: 'https://revertlens.example.com'
         })
       );
@@ -198,6 +201,7 @@ describe('MOD-05A: ERC-8004 Registration Preparation & Verification Suite', () =
         method: 'GET',
         url: '/api/agent/erc8004-registration-tx'
       });
+      await publicApp.close();
 
       expect(res.statusCode).toBe(200);
       const json = JSON.parse(res.body);
