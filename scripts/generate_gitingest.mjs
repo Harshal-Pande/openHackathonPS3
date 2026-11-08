@@ -146,10 +146,21 @@ async function main() {
   await new Promise((resolve) => outputStream.on('finish', resolve));
 
   const stats = fs.statSync(OUTPUT_FILE);
+  const writtenContent = fs.readFileSync(OUTPUT_FILE, 'utf8');
+  const sections = (writtenContent.match(/^=+\nFile: /gm) || []).length;
+  const lines = writtenContent.split('\n').length;
+
   console.log(`✓ Snapshot generated successfully:`);
-  console.log(`  File:     ${OUTPUT_FILE}`);
-  console.log(`  Size:     ${(stats.size / 1024 / 1024).toFixed(2)} MB (${stats.size} bytes)`);
-  console.log(`  Files:    ${files.length} tracked files included`);
+  console.log(`  File:          ${OUTPUT_FILE}`);
+  console.log(`  Size:          ${(stats.size / 1024 / 1024).toFixed(2)} MB (${stats.size} bytes)`);
+  console.log(`  Included Files: ${files.length} tracked files`);
+  console.log(`  File Sections:  ${sections}`);
+  console.log(`  Total Lines:    ${lines}`);
+
+  if (sections !== files.length) {
+    console.error(`ERROR: File sections count (${sections}) does not match directory tree count (${files.length})!`);
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {
