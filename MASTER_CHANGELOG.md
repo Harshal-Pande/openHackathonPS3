@@ -764,3 +764,49 @@ Following an independent security audit of the MOD-03 implementation snapshot, 8
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Real Windows CLI Execution:** Verified real `@celo/buy@0.8.5` binary via `node_modules/@celo/buy/dist/main.js` running without mocks, confirming version `0.8.5` and agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` has 0 CELO and 0 USDC balances; live mainnet spend blocked pending operator funding. $0.00 personal funds spent.
+
+---
+
+## Phase 17 — Module 3.3: Settlement Integrity & Ambiguous Payment Failure Hardening (MOD-03.3 / DEF-31 through DEF-36)
+**Date:** 2026-11-08
+**Scope:** Payment settlement integrity, fail-closed RPC chain validation, receipt transaction hash verification, cryptographic payer identification, BigInt aggregate ERC-20 transfer summation, dispatch boundary demarcated failure handling, unique candidate settlement resolution, and atomic SQLite multi-table commit consistency.
+
+### 1. Summary of Changes
+Following an independent audit of the payment settlement path, 6 critical defects were resolved:
+
+1. **DEF-31: Fail-Closed Chain Verification in `verifyOnChainSettlement()`:**
+   - Pre-flight `eth_chainId` RPC check before fetching receipts.
+   - Validates HTTP 200, valid JSON, JSON-RPC ID 1, error absence, valid hex format, and chain ID `42220`.
+   - Aborts verification immediately on any failure or mismatch.
+
+2. **DEF-32: Receipt Transaction Hash Matching in `verifyReceiptTransferLogs()`:**
+   - Enforces strict case-insensitive equality between receipt `transactionHash` and `expectedTxHash`.
+   - Rejects mismatched transaction receipts, empty hashes, or missing fields.
+
+3. **DEF-33: Real Payer Identity Verification Without Fallbacks:**
+   - Decodes indexed sender from log `topics[1]` with minimum 3 topics and valid 20-byte address format matching `payingAddress`.
+   - Eliminates all hardcoded fallback address assignments during settlement persistence.
+
+4. **DEF-34: Aggregate Transfer Amount Verification with BigInt:**
+   - Validates 32-byte hex format on event log data (`/^0x[0-9a-fA-F]{64}$/`).
+   - Sums all matching ERC-20 `Transfer` logs using BigInt and asserts exact mathematical equality (`totalTransferred === expectedAmountAtomic`), rejecting both underpayments and overpayments.
+
+5. **DEF-35: Dispatch-Stage Failure Classification & Budget Reservation Preservation:**
+   - Only proven pre-dispatch failures (before subprocess execution) release reserved budget and mark attempts `FAILED`.
+   - All post-dispatch errors (timeouts, network drops, 500s, non-zero exits) preserve budget reservations (`RESERVED`) and mark attempts `SETTLEMENT_UNKNOWN`.
+
+6. **DEF-36: Unique Candidate Settlement Resolution Matching:**
+   - `resolveSettlement()` queries candidate purchases using specific references and collects distinct candidate transaction hashes.
+   - Strictly requires exactly 1 unique candidate hash; halts on zero matches or multiple distinct candidate hashes.
+
+7. **Database Atomic Settlement State Consistency:**
+   - Added `db.commitSettlementAtomic()` with SQLite `BEGIN IMMEDIATE` wrapping settlement proof insertion, budget commitment, attempt update, and quote update with automatic rollback on error.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **20/20 test files, 274/274 tests passing** in ~5.5s (100% green; 64/64 tests in `tests/buySecurity.test.ts`, 9/9 tests in `tests/buyAdapter.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop and Mobile viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO / 0 USDC. $0.00 spent.

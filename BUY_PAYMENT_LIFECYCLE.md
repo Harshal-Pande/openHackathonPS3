@@ -202,3 +202,43 @@ An independent security remediation pass resolved critical payment path defects:
    - Pinned `@celo/buy@0.8.5` in project dependencies.
    - Spawns local entrypoint `node_modules/@celo/buy/dist/main.js` directly with `process.execPath` and `shell: false`.
    - Verified via harmless read-only CLI tests (`-V` and `whoami`) with zero personal funds spent.
+
+---
+
+## 7. Settlement Integrity & Ambiguous Payment Failure Hardening (MOD-03.3)
+
+Following independent audit of the payment settlement pipeline, 6 critical settlement integrity protections were engineered:
+
+1. **Fail-Closed RPC Chain ID Verification (DEF-31):**
+   - Direct on-chain settlement validation queries `eth_chainId` before querying receipts.
+   - Fails closed on any non-200 HTTP status, malformed JSON, JSON-RPC error, mismatched request ID, unparseable hex, or chain ID not strictly matching `42220`.
+   - Halts settlement processing immediately; refuses receipt queries if chain authority is invalid.
+
+2. **Strict Receipt Transaction Hash Equality (DEF-32):**
+   - Enforces exact case-insensitive equality between receipt `transactionHash` and the requested `expectedTxHash`.
+   - Rejects mismatched transaction receipts, empty hashes, or missing fields with `Receipt transaction hash mismatch`.
+
+3. **Cryptographically Proven Payer Identity (DEF-33):**
+   - Validates that the indexed sender in `topics[1]` decodes to a valid 20-byte address matching the configured agent wallet (`this.payingAddress`).
+   - Rejects receipts where `topics.length < 3`, address decoding fails, or payer differs.
+   - Eliminates all hardcoded fallback assignments in settlement record persistence.
+
+4. **Exact Aggregate ERC-20 Transfer Summation (DEF-34):**
+   - Iterates through all receipt event logs matching ERC-20 `Transfer(address,address,uint256)` topic signature.
+   - Validates event `data` payload matches 32-byte hex format (`/^0x[0-9a-fA-F]{64}$/`).
+   - Filters logs matching `token_contract`, `payer`, and `recipient`, summing all transfer values using native BigInt.
+   - Strictly requires `totalTransferred === expectedAmountAtomic`. Rejects underpayments (`<`), overpayments (`>`), or partial split transactions.
+
+5. **Dispatch Boundary Demarcation & Preserved Budget Reservations (DEF-35):**
+   - Pre-dispatch failures (before subprocess invocation: invalid capability, payload disk write error, missing CLI binary) definitively prove zero on-chain activity; atomically transition attempt to `FAILED`, quote to `FAILED`, and release reserved budget (`RELEASED`).
+   - Post-dispatch failures (spawn errors, timeouts, network disconnections, non-zero exits, HTTP 500) indicate ambiguous execution; atomically transition attempt to `SETTLEMENT_UNKNOWN`, quote to `SETTLEMENT_UNKNOWN`, and preserve budget reservation as `RESERVED`.
+
+6. **Unambiguous Settlement Resolution Matching (DEF-36):**
+   - `resolveSettlement()` queries candidate purchases using specific references (quote ID, purchase attempt ID, or explicit tx hash).
+   - Collects all candidate transaction hashes; strictly requires exactly one unique candidate hash.
+   - If zero candidates match or multiple distinct candidate hashes exist, resolution halts and returns unresolved/ambiguous status.
+
+7. **Atomic Multi-Entity SQLite Settlement Commit:**
+   - Introduced `db.commitSettlementAtomic()` wrapped in a SQLite `BEGIN IMMEDIATE` transaction.
+   - Simultaneously writes `settlement_records`, updates `purchase_attempts`, updates `quote_records`, and transitions `budget_reservations` to `COMMITTED`.
+   - Guarantees 100% database consistency or complete rollback on write failure.

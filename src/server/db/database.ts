@@ -121,7 +121,7 @@ export const VALID_QUOTE_TRANSITIONS: Record<string, string[]> = {
   QUOTE_RECEIVED: ['AWAITING_OPERATOR_APPROVAL', 'QUOTE_INVALID'],
   QUOTE_INVALID: [],
   AWAITING_OPERATOR_APPROVAL: ['APPROVED', 'EXPIRED', 'CANCELLED', 'QUOTE_INVALID'],
-  APPROVED: ['EXECUTION_PENDING', 'CANCELLED', 'EXPIRED'],
+  APPROVED: ['EXECUTION_PENDING', 'CANCELLED', 'EXPIRED', 'FAILED'],
   EXECUTION_PENDING: ['SETTLED', 'SETTLEMENT_UNKNOWN', 'FAILED'],
   SETTLEMENT_UNKNOWN: ['SETTLED', 'FAILED'],
   SETTLED: [],
@@ -178,6 +178,10 @@ export class Database {
       } catch {}
       throw err;
     }
+  }
+
+  public getRawDb(): DatabaseSync {
+    return this.db;
   }
 
   private migrate(): void {
@@ -596,7 +600,7 @@ export class Database {
       attempt.raw_stdout_redacted || null,
       attempt.raw_stderr_redacted || null,
       attempt.created_at,
-      attempt.updated_at
+      attempt.updated_at || attempt.created_at || new Date().toISOString()
     );
 
     this.recordPaymentAuditEvent({
@@ -812,6 +816,47 @@ export class Database {
       to_status: 'COMMITTED',
       details: `Committed budget reservation for quote ${quoteId}`,
       created_at: now
+    });
+  }
+
+  /**
+   * Commits a verified settlement atomically in SQLite.
+   * Enclosed in BEGIN IMMEDIATE transaction:
+   * 1. Inserts settlement proof
+   * 2. Commits budget reservation (status = 'COMMITTED')
+   * 3. Updates purchase attempt status to 'SETTLED'
+   * 4. Updates quote status to 'SETTLED'
+   * If any step fails, rolls back all changes atomically.
+   */
+  public commitSettlementAtomic(
+    proof: SettlementProofRow,
+    attemptUpdates: Partial<PurchaseAttemptRow> = {}
+  ): void {
+    this.transaction(() => {
+      // 1. Save settlement proof
+      this.saveSettlementProof(proof);
+
+      // 2. Commit budget reservation
+      const res = this.getBudgetReservation(proof.quote_id);
+      if (!res) {
+        throw new Error(`Budget reservation for quote "${proof.quote_id}" not found.`);
+      }
+      if (res.status === 'RELEASED') {
+        throw new Error(`Cannot commit settlement: budget reservation for quote "${proof.quote_id}" is RELEASED.`);
+      }
+      this.commitBudgetReservation(proof.quote_id);
+
+      // 3. Mark purchase attempt SETTLED
+      this.updatePurchaseAttemptStatus(proof.purchase_attempt_id, 'SETTLED', {
+        tx_hash: proof.tx_hash,
+        settlement_tx_hash: proof.tx_hash,
+        payer_address: proof.payer,
+        payee_address: proof.recipient,
+        ...attemptUpdates
+      });
+
+      // 4. Mark quote SETTLED
+      this.updateQuoteStatus(proof.quote_id, 'SETTLED');
     });
   }
 

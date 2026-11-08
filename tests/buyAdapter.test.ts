@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Database } from '../src/server/db/database.js';
 import { loadConfig } from '../src/server/config.js';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../src/server/adapters/buyAdapter.js';
 import { BuyQuoteService } from '../src/server/services/buyQuoteService.js';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 describe('BuyAdapter — Security, Execution & Settlement Verification', () => {
   let db: Database;
@@ -200,7 +201,7 @@ describe('BuyAdapter — Security, Execution & Settlement Verification', () => {
       expect(proof?.receipt_status).toBe(1);
     });
 
-    it('handles CLI execution failure by setting FAILED status and releasing budget reservation', async () => {
+    it('handles post-dispatch CLI execution failure by setting SETTLEMENT_UNKNOWN status and preserving budget reservation (DEF-MOD03.3-05)', async () => {
       const mockCli = async () => ({
         stdout: '',
         stderr: 'Error: insufficient funds in paying wallet for gas',
@@ -233,14 +234,60 @@ describe('BuyAdapter — Security, Execution & Settlement Verification', () => {
       });
 
       expect(execResult.isSettled).toBe(false);
-      expect(execResult.status).toBe('FAILED');
+      expect(execResult.status).toBe('SETTLEMENT_UNKNOWN');
       expect(execResult.errorMessage).toContain('insufficient funds');
+
+      // Quote status is SETTLEMENT_UNKNOWN
+      const updatedQuote = quoteService.getQuote(quote.quoteId);
+      expect(updatedQuote?.status).toBe('SETTLEMENT_UNKNOWN');
+
+      // Budget reservation stays RESERVED (DEF-MOD03.3-05: never released on post-dispatch failure)
+      const budgetRow = db.getBudgetReservation(quote.quoteId);
+      expect(budgetRow?.status).toBe('RESERVED');
+    });
+
+    it('handles definitive pre-dispatch failure by setting FAILED status and releasing budget reservation', async () => {
+      let cliInvoked = false;
+      const mockCli = async () => {
+        cliInvoked = true;
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+
+      adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      quoteService = new BuyQuoteService(db, config, adapter);
+
+      const quote = await quoteService.createQuote(quoteParams);
+      const approval = await quoteService.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      // Simulate local filesystem failure creating request body file before dispatch
+      const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementationOnce(() => {
+        throw new Error('EACCES: permission denied creating temp file');
+      });
+
+      const execResult = await quoteService.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      writeSpy.mockRestore();
+
+      expect(cliInvoked).toBe(false); // CLI was never dispatched
+      expect(execResult.isSettled).toBe(false);
+      expect(execResult.status).toBe('FAILED');
+      expect(execResult.errorMessage).toContain('permission denied');
 
       // Quote status is FAILED
       const updatedQuote = quoteService.getQuote(quote.quoteId);
       expect(updatedQuote?.status).toBe('FAILED');
 
-      // Budget reservation was released
+      // Budget reservation is RELEASED
       const budgetRow = db.getBudgetReservation(quote.quoteId);
       expect(budgetRow?.status).toBe('RELEASED');
     });

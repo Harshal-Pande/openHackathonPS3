@@ -196,10 +196,23 @@ Implemented in Phase 6:
 ## 9. Buy Payment Adapter Security & On-Chain Settlement Verification (MOD-03)
 
 Implemented in `src/server/adapters/buyAdapter.ts`:
-- **Subprocess Isolation:** The Buy adapter executes via `node:child_process.execFile` with `shell: false` (on Windows resolving `npx.cmd`), eliminating shell interpolation and command-injection vulnerabilities.
+- **Subprocess Isolation:** The Buy adapter executes via `node:child_process.execFile` with `shell: false` using direct `process.execPath` running pinned `@celo/buy@0.8.5` (`node_modules/@celo/buy/dist/main.js`), eliminating shell interpolation and command-injection vulnerabilities.
 - **Credential & Key Redaction:** All subprocess stdout and stderr streams pass through `redactSensitiveOutput()`, which scrubs private keys (`0x[0-9a-fA-F]{64}`), Bearer tokens, and HTTP authorization headers before storage in SQLite or return to callers.
 - **Temporary Payload Security:** Outbound request bodies are written to dedicated temporary files with restricted POSIX mode `0600` and unlinked immediately in a `finally` block.
 - **Atomic Budget Reservation:** SQLite transactions check current daily spend, investigation caps, and emergency kill-switch status, reserving the atomic amount before invoking the CLI. If execution fails, the reservation is released; if confirmed, it is committed.
 - **Fail-Safe Ambiguity Handling:** Any timeout, network interruption, or ambiguous CLI failure transitions the purchase and quote to `SETTLEMENT_UNKNOWN`. Automatic retries are strictly prohibited, and reserved budget is retained until manual settlement resolution.
 - **Independent On-Chain Receipt Verification:** Successful HTTP status from the CLI or provider is insufficient. The adapter performs direct RPC calls to query the on-chain receipt, verifying `receipt.status === 1`, payee allowlist compliance, and chain ID `42220`.
+
+---
+
+## 10. Settlement Integrity & Payment Ambiguity Defenses (MOD-03.3)
+
+Engineered to resolve DEF-31 through DEF-36:
+- **Mandatory Chain ID Fail-Closed RPC Check (DEF-31):** Every on-chain settlement verification queries `eth_chainId` directly from the RPC before receipt retrieval. Rejects non-200 responses, malformed JSON, JSON-RPC errors, mismatched request IDs, non-hex integers, and wrong chain IDs.
+- **Strict Receipt Hash Verification (DEF-32):** Asserts case-insensitive equality between receipt `transactionHash` and `expectedTxHash`. Receipts with missing or mismatched hashes are rejected immediately.
+- **Proven Payer Address Verification (DEF-33):** Decodes indexed sender from log `topics[1]`, enforces valid 20-byte address format, and matches it against `payingAddress`. Eliminates all hardcoded fallback addresses.
+- **Exact BigInt Transfer Summation (DEF-34):** Aggregates all matching ERC-20 `Transfer` logs using BigInt summation and asserts exact equality (`totalTransferred === expectedAmountAtomic`), rejecting both underpayments and overpayments. Validates 32-byte hex payload length on `log.data`.
+- **Dispatch Boundary Protection & Reservation Retention (DEF-35):** Only pre-dispatch failures (before CLI spawn) release budget reservations and transition to `FAILED`. Post-dispatch errors preserve budget reservations as `RESERVED` and transition to `SETTLEMENT_UNKNOWN` to prevent budget leakage during in-flight on-chain transactions.
+- **Unique Candidate Settlement Resolution (DEF-36):** `resolveSettlement()` collects candidate transaction hashes and strictly requires exactly 1 unique candidate. Ambiguous multi-candidate or zero-candidate states are rejected.
+- **Atomic State Consistency:** Settlement recording, purchase attempt status update, quote transition, and budget commitment are executed within a single SQLite `BEGIN IMMEDIATE` transaction via `db.commitSettlementAtomic()`, guaranteeing all-or-nothing rollback.
 

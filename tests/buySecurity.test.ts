@@ -268,7 +268,7 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         ]
       };
 
-      const result = verifyReceiptTransferLogs(receipt, validQuote);
+      const result = verifyReceiptTransferLogs(receipt, validQuote, receipt.transactionHash, '0x3e1bef07824cd0e076f4907641f0a0ef27898e52');
       expect(result.verified).toBe(true);
       expect(result.txHash).toBe('0x' + '1'.repeat(64));
       expect(result.recipient).toBe(validQuote.recipient.toLowerCase());
@@ -290,7 +290,7 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         ]
       };
 
-      const result = verifyReceiptTransferLogs(receipt, validQuote);
+      const result = verifyReceiptTransferLogs(receipt, validQuote, receipt.transactionHash, '0x3e1bef07824cd0e076f4907641f0a0ef27898e52');
       expect(result.verified).toBe(false);
       expect(result.reason).toContain('No matching ERC-20 Transfer log found');
     });
@@ -309,7 +309,7 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         ]
       };
 
-      const result = verifyReceiptTransferLogs(receipt, validQuote);
+      const result = verifyReceiptTransferLogs(receipt, validQuote, receipt.transactionHash, '0x3e1bef07824cd0e076f4907641f0a0ef27898e52');
       expect(result.verified).toBe(false);
       expect(result.reason).toContain('No matching ERC-20 Transfer log found');
     });
@@ -328,9 +328,9 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         ]
       };
 
-      const result = verifyReceiptTransferLogs(receipt, validQuote);
+      const result = verifyReceiptTransferLogs(receipt, validQuote, receipt.transactionHash, '0x3e1bef07824cd0e076f4907641f0a0ef27898e52');
       expect(result.verified).toBe(false);
-      expect(result.reason).toContain('No matching ERC-20 Transfer log found');
+      expect(result.reason).toContain('Total transferred amount 9999 does not equal quoted atomic amount 10000');
     });
 
     it('rejects unrelated transaction to same recipient with wrong amount or token', () => {
@@ -347,7 +347,7 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         ]
       };
 
-      const result = verifyReceiptTransferLogs(receipt, validQuote);
+      const result = verifyReceiptTransferLogs(receipt, validQuote, receipt.transactionHash, '0x3e1bef07824cd0e076f4907641f0a0ef27898e52');
       expect(result.verified).toBe(false);
     });
 
@@ -358,14 +358,14 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         logs: []
       };
 
-      const result = verifyReceiptTransferLogs(receipt, validQuote);
+      const result = verifyReceiptTransferLogs(receipt, validQuote, receipt.transactionHash, '0x3e1bef07824cd0e076f4907641f0a0ef27898e52');
       expect(result.verified).toBe(false);
       expect(result.reason).toContain('failed with receipt status');
     });
 
     it('rejects missing or null receipt', () => {
-      expect(verifyReceiptTransferLogs(null, validQuote).verified).toBe(false);
-      expect(verifyReceiptTransferLogs(undefined, validQuote).verified).toBe(false);
+      expect(verifyReceiptTransferLogs(null, validQuote, '0x' + '1'.repeat(64)).verified).toBe(false);
+      expect(verifyReceiptTransferLogs(undefined, validQuote, '0x' + '1'.repeat(64)).verified).toBe(false);
     });
 
     it('rejects malformed transaction hash in receipt', () => {
@@ -374,7 +374,7 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         transactionHash: '0xinvalidhash',
         logs: []
       };
-      expect(verifyReceiptTransferLogs(receipt, validQuote).verified).toBe(false);
+      expect(verifyReceiptTransferLogs(receipt, validQuote, '0x' + '1'.repeat(64)).verified).toBe(false);
     });
 
     it('verifies correctly when multiple transfer logs exist in a single transaction', () => {
@@ -399,7 +399,7 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         ]
       };
 
-      const result = verifyReceiptTransferLogs(receipt, validQuote);
+      const result = verifyReceiptTransferLogs(receipt, validQuote, receipt.transactionHash, '0x3e1bef07824cd0e076f4907641f0a0ef27898e52');
       expect(result.verified).toBe(true);
       expect(result.amountAtomic).toBe('10000');
     });
@@ -779,5 +779,978 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
       },
       25000
     );
+  });
+
+  // =========================================================================
+  // MOD-03.3 HARDENED SETTLEMENT INTEGRITY & AMBIGUOUS PAYMENT TESTS
+  // =========================================================================
+
+  describe('DEFECT MOD03.3-01: RPC Chain Verification Must Fail Closed', () => {
+    const testQuote: any = {
+      id: 'quote-chain-1',
+      token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+      amount_atomic: '10000',
+      amount_display: '$0.01'
+    };
+    const validTxHash = '0x' + 'a'.repeat(64);
+
+    it('verifies successfully when RPC returns exact chain ID 42220 (0xa4ec)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0xa4ec' }), { status: 200 });
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: 2,
+              result: {
+                status: '0x1',
+                transactionHash: validTxHash,
+                logs: [
+                  {
+                    address: testQuote.token_contract,
+                    topics: [
+                      ERC20_TRANSFER_EVENT_TOPIC,
+                      '0x' + '0'.repeat(24) + '3e1bef07824cd0e076f4907641f0a0ef27898e52',
+                      '0x' + '0'.repeat(24) + testQuote.recipient.replace('0x', ''),
+                    ],
+                    data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+                  }
+                ]
+              }
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(true);
+      expect(result.txHash).toBe(validTxHash);
+    });
+
+    it('fails closed when RPC returns wrong chain ID (e.g. 1 / 0x1 Ethereum Mainnet)', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x1' }), { status: 200 });
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('expected 42220');
+      expect(receiptCalled).toBe(false); // Receipt retrieval must not proceed!
+    });
+
+    it('fails closed when eth_chainId returns HTTP 500', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response('Internal Server Error', { status: 500 });
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('HTTP 500');
+      expect(receiptCalled).toBe(false);
+    });
+
+    it('fails closed when eth_chainId returns HTTP 429 rate limit', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response('Too Many Requests', { status: 429 });
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('HTTP 429');
+      expect(receiptCalled).toBe(false);
+    });
+
+    it('fails closed when eth_chainId encounters network error', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          throw new Error('connect ECONNREFUSED 127.0.0.1:8545');
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('ECONNREFUSED');
+      expect(receiptCalled).toBe(false);
+    });
+
+    it('fails closed when eth_chainId returns malformed JSON', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response('<html>502 Bad Gateway</html>', {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('not valid JSON');
+      expect(receiptCalled).toBe(false);
+    });
+
+    it('fails closed when eth_chainId returns JSON-RPC error object', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response(
+            JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: 'Node syncing' } }),
+            { status: 200 }
+          );
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('JSON-RPC error');
+      expect(receiptCalled).toBe(false);
+    });
+
+    it('fails closed when eth_chainId result is missing', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1 }), { status: 200 });
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('Invalid or missing hexadecimal chain ID');
+      expect(receiptCalled).toBe(false);
+    });
+
+    it('fails closed when eth_chainId response ID does not match request ID', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id: 999, result: '0xa4ec' }), { status: 200 });
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('id mismatch');
+      expect(receiptCalled).toBe(false);
+    });
+
+    it('fails closed when eth_chainId result is not a valid hex string', async () => {
+      let receiptCalled = false;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'eth_chainId') {
+          return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: 'not_a_hex_number' }), { status: 200 });
+        }
+        if (body.method === 'eth_getTransactionReceipt') {
+          receiptCalled = true;
+          return new Response('{}', { status: 200 });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const adapter = new BuyAdapter({}, db, loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }));
+      const result = await (adapter as any).verifyOnChainSettlement(validTxHash, testQuote);
+      fetchSpy.mockRestore();
+
+      expect(result.verified).toBe(false);
+      expect(result.reason).toContain('Invalid or missing hexadecimal chain ID');
+      expect(receiptCalled).toBe(false);
+    });
+  });
+
+  describe('DEFECT MOD03.3-02: Receipt Transaction Hash Must Match Requested Hash', () => {
+    const validQuote = {
+      token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+      amount_atomic: '10000'
+    };
+    const validPayer = '0x3e1bef07824cd0e076f4907641f0a0ef27898e52';
+
+    function makeValidReceipt(txHash: string) {
+      return {
+        status: '0x1',
+        transactionHash: txHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+    }
+
+    it('verifies exact matching transaction hash', () => {
+      const hash = '0x' + 'a'.repeat(64);
+      const receipt = makeValidReceipt(hash);
+      const res = verifyReceiptTransferLogs(receipt, validQuote, hash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.txHash).toBe(hash);
+    });
+
+    it('verifies case-insensitive matching transaction hash', () => {
+      const lowerHash = '0x' + 'a1b2c3d4'.repeat(8);
+      const upperHash = '0x' + 'A1B2C3D4'.repeat(8);
+      const receipt = makeValidReceipt(upperHash);
+      const res = verifyReceiptTransferLogs(receipt, validQuote, lowerHash, validPayer);
+      expect(res.verified).toBe(true);
+    });
+
+    it('rejects receipt with a different valid transaction hash', () => {
+      const requestedHash = '0x' + '1'.repeat(64);
+      const receiptHash = '0x' + '2'.repeat(64);
+      const receipt = makeValidReceipt(receiptHash);
+      const res = verifyReceiptTransferLogs(receipt, validQuote, requestedHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('does not match requested transaction hash');
+    });
+
+    it('rejects when receipt has missing transaction hash', () => {
+      const requestedHash = '0x' + '1'.repeat(64);
+      const receipt: any = makeValidReceipt(requestedHash);
+      delete receipt.transactionHash;
+      delete receipt.txHash;
+      const res = verifyReceiptTransferLogs(receipt, validQuote, requestedHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Invalid or missing transaction hash in receipt');
+    });
+
+    it('rejects when receipt has malformed transaction hash', () => {
+      const requestedHash = '0x' + '1'.repeat(64);
+      const receipt = makeValidReceipt('0xnot-a-valid-hash');
+      const res = verifyReceiptTransferLogs(receipt, validQuote, requestedHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Invalid or missing transaction hash in receipt');
+    });
+
+    it('rejects when requested transaction hash is malformed', () => {
+      const requestedHash = 'invalid-requested-hash';
+      const receipt = makeValidReceipt('0x' + '1'.repeat(64));
+      const res = verifyReceiptTransferLogs(receipt, validQuote, requestedHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Invalid or missing expected transaction hash format');
+    });
+  });
+
+  describe('DEFECT MOD03.3-03: Real Payer Identity Verification (No Fallbacks)', () => {
+    const validQuote = {
+      token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+      amount_atomic: '10000'
+    };
+    const validTxHash = '0x' + '3'.repeat(64);
+    const expectedPayer = '0x3e1bef07824cd0e076f4907641f0a0ef27898e52';
+
+    it('verifies when decoded sender topic matches expected payer address', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + expectedPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, expectedPayer);
+      expect(res.verified).toBe(true);
+      expect(res.payer).toBe(expectedPayer.toLowerCase());
+    });
+
+    it('rejects receipt when decoded sender differs from expected payer (wrong payer)', () => {
+      const wrongPayer = '0x1111111111111111111111111111111111111111';
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + wrongPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, expectedPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('does not match expected payer');
+    });
+
+    it('rejects receipt when sender topic is missing (less than 3 topics)', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [ERC20_TRANSFER_EVENT_TOPIC],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, expectedPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('No matching ERC-20 Transfer log found');
+    });
+
+    it('rejects receipt when sender topic is malformed (< 64 hex chars)', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x1234', // Malformed sender topic
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, expectedPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('invalid or missing sender topic');
+    });
+  });
+
+  describe('DEFECT MOD03.3-04: Aggregate Transfer Amount Verification', () => {
+    const validQuote = {
+      token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+      recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+      amount_atomic: '10000'
+    };
+    const validTxHash = '0x' + '4'.repeat(64);
+    const validPayer = '0x3e1bef07824cd0e076f4907641f0a0ef27898e52';
+
+    it('verifies one exact transfer equal to quoted amount', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+    });
+
+    it('verifies two split transfers whose sum equals the quoted amount', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(6000).toString(16).padStart(64, '0')
+          },
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(4000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+    });
+
+    it('rejects when two transfers sum to more than the quote (20000 vs 10000)', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          },
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Total transferred amount 20000 does not equal quoted atomic amount 10000');
+    });
+
+    it('rejects one exact transfer plus an additional transfer (10001 vs 10000)', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          },
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(1).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Total transferred amount 10001 does not equal quoted atomic amount 10000');
+    });
+
+    it('rejects aggregate amount below quote (9999 vs 10000)', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(9999).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Total transferred amount 9999 does not equal quoted atomic amount 10000');
+    });
+
+    it('rejects matching log with malformed data length (< 64 hex characters)', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x123' // Malformed amount data
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('malformed or un-decodable data amount');
+    });
+
+    it('ignores unrelated transfers to other recipients and counts exact target payment', () => {
+      const receipt = {
+        status: '0x1',
+        transactionHash: validTxHash,
+        logs: [
+          // Transfer to third party
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + '9999999999999999999999999999999999999999'
+            ],
+            data: '0x' + BigInt(50000).toString(16).padStart(64, '0')
+          },
+          // Quoted transfer to target recipient
+          {
+            address: validQuote.token_contract,
+            topics: [
+              ERC20_TRANSFER_EVENT_TOPIC,
+              '0x' + '0'.repeat(24) + validPayer.replace('0x', ''),
+              '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '')
+            ],
+            data: '0x' + BigInt(10000).toString(16).padStart(64, '0')
+          }
+        ]
+      };
+      const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.amountAtomic).toBe('10000');
+    });
+  });
+
+  describe('DEFECT MOD03.3-05: Dispatch Stage Classification & Budget Preservation', () => {
+    it('preserves budget reservation and sets SETTLEMENT_UNKNOWN on connection reset after dispatch', async () => {
+      const config = loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' });
+      const mockCli = async () => ({
+        stdout: '',
+        stderr: 'Error: read ECONNRESET at TLSWrap.onStreamRead',
+        exitCode: 1
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const quoteService = new BuyQuoteService(db, config, adapter);
+
+      const quote = await quoteService.createQuote({
+        capabilityId: 'cencori.v1.chat.completions',
+        url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+        method: 'POST',
+        exactBody: JSON.stringify({ model: 'maximo-atlas-1.3', messages: [{ role: 'user', content: 'test' }] }),
+        tokenSymbol: 'USDC',
+        tokenContract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amountAtomic: '10000',
+        amountDisplay: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b'
+      });
+      const approval = await quoteService.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      const res = await quoteService.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      expect(res.status).toBe('SETTLEMENT_UNKNOWN');
+      expect(res.isSettled).toBe(false);
+      // Reservation MUST remain active
+      const bRes = db.getBudgetReservation(quote.quoteId);
+      expect(bRes?.status).toBe('RESERVED');
+    });
+
+    it('preserves budget reservation and sets SETTLEMENT_UNKNOWN on HTTP 500 after dispatch', async () => {
+      const config = loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' });
+      const mockCli = async () => ({
+        stdout: '',
+        stderr: 'HTTP 500 Internal Server Error: upstream provider failed after payment receipt',
+        exitCode: 1
+      });
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const quoteService = new BuyQuoteService(db, config, adapter);
+
+      const quote = await quoteService.createQuote({
+        capabilityId: 'cencori.v1.chat.completions',
+        url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+        method: 'POST',
+        exactBody: JSON.stringify({ model: 'maximo-atlas-1.3', messages: [{ role: 'user', content: 'test' }] }),
+        tokenSymbol: 'USDC',
+        tokenContract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amountAtomic: '10000',
+        amountDisplay: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b'
+      });
+      const approval = await quoteService.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      const res = await quoteService.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      expect(res.status).toBe('SETTLEMENT_UNKNOWN');
+      const bRes = db.getBudgetReservation(quote.quoteId);
+      expect(bRes?.status).toBe('RESERVED');
+    });
+  });
+
+  describe('DEFECT MOD03.3-06: Settlement Resolution Unique Matching', () => {
+    it('rejects multiple distinct candidate receipts as ambiguous and returns unresolved', async () => {
+      const config = loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' });
+      const quoteService = new BuyQuoteService(db, config);
+
+      const quote = await quoteService.createQuote({
+        capabilityId: 'cencori.v1.chat.completions',
+        url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+        method: 'POST',
+        exactBody: JSON.stringify({ model: 'maximo-atlas-1.3', messages: [{ role: 'user', content: 'test' }] }),
+        tokenSymbol: 'USDC',
+        tokenContract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amountAtomic: '10000',
+        amountDisplay: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b'
+      });
+      const approval = await quoteService.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      // Mock CLI receipts returning TWO distinct candidate receipts for the same quoteId
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          return {
+            stdout: JSON.stringify([
+              {
+                quoteId: quote.quoteId,
+                txHash: '0x' + '1'.repeat(64)
+              },
+              {
+                quoteId: quote.quoteId,
+                txHash: '0x' + '2'.repeat(64)
+              }
+            ]),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, config);
+      const svcWithAdapter = new BuyQuoteService(db, config, adapter);
+
+      // Create purchase attempt directly
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'operator_admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+
+      const res = await svcWithAdapter.resolvePurchaseSettlement({
+        attemptId: attempt.id,
+        isOperatorAuthenticated: true
+      });
+
+      expect(res.resolved).toBe(false);
+      expect(res.message).toContain('ambiguous: found 2 distinct candidate transaction hashes');
+    });
+
+    it('resolves successfully when exactly one unique matching receipt is returned', async () => {
+      const config = loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' });
+      const uniqueTxHash = '0x' + '5'.repeat(64);
+
+      const quoteService = new BuyQuoteService(db, config);
+      const quote = await quoteService.createQuote({
+        capabilityId: 'cencori.v1.chat.completions',
+        url: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
+        method: 'POST',
+        exactBody: JSON.stringify({ model: 'maximo-atlas-1.3', messages: [{ role: 'user', content: 'test' }] }),
+        tokenSymbol: 'USDC',
+        tokenContract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amountAtomic: '10000',
+        amountDisplay: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b'
+      });
+      const approval = await quoteService.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('receipts')) {
+          return {
+            stdout: JSON.stringify([
+              {
+                quoteId: quote.quoteId,
+                txHash: uniqueTxHash
+              }
+            ]),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '{}', stderr: '', exitCode: 0 };
+      };
+
+      const mockVerifier = async (txHash?: string | null) => ({
+        verified: true,
+        txHash: uniqueTxHash,
+        blockNumber: 999999,
+        payer: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52'
+      });
+
+      const adapter = new BuyAdapter({ cliRunner: mockCli, settlementVerifier: mockVerifier }, db, config);
+      const svcWithAdapter = new BuyQuoteService(db, config, adapter);
+
+      const { attempt } = db.consumeApprovalAndCreateAttemptAtomic({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'operator_admin',
+        limits: { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n }
+      });
+
+      const res = await svcWithAdapter.resolvePurchaseSettlement({
+        attemptId: attempt.id,
+        isOperatorAuthenticated: true
+      });
+
+      expect(res.resolved).toBe(true);
+      expect(res.status).toBe('SETTLED');
+      expect(res.txHash).toBe(uniqueTxHash);
+    });
+  });
+
+  describe('Database Atomic Settlement State Consistency & Rollback', () => {
+    it('atomically commits proof, reservation, attempt, and quote on verified settlement', () => {
+      const quoteId = 'atomic-quote-1';
+      const attemptId = 'atomic-attempt-1';
+      const txHash = '0x' + 'f'.repeat(64);
+
+      db.saveQuote({
+        id: quoteId,
+        investigation_id: null,
+        capability_id: 'cencori.v1.chat.completions',
+        url: 'https://cencori-buy-node.cencori.workers.dev/api/v1/chat/completions',
+        method: 'POST',
+        exact_body: '{}',
+        body_sha256: 'sha-1',
+        token_symbol: 'USDC',
+        token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amount_atomic: '10000',
+        amount_display: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+        chain_id: 42220,
+        status: 'EXECUTION_PENDING',
+        created_at: new Date().toISOString()
+      });
+
+      db.reserveBudgetAtomic(quoteId, null, '10000', { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n });
+
+      db.savePurchaseAttempt({
+        id: attemptId,
+        quote_id: quoteId,
+        approval_id: 'app-1',
+        investigation_id: null,
+        capability_id: 'cencori.v1.chat.completions',
+        url: 'https://test',
+        body_sha256: 'sha-1',
+        token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amount_atomic: '10000',
+        status: 'EXECUTION_PENDING',
+        created_at: new Date().toISOString()
+      });
+
+      db.commitSettlementAtomic({
+        id: 'proof-1',
+        purchase_attempt_id: attemptId,
+        quote_id: quoteId,
+        tx_hash: txHash,
+        chain_id: 42220,
+        block_number: 100,
+        token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        payer: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+        amount_atomic: '10000',
+        receipt_status: 1,
+        verified_at: new Date().toISOString()
+      });
+
+      expect(db.getSettlementProof(attemptId)).not.toBeNull();
+      expect(db.getBudgetReservation(quoteId)?.status).toBe('COMMITTED');
+      expect(db.getPurchaseAttempt(attemptId)?.status).toBe('SETTLED');
+      expect(db.getQuote(quoteId)?.status).toBe('SETTLED');
+    });
+
+    it('rolls back all updates if reservation was already RELEASED', () => {
+      const quoteId = 'atomic-quote-2';
+      const attemptId = 'atomic-attempt-2';
+      const txHash = '0x' + 'e'.repeat(64);
+
+      db.saveQuote({
+        id: quoteId,
+        investigation_id: null,
+        capability_id: 'cencori.v1.chat.completions',
+        url: 'https://cencori-buy-node.cencori.workers.dev/api/v1/chat/completions',
+        method: 'POST',
+        exact_body: '{}',
+        body_sha256: 'sha-2',
+        token_symbol: 'USDC',
+        token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amount_atomic: '10000',
+        amount_display: '$0.01',
+        recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+        chain_id: 42220,
+        status: 'EXECUTION_PENDING',
+        created_at: new Date().toISOString()
+      });
+
+      db.reserveBudgetAtomic(quoteId, null, '10000', { dailyBudgetAtomic: 0n, perInvestigationCapAtomic: 0n });
+      db.releaseBudgetReservation(quoteId, 'Simulated premature release');
+
+      db.savePurchaseAttempt({
+        id: attemptId,
+        quote_id: quoteId,
+        approval_id: 'app-2',
+        investigation_id: null,
+        capability_id: 'cencori.v1.chat.completions',
+        url: 'https://test',
+        body_sha256: 'sha-2',
+        token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+        amount_atomic: '10000',
+        status: 'EXECUTION_PENDING',
+        created_at: new Date().toISOString()
+      });
+
+      expect(() => {
+        db.commitSettlementAtomic({
+          id: 'proof-2',
+          purchase_attempt_id: attemptId,
+          quote_id: quoteId,
+          tx_hash: txHash,
+          chain_id: 42220,
+          block_number: 100,
+          token_contract: '0xceba9300f2b948710d2653dd7b07f33a8b32118c',
+          payer: '0x3e1bef07824cd0e076f4907641f0a0ef27898e52',
+          recipient: '0x20faaca5f980e29639a0fcc6dca6988e18ed333b',
+          amount_atomic: '10000',
+          receipt_status: 1,
+          verified_at: new Date().toISOString()
+        });
+      }).toThrow('is RELEASED');
+
+      // Assert rollback: proof was NOT saved, attempt and quote remain EXECUTION_PENDING
+      expect(db.getSettlementProof(attemptId)).toBeNull();
+      expect(db.getPurchaseAttempt(attemptId)?.status).toBe('EXECUTION_PENDING');
+      expect(db.getQuote(quoteId)?.status).toBe('EXECUTION_PENDING');
+    });
   });
 });

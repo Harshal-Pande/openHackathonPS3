@@ -35,6 +35,7 @@ This register contains all technical and operational tasks owned and executed di
 | **AGY-06** | Mod 2 | **P2** | `COMPLETED` | Add Rate Limiting Middleware for Public Forensic Ingestion | `src/server/auth/rateLimiter.ts`, `src/server/app.ts`, `src/server/config.ts` | AGY-05 |
 | **AGY-07** | Mod 3 | **P1** | `COMPLETED` | Wire Buy CLI Execution Adapter with Security Invariants | `src/server/adapters/buyAdapter.ts`, `src/server/services/buyQuoteService.ts`, `src/server/app.ts` | None |
 | **AGY-07.1** | Mod 3.2 | **P0** | `COMPLETED` | Critical Payment Path Security Remediation (DEF-23 to DEF-30) | `src/server/adapters/buyAdapter.ts`, `src/server/services/buyQuoteService.ts`, `src/server/services/capabilityRegistry.ts`, `src/server/db/database.ts` | AGY-07 |
+| **AGY-07.2** | Mod 3.3 | **P0** | `COMPLETED` | Settlement Integrity & Ambiguous Payment Failure Hardening (DEF-31 to DEF-36) | `src/server/adapters/buyAdapter.ts`, `src/server/db/database.ts`, `tests/buySecurity.test.ts` | AGY-07.1 |
 | **AGY-08** | Mod 3 | **P1** | `BLOCKED_PENDING_OPERATOR_APPROVAL` | Settle Live Cencori AI Quote via Buy CLI & Verify Receipt | `PROOF.md`, `GATE0_RESULTS.md` | AGY-07, USR-08 (Wallet Funding) |
 | **AGY-09** | Mod 4 | **P1** | `READY_FOR_IMPLEMENTATION` | Audit & Re-verify ERC-8021 Attribution Suffix Construction | `src/server/services/celoAttributionService.ts` | None |
 | **AGY-10** | Mod 5 | **P1** | `USER_INPUT_REQUIRED` | Update Public Base URL in ERC-8004 Metadata Generation | `src/server/config.ts`, `src/server/services/celoAttributionService.ts` | USR-05 |
@@ -120,3 +121,17 @@ This register contains all technical and operational tasks owned and executed di
 - **Required Tests:** `tests/rateLimiter.test.ts` (10/10 passed).
 - **Acceptance Criteria:** Requests 1-10 succeed; request 11 receives HTTP 429 with `Retry-After` and standard envelope. Independent limits per IP. Sliding window rolls off dynamically. Capacity exhaustion fails closed.
 - **Evidence:** 10 passing tests in `tests/rateLimiter.test.ts`.
+
+### TASK AGY-07.2: Settlement Integrity & Ambiguous Payment Failure Hardening (DEF-31 to DEF-36)
+- **Objective:** Fix payment-integrity vulnerabilities in receipt verification, RPC interaction, payer identity verification, transfer amount summation, CLI dispatch-stage error classification, and settlement resolution uniqueness.
+- **Files Involved:** `src/server/adapters/buyAdapter.ts`, `src/server/db/database.ts`, `tests/buySecurity.test.ts`, `tests/buyAdapter.test.ts`
+- **Implementation & Hardening:**
+  - DEF-31 (Fail-Closed RPC Chain Verification): Made chain ID verification mandatory before receipt retrieval. Requires HTTP 200, valid JSON, matching request ID 1, absence of error object, and exact chain ID `0xa4ec` (42220). Aborts receipt retrieval on failure.
+  - DEF-32 (Receipt Hash Matching): Passed `expectedTxHash` into `verifyReceiptTransferLogs()`. Enforces strict case-insensitive equality against receipt `transactionHash`.
+  - DEF-33 (Real Payer Identity Verification): Enforces indexed sender decoding from `topics[1]` with minimum 3 topics and valid 20-byte address. Compares sender against `this.payingAddress`. Removed all hardcoded fallback assignments in settlement persistence.
+  - DEF-34 (Total Aggregate Transfer Amount Verification): Iterates over ALL logs in receipt. Validates event signature, token contract, recipient, and sender. Sums matching transfer amounts using BigInt. Requires aggregate sum to strictly equal quoted atomic amount.
+  - DEF-35 (Dispatch Stage Classification & Budget Preservation): Only proven pre-dispatch failures release reservations and set `FAILED`. All post-dispatch errors preserve budget reservations (`RESERVED`) and set `SETTLEMENT_UNKNOWN`.
+  - DEF-36 (Settlement Resolution Unique Matching & Atomic Consistency): Collects all matching candidate receipts in `resolveSettlement()`. Requires exactly one unique candidate transaction hash. Implemented atomic settlement commits via `db.commitSettlementAtomic()`.
+- **Required Tests:** `tests/buySecurity.test.ts` (64/64 passed), `tests/buyAdapter.test.ts` (9/9 passed).
+- **Acceptance Criteria:** 100% test pass rate across all new fail-closed chain checks, hash matching, payer verification, aggregate transfer amounts, ambiguous error preservation, unique receipt resolution, and atomic SQLite rollback tests.
+- **Evidence:** Passing test output in `tests/buySecurity.test.ts` and `tests/buyAdapter.test.ts`.

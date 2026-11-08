@@ -188,17 +188,18 @@ flowchart TD
 
 ### MODULE 3 — Build with Buy & Paid Cencori AI Inference Proof
 - **Module ID:** `MOD-03`
-- **Status:** `SOFTWARE IMPLEMENTED & HARDENED (MOD-03 & MOD-03.2)` (AGY-07, AGY-07.1 complete; 240/240 tests pass across 20 suites; on-chain spend pending operator wallet funding)
+- **Status:** `SOFTWARE IMPLEMENTED & HARDENED (MOD-03, MOD-03.2 & MOD-03.3)` (AGY-07, AGY-07.1, AGY-07.2 complete; 274/274 tests pass across 20 suites; on-chain spend pending operator wallet funding)
 - **Objective:** Secure Buy CLI integration, Cencori AI procurement, quote-bound execution lifecycle, and live settlement verification on Celo Mainnet (`eip155:42220`).
 - **Hackathon Relevance:** Core requirement for Track PS3 ("Build with Buy"): proves integration with the official Buy marketplace.
 - **Exact Tasks:**
-  1. `AGY-07`: Build secure Buy adapter (`src/server/adapters/buyAdapter.ts`) supporting capability discovery, quote execution via `@celo/buy@latest` CLI (`shell: false`), credential redaction, atomic budget reservation, and independent on-chain settlement verification. [COMPLETED]
+  1. `AGY-07`: Build secure Buy adapter (`src/server/adapters/buyAdapter.ts`) supporting capability discovery, quote execution via `@celo/buy@0.8.5` CLI (`shell: false`), credential redaction, atomic budget reservation, and independent on-chain settlement verification. [COMPLETED]
   2. Implement Fastify operator routes for quote execution, settlement resolution, purchase inspection, and Buy health. [COMPLETED]
   3. Implement frontend Operator console controls for Buy health display, purchase execution, and settlement proofs ledger. [COMPLETED]
-  4. Write comprehensive automated test suites (`tests/buyAdapter.test.ts`, `tests/paymentLifecycle.test.ts`) validating 11-state matrix, budget reservation/release, single-use approvals, tamper protection, and timeout handling. [COMPLETED]
-  5. `AGY-08`: Settle live on-chain purchase upon operator wallet funding. [BLOCKED_PENDING_OPERATOR_APPROVAL — Wallet `0x3e1b...8e52` currently has 0 balances; software is 100% ready]
+  4. Write comprehensive automated test suites (`tests/buyAdapter.test.ts`, `tests/paymentLifecycle.test.ts`, `tests/buySecurity.test.ts`) validating 11-state matrix, budget reservation/release, single-use approvals, tamper protection, and timeout handling. [COMPLETED]
+  5. `AGY-07.2`: Settlement integrity hardening (DEF-31 through DEF-36): fail-closed RPC chain checks, receipt tx hash equality, proven payer address matching without fallbacks, exact BigInt aggregate transfer summation, dispatch boundary demarcation, unique candidate settlement resolution, and atomic SQLite commit transaction. [COMPLETED]
+  6. `AGY-08`: Settle live on-chain purchase upon operator wallet funding. [BLOCKED_PENDING_OPERATOR_APPROVAL — Wallet `0x3e1b...8e52` currently has 0 balances; software is 100% ready]
 - **User Dependencies:** `USR-08` (fund $0.10 USDC & authorize settlement).
-- **Antigravity Tasks:** `AGY-07`, `AGY-08`.
+- **Antigravity Tasks:** `AGY-07`, `AGY-07.1`, `AGY-07.2`, `AGY-08`.
 - **Files Expected to Change:** `src/server/services/buyQuoteService.ts`, `PROOF.md`, `GATE0_RESULTS.md`.
 - **Security Impact:** Enforces per-call cap ($0.05), payee allowlist (`0x20faAca5...`), and SHA-256 body binding.
 - **Prerequisites:** `MOD-06`.
