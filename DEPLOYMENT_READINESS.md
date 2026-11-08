@@ -103,7 +103,7 @@ docker run -d \
   -e HOST=0.0.0.0 \
   -e DATABASE_PATH=/app/data/revertlens.sqlite \
   -e SESSION_SECRET="example_random_session_secret_32_chars_minimum" \
-  -e OPERATOR_PASSWORD_HASH="scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=" \
+  -e OPERATOR_PASSWORD_HASH="scrypt$v=1$N=16384$r=8$p=1$sjdZpRAoPjKcofchuSEXbw==$m5A6RLbzK6gt87WXrKWNIDRdyzSaIfBinXkVOdFQQ+4=" \
   -e CORS_ORIGIN="http://localhost:3000" \
   -e PUBLIC_BASE_URL="https://revertlens.net" \
   -e CHAINSTACK_CELO_MAINNET_RPC_URL="https://celo-mainnet.core.chainstack.com/your-endpoint-key" \
@@ -249,12 +249,19 @@ HOST=0.0.0.0
 DATABASE_PATH=/app/data/revertlens.sqlite
 PUBLIC_BASE_URL=https://<YOUR_ASSIGNED_DOMAIN>
 SESSION_SECRET=<GENERATE_RANDOM_32_CHAR_STRING>
-OPERATOR_PASSWORD_HASH=scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=
+OPERATOR_PASSWORD_HASH=<GENERATE_UNIQUE_HASH_VIA_SCRIPT_BELOW>
 CORS_ORIGIN=https://<YOUR_ASSIGNED_DOMAIN>
 CHAINSTACK_CELO_MAINNET_RPC_URL=https://celo-mainnet.core.chainstack.com/<YOUR_KEY>
 BUY_ENABLED=false
 CENCORI_ENABLED=false
 ```
+
+> [!IMPORTANT]
+> Never use test or placeholder password hashes in production. RevertLens automatically rejects the test fixture hash on production boot.
+> Generate your unique production operator password and scrypt hash before deployment:
+> ```bash
+> node scripts/generate_operator_hash.mjs "your-chosen-operator-password"
+> ```
 
 ### Step 3: Attach Volume (If using Railway)
 - Add Volume -> Mount Path: `/app/data` -> Size: `0.5 GB`.

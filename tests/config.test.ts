@@ -7,7 +7,8 @@ import {
   TEST_OPERATOR_HASH
 } from '../src/server/config.js';
 
-const VALID_SCRYPT_HASH = TEST_OPERATOR_HASH;
+const VALID_SCRYPT_HASH =
+  'scrypt$v=1$N=16384$r=8$p=1$sjdZpRAoPjKcofchuSEXbw==$m5A6RLbzK6gt87WXrKWNIDRdyzSaIfBinXkVOdFQQ+4=';
 
 describe('Environment Config Validation', () => {
   it('loads valid default configurations safely', () => {
@@ -125,6 +126,16 @@ describe('Production Security Invariants', () => {
         OPERATOR_PASSWORD_HASH: 'REPLACE_WITH_SCRYPT_HASH'
       });
     }).toThrowError(/OPERATOR_PASSWORD_HASH must be set/);
+  });
+
+  it('rejects test fixture TEST_OPERATOR_HASH in production', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
+        OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+      });
+    }).toThrowError(/OPERATOR_PASSWORD_HASH must not use the known test-operator hash/);
   });
 
   it('rejects reuse of SESSION_SECRET as OPERATOR_PASSWORD_HASH in production', () => {

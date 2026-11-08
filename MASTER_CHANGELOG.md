@@ -6,12 +6,12 @@
 **Official Assigned Attribution Tag:** `celo_235f6ef56f5b`
 **Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
 **Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`
-**Status:** MOD-06.2 PARTIALLY_COMPLETED (PROVIDER EVALUATION & DEPLOYMENT RUNBOOK READY)
-**Current Milestone:** Milestone MOD-06.2 (Public Deployment & Live Endpoint Verification)
-**Current Phase:** Phase 26.1 (Hosting Provider Evaluation, Production Configuration & Runbook)
-**Next Milestone:** MOD-06.2 Live Endpoint Verification → MOD-05B Live Registration
-**Roadmap Sequence:** MOD-04 ACCEPTED → MOD-05A ACCEPTED → MOD-06.1 COMPLETED → MOD-06.2 PARTIALLY_COMPLETED → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION
-**Last Updated:** 2026-11-09 (Phase 26.1 — MOD-06.2 Deployment Preparation)
+**Status:** MOD-06.2.1 AUDITED (RENDER FREE DEMO & PERSISTENCE READINESS COMPLETE)
+**Current Milestone:** Milestone MOD-06.2.1 (Free-Hosting Deployment Preparation & Data Audit)
+**Current Phase:** Phase 26.2.1 (Free-Hosting Deployment Preparation and Data-Persistence Audit)
+**Next Milestone:** MOD-06.2 Public Deployment Authorization → Live Endpoint Verification
+**Roadmap Sequence:** MOD-04 ACCEPTED → MOD-05A ACCEPTED → MOD-06.1 COMPLETED → MOD-06.2.1 AUDITED → MOD-06.2 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION
+**Last Updated:** 2026-11-09 (Phase 26.2.1 — MOD-06.2.1 Persistence Audit)
 
 ---
 
@@ -1390,3 +1390,27 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Automated Test Suite:** Maintained 100% green status across 23 test suites (514 tests).
 - **Zero-Spend Invariant Enforced:** $0.00 spent across all project phases. No paid subscriptions activated, no credit cards submitted.
 - **Milestone State:** `MOD-06.2 — PARTIALLY_COMPLETED` (Provider evaluation, configuration template, and local container verification completed; awaiting human operator selection of cloud provider and live service provisioning).
+
+---
+
+## Phase 26.2.1 — Free-Hosting Deployment Preparation and Data-Persistence Audit (MOD-06.2.1)
+**Date:** 2026-11-09<br/>
+**Baseline Commit:** `e8061b92e3d43ba5d5915cf9d40ce0b3a6651a5d`<br/>
+**Scope:** Exhaustive data-lifecycle audit, SQLite ephemeral filesystem compatibility analysis for Render Free, operator credential security hardening, automated generator tool implementation, and demonstration deployment readiness decision.
+
+### 1. SQLite Data-Lifecycle & Ephemeral Storage Audit
+- **Schema Auto-Initialization:** Confirmed that all 8 SQLite tables (`investigations`, `evidence_items`, `quote_records`, `system_settings`, `purchase_attempts`, `settlement_records`, `budget_reservations`, `payment_audit_events`) are automatically initialized upon application boot via `this.migrate()`. An empty or deleted database causes zero startup errors.
+- **Stateless Ingestion Layer:** Confirmed that forensic transaction analysis queries live Chainstack Celo OP Geth RPC nodes directly. Cold boot with an empty database does not impair the application's ability to analyze, decode, classify, and persist any valid transaction hash.
+- **Authentication Decoupled from Storage:** Verified that operator credentials are authenticated exclusively via `OPERATOR_PASSWORD_HASH` environment variable using scrypt. Active session tracking is managed in process memory with HMAC signatures via `SESSION_SECRET`. Database recreation has zero impact on operator login validity.
+- **Render Free Compatibility:** Classified Render Free deployment as **`READY_WITH_LIMITATIONS`**. The limitation is that recent investigation history (`GET /api/investigations`) resets whenever Render spins down an idle instance (after 15 minutes) or redeploys. However, because investigations can be executed on-demand in real-time, the demo is 100% functional, truthful, and incurs strictly $0.
+
+### 2. Security Hardening: Default Operator Password Elimination
+- **Rejection of Known Test Hash in Production (`src/server/config.ts`):** Enhanced `enforceProductionInvariants()` to explicitly reject `TEST_OPERATOR_HASH` in production mode. This guarantees that copying example test credentials will immediately fail closed on startup.
+- **Generator Tool Implementation (`scripts/generate_operator_hash.mjs`):** Implemented a dedicated script allowing operators to generate unique, OWASP-aligned scrypt hashes for their chosen passwords or generate secure random credentials.
+- **Documentation Alignment (`DEPLOYMENT_READINESS.md`):** Replaced hardcoded test hashes in deployment templates with dynamic placeholder instructions and script invocation guidance.
+
+### 3. Verification & Metrics
+- **Automated Test Suite:** `npm test` passing **23 suites (515 tests)** with 100% green status.
+- **Static Typing & Build:** `npm run typecheck` returned 0 errors; `npm run build` cleanly compiled production bundles.
+- **Zero-Spend Invariant Enforced:** Spend across all project phases remains strictly **$0.00**. No cloud resources or paid features provisioned.
+- **Deployment Readiness Decision:** `READY_WITH_LIMITATIONS` (Approved for operator cloud account connection and deployment).

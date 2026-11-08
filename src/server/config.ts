@@ -319,6 +319,9 @@ function enforceProductionInvariants(config: AppConfig): void {
   if (config.OPERATOR_PASSWORD_HASH === PLACEHOLDER_OPERATOR_HASH || config.OPERATOR_PASSWORD_HASH.trim() === '') {
     errors.push('OPERATOR_PASSWORD_HASH must be set to a real scrypt hash in production.');
   }
+  if (config.OPERATOR_PASSWORD_HASH === TEST_OPERATOR_HASH) {
+    errors.push('OPERATOR_PASSWORD_HASH must not use the known test-operator hash in production. Generate a unique hash using scripts/generate_operator_hash.mjs.');
+  }
   if (config.OPERATOR_PASSWORD_HASH === config.SESSION_SECRET) {
     errors.push('OPERATOR_PASSWORD_HASH must not match SESSION_SECRET.');
   }

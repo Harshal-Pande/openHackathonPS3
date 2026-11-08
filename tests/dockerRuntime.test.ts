@@ -217,7 +217,8 @@ describe('MOD-06.1 / AGY-12: Docker Runtime, Persistence & Container Readiness S
   });
 
   describe('5. Production Security Invariant Enforcement', () => {
-    const validScryptHash = TEST_OPERATOR_HASH;
+    const validScryptHash =
+      'scrypt$v=1$N=16384$r=8$p=1$sjdZpRAoPjKcofchuSEXbw==$m5A6RLbzK6gt87WXrKWNIDRdyzSaIfBinXkVOdFQQ+4=';
     const validPublicUrl = 'https://revertlens.net';
     const strongSecret = 'super-strong-production-session-secret-32-chars-long';
 
@@ -245,6 +246,19 @@ describe('MOD-06.1 / AGY-12: Docker Runtime, Persistence & Container Readiness S
           SESSION_SECRET: 'too-short-secret'
         });
       }).toThrow(/SESSION_SECRET must be at least 32 characters in production/);
+    });
+
+    it('rejects test fixture TEST_OPERATOR_HASH in production', () => {
+      expect(() => {
+        loadConfig({
+          NODE_ENV: 'production',
+          PUBLIC_BASE_URL: validPublicUrl,
+          SESSION_SECRET: strongSecret,
+          OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH,
+          CORS_ORIGIN: 'https://revertlens.net',
+          DATABASE_PATH: '/app/data/revertlens.sqlite'
+        });
+      }).toThrow(/OPERATOR_PASSWORD_HASH must not use the known test-operator hash in production/);
     });
 
     it('rejects in-memory SQLite database in production', () => {
