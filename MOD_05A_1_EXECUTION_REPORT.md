@@ -157,7 +157,7 @@ A focused documentation reconciliation was executed to ensure complete historica
 An independent audit identified three specific defects that were resolved in this phase:
 
 1. **DEF-60 (Snapshot Metadata & Provenance):** Resolved discrepancy between reported snapshot size and actual disk artifact. Hardened generator to exclude all Gitingest text digests while properly preserving repository scripts (`generate_gitingest.mjs`). Verified exact agreement between directory tree file count (231) and included file sections (231).
-2. **DEF-61 (UTF-8 Integrity Restoration):** Repaired 34 instances of mojibake across `MASTER_CHANGELOG.md`, `DEPLOYMENT_READINESS.md`, and `JUDGE_LOCAL_RUNBOOK.md`. Restored multiplication symbols (U+00D7 `Ã—`), en-dashes (U+2013 `â€“`), em-dashes (U+2014 `—`), right arrows (U+2192 `â†’`), and box-drawing lines (U+2502 `â”‚`). Reconciled project-level changelog status, milestone, and roadmap sequence.
+2. **DEF-61 (UTF-8 Integrity Restoration):** Repaired 34 instances of mojibake across MASTER_CHANGELOG.md, DEPLOYMENT_READINESS.md, and JUDGE_LOCAL_RUNBOOK.md. Restored multiplication symbols (U+00D7), en-dashes (U+2013), em-dashes (U+2014), right arrows (U+2192), and box-drawing vertical lines (U+2502). Reconciled project-level changelog status, milestone, and roadmap sequence.
 3. **DEF-62 (Generator Identity Alignment):** Updated `scripts/generate_gitingest.mjs` console output and snapshot header to correctly identify `MOD-05A.1` instead of outdated `MOD-04` labels.
 
 ---
