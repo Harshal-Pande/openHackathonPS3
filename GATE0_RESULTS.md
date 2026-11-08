@@ -1,59 +1,68 @@
 # Gate 0 Results — Infrastructure & Integration Verification
 
-**Date/time UTC:** 2026-11-07 06:45:00 UTC  
+**Date/time UTC:** 2026-11-08 10:45:00 UTC
 **Machine/OS:** Windows 10/11 (win32 x64)  
 **Node:** v22.17.0  
 **npm:** 11.6.1  
 **Buy CLI version:** 0.8.5 — `@celo/buy` via `npx @celo/buy@latest`  
 **Deployment target:** Local development host  
+**Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
+**Official Attribution Tag:** `celo_235f6ef56f5b`
 
 ---
 
 | Check | Status | Test class | Evidence | Notes |
 |---|---|---|---|---|
-| Current Buy CLI inspected | PASS | LOCAL | `npx @celo/buy@latest --help` exit 0 | Version 0.8.5; confirmed subcommands: `setup`, `whoami`, `curl`, `quote`, `receipts`. |
+| Current Buy CLI inspected | PASS | LIVE_MAINNET_READ_ONLY | `npx @celo/buy@latest -V` exit 0 | Version 0.8.5; confirmed subcommands: `setup`, `whoami`, `curl`, `quote`, `receipts`, `skills`, `gate`, `verify`. |
+| Buy `whoami` identity inspected | PASS | LIVE_MAINNET_READ_ONLY | `npx @celo/buy@latest whoami` | Paying address `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` on network `celo`; balances: `0 CELO, 0 USDC, 0 USDT, 0 USAT, 0 USDm`. |
+| Buy `skills show cencori/inference` inspected | PASS | LIVE_MAINNET_READ_ONLY | `buy skills show cencori/inference` | Capability `cencori.v1.chat.completions`, URL `https://gateway.usebuy.ai/cencori/v1/chat/completions`, flat price $0.01 USDC (10,000 atomic units), model `maximo-atlas-1.3`. |
 | Buy `quote` subcommand works (no wallet) | PASS | LOCAL | `buy quote` exit 0, prints 402 JSON | Verified parseable `--json` output using `@file` syntax on Windows. |
 | Live catalogue fetched | PASS | LIVE_MAINNET_READ_ONLY | `gateway.usebuy.ai/v1/catalog` HTTP 200 | 170 capabilities; gateway version 1; protocol x402-v1 / x402-v2. |
 | `chainstack.celo` capability available | PASS | LIVE_MAINNET_READ_ONLY | Catalog + 402 challenge | ID `chainstack.celo`, available: true, $0.01 USDC/USDT/USAT per call. |
 | Initial RPC quote obtained | PASS | LIVE_MAINNET_READ_ONLY | `buy quote` output | Payee `0x20faAca5F980E29639A0FCC6dcA6988E18ed333B`, 10000 atomic USDC on Celo 42220. |
-| Candidate failed Celo tx verified | PASS | LIVE_MAINNET_READ_ONLY | Blockscout API | `0xb90bcca5...` block 52460432; reverted `Error(string)`: `"Swap reverted"`. |
-| **Trace quote obtained via `buy quote`** | **PASS** | **LIVE_MAINNET_READ_ONLY** | `buy quote` with trace payload | Body SHA-256: `35406284f1673b329e88e9b2d7e162c4e515123aec7237ef8aea1acba23b7882`; Quoted 10,000 atomic units ($0.01 USDC). |
-| `cencori.v1.chat.completions` available | PASS | LIVE_MAINNET_READ_ONLY | Catalog + 402 challenge | Model `maximo-atlas-1.3`, available: true, $0.01 per call. |
-| USA₮ Faucet Identified | NOT_TESTED | LOCAL | Google Cloud Web3 Celo Mainnet Faucet | Faucet page documented; operator eligibility & wallet funding are UNVERIFIED and UNFUNDED. |
+| Candidate failed Celo tx verified | PASS | LIVE_MAINNET_READ_ONLY | Blockscout API / Chainstack OP Geth | `0xb90bcca5...` block 52460432; reverted `Error(string)`: `"Swap reverted"`. |
 | Direct Chainstack Growth Node Provisioned | PASS | LIVE_MAINNET_READ_ONLY | Operator dashboard (`ND-801-666-498`) | OP Geth, 250 RPS, debug/trace namespaces, Celo Mainnet 42220. Adopted under AD-008. |
-| Direct Chainstack Provider & Client Built | PASS | LOCAL_TESTED | `tests/chainstackProvider.test.ts` (6/6 pass) | Enforces chainId 42220, exponential backoff, URL redaction (`[REDACTED_RPC_ENDPOINT]`). |
-| Forensic Pipeline (revertDecoder, traceParser, classifier) | PASS | LOCAL_TESTED | `tests/revertDecoder.test.ts`, `tests/traceParser.test.ts`, `tests/forensics.test.ts` | 15/15 tests passing. Decodes `Error(string)` and `Panic(uint256)`, checks continuous revert propagation and caught sub-calls. |
-| Investigation Service & SQLite Persistence | PASS | LOCAL_TESTED | `tests/investigations.test.ts` (6/6 pass) | Persists investigations, raw traces, decoded reverts, and atomic evidence items to SQLite with full round-trip reload. |
-| Regression & Edge Case Hardening Suite | PASS | LOCAL_TESTED | `tests/regressionEdgeCases.test.ts` (10/10 pass) | Covers trace timeouts, rate limits, 404s, 502/503 outages, pending txs, unconfirmed receipts. |
-| React Dark Forensics Dashboard | PASS | LOCAL_TESTED | Vite build (`dist/client`) | Full UI with call trace viewer, root failure highlights, evidence ledger, honest stage tracking, report download. |
-| Full Automated Test Suite | PASS | LOCAL_TESTED | Vitest (53/53 passing) | 100% pass across all 8 test files. |
-| Live Chainstack Node Execution | PASS | LIVE_MAINNET_READ_ONLY | Fastify API & node runner | Verified live on Celo Mainnet 42220; 4 frames traced, deepest failing frame at depth 1 to 0xe3d8... |
+| Bounded Buy Adapter (`src/server/adapters/buyAdapter.ts`) | PASS | LOCAL_TESTED | `tests/buyAdapter.test.ts` (8/8 pass) | Fixed executable `npx.cmd`, `shell: false`, 512 KiB buffer, 60s timeout, credential redaction, independent settlement verification. |
+| Payment Lifecycle & 11-State Transitions | PASS | LOCAL_TESTED | `tests/paymentLifecycle.test.ts` (10/10 pass) | Enforces 11-state matrix, atomic budget reservation, single-use approval, SHA-256 integrity, audit ledger. |
+| Cencori AI Procurement & Forensic Guardrails | PASS | LOCAL_TESTED | `tests/cencoriProvider.test.ts`, `tests/aiValidation.test.ts` | Strict anti-hallucination validation, address/revert bounding, deterministic fallback. |
+| Full Automated Test Suite | PASS | LOCAL_TESTED | Vitest (213/213 passing across 20 suites) | 100% pass across all unit, security, lifecycle, and E2E suites. |
+| Master API Surface Audit | PASS | LOCAL_TESTED | `node scripts/verify_all_routes.mjs` (36/36 pass) | 25 unique endpoints verified, including all operator payment and health routes. |
+| Browser CDP E2E Automation | PASS | LOCAL_TESTED | `node scripts/browser_e2e_cdp.mjs` (exit code 0) | Desktop (1280x800) and Mobile (375x812) viewports tested with hard assertions and verified screenshots. |
+| Live Paid On-Chain Settlement | BLOCKED_PENDING_OPERATOR_APPROVAL | LIVE_MAINNET | Agent wallet balances = 0 | Wallet `0x3e1b...8e52` has 0 CELO and 0 USDC. Paid on-chain settlement blocked until funded by operator. Zero personal spend incurred. |
 
 ---
 
-## Exact Quote Evidence (Live Read-Only Discovery)
+## Live Discovery Evidence (MOD-03 Phase A)
 
-### Candidate Trace Request Quote (`debug_traceTransaction`)
-- **Capability ID:** `chainstack.celo`
-- **Method:** `POST`
-- **URL:** `https://gateway.usebuy.ai/chainstack/celo`
-- **Target Transaction:** `0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445`
-- **Exact Body:** `{"jsonrpc":"2.0","id":1,"method":"debug_traceTransaction","params":["0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445",{"tracer":"callTracer"}]}`
-- **Body SHA-256 Digest:** `35406284f1673b329e88e9b2d7e162c4e515123aec7237ef8aea1acba23b7882`
-- **Quoted Price:** 10,000 atomic units ($0.01 USD)
-- **Payee Address:** `0x20faAca5F980E29639A0FCC6dcA6988E18ed333B`
-- **Allowed Assets (Celo Mainnet 42220):**
-  - USDC (`0xcebA9300f2b948710d2653dD7B07f33A8B32118C`)
-  - USDT (`0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e`)
-  - USAT (`0xD2ab3C9A02DBBAB236BfEC45D1d755DF4267F771`)
-- **Timeout:** 60 seconds
+### 1. Buy CLI Version and Wallet Readiness
+```
+$ npx @celo/buy@latest -V
+0.8.5
 
----
+$ npx @celo/buy@latest whoami
+celo_235f6ef56f5b: 0x3e1bef07824cd0E076F4907641F0A0EF27898e52 pays from 0x3e1bef07824cd0E076F4907641F0A0EF27898e52 on celo; balances 0 CELO, 0 USDC, 0 USDT, 0 USAT, 0 USDm
+```
 
-## Infrastructure Decision (AD-008)
+### 2. Cencori Capability Discovery (`skills show cencori/inference`)
+```
+capability:  cencori.v1.chat.completions
+endpoint:    https://gateway.usebuy.ai/cencori/v1/chat/completions
+method:      POST
+price:       0.01 USDC (or USDT, USAT)
+model:       maximo-atlas-1.3
+payee:       0x20faAca5F980E29639A0FCC6dcA6988E18ed333B
+network:     celo (42220)
+```
 
-- **RPC Infrastructure:** Direct Chainstack Growth Elastic Global Node (`ND-801-666-498`) on Celo Mainnet (OP Geth, Worldwide global1, 250 RPS) with debug & trace namespaces.
-- **Cost:** $0.00 / call (zero personal spending incurred).
-- **Payment Architecture:** Buy CLI / MCP gateway capabilities preserved for paid Cencori LLM inference (`cencori.v1.chat.completions`) funded via USA₮ faucet.
-- **Live Verification Status:** **PRIMARY GO** — Celo Mainnet chain ID 42220 verified; candidate transaction, receipt, and 4-frame execution trace verified live on Chainstack Growth node. Persisted in SQLite.
-
+### 3. Live 402 Challenge via `buy quote`
+```json
+{
+  "status": 402,
+  "payment": {
+    "network": "celo",
+    "token": "0xcebA9300f2b948710d2653dD7B07f33A8B32118C",
+    "amount": "10000",
+    "payee": "0x20faAca5F980E29639A0FCC6dcA6988E18ed333B"
+  }
+}
+```

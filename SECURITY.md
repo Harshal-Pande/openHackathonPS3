@@ -190,3 +190,15 @@ Implemented in Phase 6:
   - Output validation rejects invented revert reasons not found in observed trace or decoded revert errors.
   - AI confidence cannot be elevated above the deterministic confidence level.
 
+---
+
+## 9. Buy Payment Adapter Security & On-Chain Settlement Verification (MOD-03)
+
+Implemented in `src/server/adapters/buyAdapter.ts`:
+- **Subprocess Isolation:** The Buy adapter executes via `node:child_process.execFile` with `shell: false` (on Windows resolving `npx.cmd`), eliminating shell interpolation and command-injection vulnerabilities.
+- **Credential & Key Redaction:** All subprocess stdout and stderr streams pass through `redactSensitiveOutput()`, which scrubs private keys (`0x[0-9a-fA-F]{64}`), Bearer tokens, and HTTP authorization headers before storage in SQLite or return to callers.
+- **Temporary Payload Security:** Outbound request bodies are written to dedicated temporary files with restricted POSIX mode `0600` and unlinked immediately in a `finally` block.
+- **Atomic Budget Reservation:** SQLite transactions check current daily spend, investigation caps, and emergency kill-switch status, reserving the atomic amount before invoking the CLI. If execution fails, the reservation is released; if confirmed, it is committed.
+- **Fail-Safe Ambiguity Handling:** Any timeout, network interruption, or ambiguous CLI failure transitions the purchase and quote to `SETTLEMENT_UNKNOWN`. Automatic retries are strictly prohibited, and reserved budget is retained until manual settlement resolution.
+- **Independent On-Chain Receipt Verification:** Successful HTTP status from the CLI or provider is insufficient. The adapter performs direct RPC calls to query the on-chain receipt, verifying `receipt.status === 1`, payee allowlist compliance, and chain ID `42220`.
+

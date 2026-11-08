@@ -232,6 +232,8 @@ export class InvestigationService {
       decoded_revert: decodedRevert ? JSON.stringify(decodedRevert) : null,
       diagnosis: JSON.stringify(explanation.diagnosis),
       limitations: JSON.stringify(explanation.limitations),
+      ai_explanation: report.aiExplanation ? JSON.stringify(report.aiExplanation) : null,
+      buy_quote_id: report.buyQuote?.quoteId || null,
       created_at: now,
       updated_at: now
     });
@@ -321,7 +323,7 @@ export class InvestigationService {
       evidenceLedger,
       diagnosis,
       limitations,
-      aiExplanation: null,
+      aiExplanation: row.ai_explanation ? JSON.parse(row.ai_explanation) : null,
       buyQuote,
       createdAt: row.created_at,
       completedAt: row.updated_at

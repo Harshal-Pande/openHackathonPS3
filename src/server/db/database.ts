@@ -15,6 +15,8 @@ export interface InvestigationRow {
   decoded_revert: string | null;
   diagnosis: string | null;
   limitations: string | null;
+  ai_explanation?: string | null;
+  buy_quote_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +56,86 @@ export interface QuoteRow {
   created_at: string;
   updated_at?: string | null;
 }
+
+export interface PurchaseAttemptRow {
+  id: string;
+  quote_id: string;
+  approval_id: string;
+  investigation_id: string | null;
+  capability_id: string;
+  url: string;
+  body_sha256: string;
+  token_contract: string;
+  amount_atomic: string;
+  status: string;
+  tx_hash: string | null;
+  settlement_tx_hash: string | null;
+  payer_address: string | null;
+  payee_address: string | null;
+  error_message: string | null;
+  raw_stdout_redacted: string | null;
+  raw_stderr_redacted: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SettlementProofRow {
+  id: string;
+  purchase_attempt_id: string;
+  quote_id: string;
+  tx_hash: string;
+  chain_id: number;
+  block_number: number | null;
+  token_contract: string;
+  payer: string;
+  recipient: string;
+  amount_atomic: string;
+  receipt_status: number;
+  verified_at: string;
+}
+
+export interface BudgetReservationRow {
+  id: string;
+  quote_id: string;
+  investigation_id: string | null;
+  amount_atomic: string;
+  status: string;
+  reserved_at: string;
+  settled_at: string | null;
+}
+
+export interface PaymentAuditEventRow {
+  id?: number;
+  entity_type: string;
+  entity_id: string;
+  from_status: string | null;
+  to_status: string;
+  operator_username: string | null;
+  details: string | null;
+  created_at: string;
+}
+
+export const VALID_QUOTE_TRANSITIONS: Record<string, string[]> = {
+  QUOTE_REQUESTED: ['QUOTE_RECEIVED', 'QUOTE_INVALID'],
+  QUOTE_RECEIVED: ['AWAITING_OPERATOR_APPROVAL', 'QUOTE_INVALID'],
+  QUOTE_INVALID: [],
+  AWAITING_OPERATOR_APPROVAL: ['APPROVED', 'EXPIRED', 'CANCELLED', 'QUOTE_INVALID'],
+  APPROVED: ['EXECUTION_PENDING', 'CANCELLED', 'EXPIRED'],
+  EXECUTION_PENDING: ['SETTLED', 'SETTLEMENT_UNKNOWN', 'FAILED'],
+  SETTLEMENT_UNKNOWN: ['SETTLED', 'FAILED'],
+  SETTLED: [],
+  FAILED: [],
+  EXPIRED: [],
+  CANCELLED: []
+};
+
+export const VALID_PURCHASE_TRANSITIONS: Record<string, string[]> = {
+  EXECUTION_PENDING: ['SETTLED', 'SETTLEMENT_UNKNOWN', 'FAILED', 'CANCELLED'],
+  SETTLEMENT_UNKNOWN: ['SETTLED', 'FAILED'],
+  SETTLED: [],
+  FAILED: [],
+  CANCELLED: []
+};
 
 export class Database {
   private db: DatabaseSync;
@@ -146,6 +228,66 @@ export class Database {
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS purchase_attempts (
+        id TEXT PRIMARY KEY,
+        quote_id TEXT NOT NULL,
+        approval_id TEXT NOT NULL,
+        investigation_id TEXT,
+        capability_id TEXT NOT NULL,
+        url TEXT NOT NULL,
+        body_sha256 TEXT NOT NULL,
+        token_contract TEXT NOT NULL,
+        amount_atomic TEXT NOT NULL,
+        status TEXT NOT NULL,
+        tx_hash TEXT,
+        settlement_tx_hash TEXT,
+        payer_address TEXT,
+        payee_address TEXT,
+        error_message TEXT,
+        raw_stdout_redacted TEXT,
+        raw_stderr_redacted TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (quote_id) REFERENCES quote_records(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS settlement_records (
+        id TEXT PRIMARY KEY,
+        purchase_attempt_id TEXT NOT NULL UNIQUE,
+        quote_id TEXT NOT NULL,
+        tx_hash TEXT NOT NULL,
+        chain_id INTEGER NOT NULL DEFAULT 42220,
+        block_number INTEGER,
+        token_contract TEXT NOT NULL,
+        payer TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        amount_atomic TEXT NOT NULL,
+        receipt_status INTEGER NOT NULL,
+        verified_at TEXT NOT NULL,
+        FOREIGN KEY (purchase_attempt_id) REFERENCES purchase_attempts(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS budget_reservations (
+        id TEXT PRIMARY KEY,
+        quote_id TEXT NOT NULL UNIQUE,
+        investigation_id TEXT,
+        amount_atomic TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reserved_at TEXT NOT NULL,
+        settled_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS payment_audit_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        operator_username TEXT,
+        details TEXT,
+        created_at TEXT NOT NULL
+      );
     `);
 
     // Safe schema migrations for existing SQLite databases
@@ -205,8 +347,9 @@ export class Database {
       INSERT INTO investigations (
         id, tx_hash, chain_id, status, trace_status,
         raw_tx, raw_receipt, raw_trace, normalized_trace, decoded_revert, diagnosis, limitations,
+        ai_explanation, buy_quote_id,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         trace_status = excluded.trace_status,
@@ -217,6 +360,8 @@ export class Database {
         decoded_revert = excluded.decoded_revert,
         diagnosis = excluded.diagnosis,
         limitations = excluded.limitations,
+        ai_explanation = excluded.ai_explanation,
+        buy_quote_id = excluded.buy_quote_id,
         updated_at = excluded.updated_at
     `);
     stmt.run(
@@ -232,9 +377,22 @@ export class Database {
       inv.decoded_revert,
       inv.diagnosis,
       inv.limitations,
+      inv.ai_explanation || null,
+      inv.buy_quote_id || null,
       inv.created_at,
       inv.updated_at
     );
+  }
+
+  public updateInvestigationAiExplanation(id: string, aiExplanationJson: string, buyQuoteId?: string): void {
+    const now = new Date().toISOString();
+    if (buyQuoteId) {
+      const stmt = this.db.prepare(`UPDATE investigations SET ai_explanation = ?, buy_quote_id = ?, updated_at = ? WHERE id = ?`);
+      stmt.run(aiExplanationJson, buyQuoteId, now, id);
+    } else {
+      const stmt = this.db.prepare(`UPDATE investigations SET ai_explanation = ?, updated_at = ? WHERE id = ?`);
+      stmt.run(aiExplanationJson, now, id);
+    }
   }
 
   public getInvestigation(id: string): InvestigationRow | undefined {
@@ -310,6 +468,16 @@ export class Database {
       quote.created_at,
       quote.updated_at || null
     );
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'QUOTE',
+      entity_id: quote.id,
+      from_status: null,
+      to_status: quote.status,
+      operator_username: null,
+      details: quote.reason || 'Quote created',
+      created_at: quote.created_at
+    });
   }
 
   public getQuote(id: string): QuoteRow | undefined {
@@ -341,6 +509,14 @@ export class Database {
     const existing = this.getQuote(id);
     if (!existing) return;
 
+    // Validate state transition if different
+    if (existing.status !== status) {
+      const allowed = VALID_QUOTE_TRANSITIONS[existing.status];
+      if (allowed && !allowed.includes(status)) {
+        throw new Error(`Invalid quote state transition from "${existing.status}" to "${status}".`);
+      }
+    }
+
     const stmt = this.db.prepare(`
       UPDATE quote_records SET
         status = ?,
@@ -360,6 +536,318 @@ export class Database {
       now,
       id
     );
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'QUOTE',
+      entity_id: id,
+      from_status: existing.status,
+      to_status: status,
+      operator_username: extra.approved_by || null,
+      details: extra.reason || null,
+      created_at: now
+    });
+  }
+
+  // --- Purchase Attempts ---
+
+  public savePurchaseAttempt(attempt: PurchaseAttemptRow): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO purchase_attempts (
+        id, quote_id, approval_id, investigation_id, capability_id, url, body_sha256,
+        token_contract, amount_atomic, status, tx_hash, settlement_tx_hash,
+        payer_address, payee_address, error_message, raw_stdout_redacted, raw_stderr_redacted,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      attempt.id,
+      attempt.quote_id,
+      attempt.approval_id,
+      attempt.investigation_id || null,
+      attempt.capability_id,
+      attempt.url,
+      attempt.body_sha256,
+      attempt.token_contract,
+      attempt.amount_atomic,
+      attempt.status,
+      attempt.tx_hash || null,
+      attempt.settlement_tx_hash || null,
+      attempt.payer_address || null,
+      attempt.payee_address || null,
+      attempt.error_message || null,
+      attempt.raw_stdout_redacted || null,
+      attempt.raw_stderr_redacted || null,
+      attempt.created_at,
+      attempt.updated_at
+    );
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'PURCHASE',
+      entity_id: attempt.id,
+      from_status: null,
+      to_status: attempt.status,
+      details: `Created purchase attempt for quote ${attempt.quote_id}`,
+      created_at: attempt.created_at
+    });
+  }
+
+  public getPurchaseAttempt(id: string): PurchaseAttemptRow | null {
+    const stmt = this.db.prepare(`SELECT * FROM purchase_attempts WHERE id = ?`);
+    const row = stmt.get(id);
+    return row ? (row as unknown as PurchaseAttemptRow) : null;
+  }
+
+  public getPurchaseAttemptByQuoteId(quoteId: string): PurchaseAttemptRow | null {
+    const stmt = this.db.prepare(`SELECT * FROM purchase_attempts WHERE quote_id = ? ORDER BY created_at DESC LIMIT 1`);
+    const row = stmt.get(quoteId);
+    return row ? (row as unknown as PurchaseAttemptRow) : null;
+  }
+
+  public listPurchaseAttempts(limit: number = 20): PurchaseAttemptRow[] {
+    const stmt = this.db.prepare(`SELECT * FROM purchase_attempts ORDER BY created_at DESC LIMIT ?`);
+    return stmt.all(limit) as unknown as PurchaseAttemptRow[];
+  }
+
+  public updatePurchaseAttemptStatus(
+    id: string,
+    status: string,
+    updates: Partial<PurchaseAttemptRow> = {}
+  ): void {
+    const now = new Date().toISOString();
+    const existing = this.getPurchaseAttempt(id);
+    if (!existing) return;
+
+    if (existing.status !== status) {
+      const allowed = VALID_PURCHASE_TRANSITIONS[existing.status];
+      if (allowed && !allowed.includes(status)) {
+        throw new Error(`Invalid purchase attempt state transition from "${existing.status}" to "${status}".`);
+      }
+    }
+
+    const stmt = this.db.prepare(`
+      UPDATE purchase_attempts SET
+        status = ?,
+        tx_hash = COALESCE(?, tx_hash),
+        settlement_tx_hash = COALESCE(?, settlement_tx_hash),
+        payer_address = COALESCE(?, payer_address),
+        payee_address = COALESCE(?, payee_address),
+        error_message = COALESCE(?, error_message),
+        raw_stdout_redacted = COALESCE(?, raw_stdout_redacted),
+        raw_stderr_redacted = COALESCE(?, raw_stderr_redacted),
+        updated_at = ?
+      WHERE id = ?
+    `);
+    stmt.run(
+      status,
+      updates.tx_hash || null,
+      updates.settlement_tx_hash || null,
+      updates.payer_address || null,
+      updates.payee_address || null,
+      updates.error_message || null,
+      updates.raw_stdout_redacted || null,
+      updates.raw_stderr_redacted || null,
+      now,
+      id
+    );
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'PURCHASE',
+      entity_id: id,
+      from_status: existing.status,
+      to_status: status,
+      details: updates.error_message || null,
+      created_at: now
+    });
+  }
+
+  // --- Settlement Records ---
+
+  public saveSettlementProof(proof: SettlementProofRow): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO settlement_records (
+        id, purchase_attempt_id, quote_id, tx_hash, chain_id, block_number,
+        token_contract, payer, recipient, amount_atomic, receipt_status, verified_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      proof.id,
+      proof.purchase_attempt_id,
+      proof.quote_id,
+      proof.tx_hash,
+      proof.chain_id || 42220,
+      proof.block_number || null,
+      proof.token_contract,
+      proof.payer,
+      proof.recipient,
+      proof.amount_atomic,
+      proof.receipt_status,
+      proof.verified_at
+    );
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'SETTLEMENT',
+      entity_id: proof.id,
+      from_status: null,
+      to_status: 'VERIFIED',
+      details: `Settlement verified on chain ${proof.chain_id} tx ${proof.tx_hash}`,
+      created_at: proof.verified_at
+    });
+  }
+
+  public getSettlementProof(purchaseAttemptId: string): SettlementProofRow | null {
+    const stmt = this.db.prepare(`SELECT * FROM settlement_records WHERE purchase_attempt_id = ?`);
+    const row = stmt.get(purchaseAttemptId);
+    return row ? (row as unknown as SettlementProofRow) : null;
+  }
+
+  // --- Budget Reservations & Limits ---
+
+  public getBudgetReservation(quoteId: string): BudgetReservationRow | null {
+    const stmt = this.db.prepare(`SELECT * FROM budget_reservations WHERE quote_id = ?`);
+    const row = stmt.get(quoteId);
+    return row ? (row as unknown as BudgetReservationRow) : null;
+  }
+
+  public reserveBudgetAtomic(
+    quoteId: string,
+    investigationId: string | null,
+    amountAtomic: string,
+    limits: { dailyBudgetAtomic: bigint; perInvestigationCapAtomic: bigint }
+  ): void {
+    const now = new Date().toISOString();
+    const amount = BigInt(amountAtomic);
+
+    // Atomically check limits and reserve
+    if (this.getKillSwitch()) {
+      throw new Error('Emergency kill switch is active. Budget reservation rejected.');
+    }
+
+    const existing = this.getBudgetReservation(quoteId);
+    if (existing && existing.status !== 'RELEASED') {
+      throw new Error(`Active budget reservation already exists for quote ${quoteId}.`);
+    }
+
+    if (limits.dailyBudgetAtomic > 0n) {
+      const todayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const currentDaily = this.getGlobalDailySpendAtomic(todayIso);
+      if (currentDaily + amount > limits.dailyBudgetAtomic) {
+        throw new Error(`Budget reservation would exceed daily budget of ${limits.dailyBudgetAtomic}.`);
+      }
+    }
+
+    if (investigationId && limits.perInvestigationCapAtomic > 0n) {
+      const stmt = this.db.prepare(`
+        SELECT amount_atomic FROM budget_reservations
+        WHERE investigation_id = ? AND status IN ('RESERVED', 'COMMITTED')
+      `);
+      const rows = stmt.all(investigationId) as { amount_atomic: string }[];
+      let totalInv = 0n;
+      for (const r of rows) {
+        try {
+          totalInv += BigInt(r.amount_atomic);
+        } catch {}
+      }
+      if (totalInv + amount > limits.perInvestigationCapAtomic) {
+        throw new Error(`Budget reservation would exceed per-investigation cap of ${limits.perInvestigationCapAtomic}.`);
+      }
+    }
+
+    const resId = crypto.randomUUID();
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO budget_reservations (id, quote_id, investigation_id, amount_atomic, status, reserved_at)
+      VALUES (?, ?, ?, ?, 'RESERVED', ?)
+    `);
+    stmt.run(resId, quoteId, investigationId || null, amountAtomic, now);
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'BUDGET',
+      entity_id: quoteId,
+      from_status: null,
+      to_status: 'RESERVED',
+      details: `Reserved ${amountAtomic} atomic units for quote ${quoteId}`,
+      created_at: now
+    });
+  }
+
+  public commitBudgetReservation(quoteId: string): void {
+    const now = new Date().toISOString();
+    const existing = this.getBudgetReservation(quoteId);
+    if (!existing) return;
+
+    const stmt = this.db.prepare(`
+      UPDATE budget_reservations SET status = 'COMMITTED', settled_at = ? WHERE quote_id = ?
+    `);
+    stmt.run(now, quoteId);
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'BUDGET',
+      entity_id: quoteId,
+      from_status: existing.status,
+      to_status: 'COMMITTED',
+      details: `Committed budget reservation for quote ${quoteId}`,
+      created_at: now
+    });
+  }
+
+  public releaseBudgetReservation(quoteId: string, reason: string): void {
+    const now = new Date().toISOString();
+    const existing = this.getBudgetReservation(quoteId);
+    if (!existing) return;
+
+    const stmt = this.db.prepare(`
+      UPDATE budget_reservations SET status = 'RELEASED', settled_at = ? WHERE quote_id = ?
+    `);
+    stmt.run(now, quoteId);
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'BUDGET',
+      entity_id: quoteId,
+      from_status: existing.status,
+      to_status: 'RELEASED',
+      details: `Released budget reservation for quote ${quoteId}: ${reason}`,
+      created_at: now
+    });
+  }
+
+  // --- Payment Audit Events ---
+
+  public recordPaymentAuditEvent(event: {
+    entity_type: string;
+    entity_id: string;
+    from_status?: string | null;
+    to_status: string;
+    operator_username?: string | null;
+    details?: string | null;
+    created_at?: string;
+  }): void {
+    const now = event.created_at || new Date().toISOString();
+    const stmt = this.db.prepare(`
+      INSERT INTO payment_audit_events (
+        entity_type, entity_id, from_status, to_status, operator_username, details, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      event.entity_type,
+      event.entity_id,
+      event.from_status || null,
+      event.to_status,
+      event.operator_username || null,
+      event.details || null,
+      now
+    );
+  }
+
+  public listPaymentAuditEvents(entityId?: string, limit: number = 50): PaymentAuditEventRow[] {
+    if (entityId) {
+      const stmt = this.db.prepare(`
+        SELECT * FROM payment_audit_events WHERE entity_id = ? ORDER BY created_at DESC LIMIT ?
+      `);
+      return stmt.all(entityId, limit) as unknown as PaymentAuditEventRow[];
+    }
+    const stmt = this.db.prepare(`
+      SELECT * FROM payment_audit_events ORDER BY created_at DESC LIMIT ?
+    `);
+    return stmt.all(limit) as unknown as PaymentAuditEventRow[];
   }
 
   public getKillSwitch(): boolean {
@@ -374,12 +862,21 @@ export class Database {
       INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES ('kill_switch', ?, ?)
     `);
     stmt.run(enabled ? 'true' : 'false', now);
+
+    this.recordPaymentAuditEvent({
+      entity_type: 'KILL_SWITCH',
+      entity_id: 'global',
+      from_status: null,
+      to_status: enabled ? 'ENGAGED' : 'DISENGAGED',
+      details: `Kill switch state changed to ${enabled}`,
+      created_at: now
+    });
   }
 
   public getGlobalDailySpendAtomic(sinceIso: string): bigint {
     const stmt = this.db.prepare(`
       SELECT amount_atomic FROM quote_records
-      WHERE status IN ('SETTLED', 'APPROVED', 'EXECUTION_PENDING')
+      WHERE status IN ('SETTLED', 'APPROVED', 'EXECUTION_PENDING', 'SETTLEMENT_UNKNOWN')
         AND created_at >= ?
     `);
     const rows = stmt.all(sinceIso) as { amount_atomic: string }[];
@@ -391,6 +888,19 @@ export class Database {
         // Ignore unparseable
       }
     }
+
+    // Also include active uncommitted reservations
+    const resStmt = this.db.prepare(`
+      SELECT amount_atomic FROM budget_reservations
+      WHERE status = 'RESERVED' AND reserved_at >= ?
+    `);
+    const resRows = resStmt.all(sinceIso) as { amount_atomic: string }[];
+    for (const r of resRows) {
+      try {
+        total += BigInt(r.amount_atomic);
+      } catch {}
+    }
+
     return total;
   }
 

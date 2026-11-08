@@ -1,10 +1,11 @@
 # RevertLens — Automated Test & Verification Results
 
-**Date/time:** 2026-11-08 15:15:00 UTC
-**Phase:** Module 2.4: Same-IP Mixed-Outcome Reservation Safety (MOD-02.4 / DEF-22C)
-**Node:** v22.13.0  
-**npm:** 10.9.2  
-**Target Network:** Celo Mainnet (`eip155:42220`)  
+**Date/time:** 2026-11-08 16:15:00 UTC
+**Phase:** Module 3: Secure Buy CLI Integration, Cencori AI Procurement, Payment Lifecycle & Live Settlement Verification (MOD-03)
+**Node:** v22.17.0
+**npm:** 11.6.1
+**Target Network:** Celo Mainnet (`eip155:42220`)
+**Paying Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
 
 ---
 
@@ -13,15 +14,15 @@
 | Command | Exit Code | Result | Key Output & Notes |
 |:---|:---:|:---:|:---|
 | `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
-| `npm test` | **0** | **`PASS`** | **18 test files passed, 195/195 tests passed** (100% green). |
-| `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430 kB), `vendor-icons` (14.8 kB), `index` (178 kB). **0 warnings**. |
-| `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **28/28 test scenarios passed** across 20 unique Fastify endpoints (including explicit DEF-14 session secret rejection). |
-| `node scripts/verify_live_investigation.mjs` | **0** | **`PASS`** | **14/14 live checks passed** against Celo Mainnet OP Geth node. 5 SHA-256 evidence items verified across OS-isolated child process. |
+| `npm test` | **0** | **`PASS`** | **20 test files passed, 213/213 tests passed** (100% green). |
+| `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430 kB), `vendor-icons` (15.7 kB), `index` (189.6 kB). **0 warnings**. |
+| `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **36/36 test scenarios passed** across 25 unique Fastify endpoints (including all new MOD-03 operator routes: execute, purchases, buy-health, audit-events). |
 | `node scripts/browser_e2e_cdp.mjs` | **0** | **`PASS`** | Real Chrome DevTools Protocol automated testing: Desktop (1280x800) and Mobile (375x812) viewports fully validated. |
+| `git diff --check` | **0** | **`PASS`** | Clean whitespace across all files; zero trailing whitespaces or conflict markers. |
 
 ---
 
-## 2. Test Breakdown by File (18 Suites, 195 Tests)
+## 2. Test Breakdown by File (20 Suites, 213 Tests)
 
 | # | Test File | Test Count | Classification | Result |
 |:---:|:---|:---:|:---|:---:|
@@ -43,11 +44,13 @@
 | 16 | `tests/buySecurity.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
 | 17 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
 | 18 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
-| **Total** | **18 Test Suites** | **195 Tests** | **100% Automated** | **195 PASS** |
+| 19 | `tests/buyAdapter.test.ts` | **8** | `LOCAL_INTEGRATION` | **PASS** |
+| 20 | `tests/paymentLifecycle.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
+| **Total** | **20 Test Suites** | **213 Tests** | **100% Automated** | **213 PASS** |
 
 ---
 
-## 3. Route Surface Verification Matrix (28 Scenarios)
+## 3. Route Surface Verification Matrix (36 Scenarios)
 
 ```
 [PASS] GET /api/health -> Status 200 (Public Health Check)
@@ -68,9 +71,17 @@
 [PASS] GET /api/operator/quotes -> Status 200 (Operator Quotes Authenticated)
 [PASS] POST /api/operator/quotes/:id/approve -> Status 400 (Approve Quote Tampered Hash)
 [PASS] POST /api/operator/kill-switch -> Status 200 (Engage Emergency Kill Switch)
+[PASS] GET /api/operator/buy-health -> Status 401 (Buy Health Unauthenticated)
+[PASS] GET /api/operator/buy-health -> Status 200 (Buy Health Authenticated)
+[PASS] GET /api/operator/purchases -> Status 401 (List Purchases Unauthenticated)
+[PASS] GET /api/operator/purchases -> Status 200 (List Purchases Authenticated)
+[PASS] GET /api/operator/purchases/:id -> Status 404 (Get Purchase Not Found)
+[PASS] GET /api/operator/audit-events -> Status 200 (List Audit Events Authenticated)
+[PASS] POST /api/operator/quotes/:id/execute -> Status 401 (Execute Quote Unauthenticated)
+[PASS] POST /api/operator/quotes/:id/execute -> Status 400 (Execute Quote Missing Approval ID)
 [PASS] POST /api/operator/logout -> Status 200 (Operator Logout)
 [PASS] GET / -> Status 200 (Serve SPA Index HTML)
-[PASS] GET /assets/index-BuVDAKYo.js -> Status 200 (Serve Static JS Asset)
+[PASS] GET /assets/* -> Status 200 (Serve Static JS Asset)
 [PASS] GET /assets/../package.json -> Status 404 (Path Traversal Guard on Assets)
 [PASS] GET /history -> Status 302 (SPA Clean Route Redirect (/history))
 [PASS] GET /about -> Status 302 (SPA Clean Route Redirect (/about))
@@ -82,26 +93,48 @@
 
 ---
 
-## 4. Verification Evidence & Security Checklist
+## 4. Browser CDP E2E Automation Results
 
-- [x] Operator authentication decoupled from session signing (`OPERATOR_PASSWORD_HASH` vs `SESSION_SECRET`).
-- [x] Node.js built-in asynchronous scrypt password hashing ($N=16384, r=8, p=1$, random 16-byte salt, constant-time `timingSafeEqual`).
-- [x] Strict decimal parameter parsing in scrypt hashes rejecting signs (`+`, `-`), trailing junk, non-integers, and NaN.
-- [x] Canonical Base64 verification round-trip preventing malformed or non-canonical parameter encodings.
-- [x] Exact salt length (16 bytes) and derived key length (32 bytes) validation.
-- [x] Combined scrypt memory validation ($128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$) rejecting parameter sets exceeding 64 MiB budget before invoking crypto.scrypt (DEF-21).
-- [x] Safe integer overflow protection and synchronous error interception for scrypt parameter checking.
-- [x] Hard session capacity enforced at 5,000 active sessions with HTTP 503 `SESSION_CAPACITY_EXCEEDED` on full capacity (DEF-19).
-- [x] Active sessions are never evicted to create capacity; existing active sessions remain valid.
-- [x] Concurrent login completions execute synchronously during session insertion, preventing capacity overruns.
-- [x] Operator login brute-force limiter (max 5 failed attempts per 15 min returning HTTP 429 with `Retry-After`).
-- [x] Fail-closed login attempt tracker rejecting new identities with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED` when capacity is full of active entries (DEF-20).
-- [x] Active failed attempt records and lockouts are never deleted to make room for new callers.
-- [x] Stale failed login attempts reset automatically after the 15-minute sliding window.
-- [x] Public forensic ingestion rate limiting on `POST /api/investigations` (10 req/min per IP with HTTP 429 and standard envelope).
-- [x] Genuine sliding-window rate limiter with per-IP timestamp arrays, roll-off pruning, and clock injection.
-- [x] Fail-closed behavior on public rate limiter capacity exhaustion (`maxEntries`).
-- [x] Fastify native `trustProxy` integration rejecting forwarding headers from untrusted socket peers.
-- [x] Health checks, static assets, report retrieval, and history browsing remain unblocked.
-- [x] Strict client IP resolution with `net.isIP()` verification.
-- [x] Zero secrets in source code, Git, or logs.
+```
+✓ Fastify server started on http://127.0.0.1:3020
+✓ Chrome connected: Chrome/156.0.8078.80
+
+--- PHASE A: DESKTOP VIEWPORT TESTING (1280x800) ---
+  ✓ Page Title: "Your Celo transaction failed. Find out why."
+  ✓ Wordmark: "RevertLens"
+  ✓ Screenshot verified: screenshots/e2e_desktop_home.png (58171 bytes)
+  ✓ Screenshot verified: screenshots/after/desktop_home.png (58171 bytes)
+  ✓ Validation Error Rendered: "Enter a 0x-prefixed, 64-character hexadecimal transaction hash."
+  ✓ Screenshot verified: screenshots/e2e_desktop_invalid_input.png (62825 bytes)
+  ✓ Input populated with: 0xb90bcca5d39501ca3978b5938fc6ffc47f73b393978c4515baf4c491d4509445
+  ✓ Loading Panel displayed: true
+  ✓ Diagnosis Headline: "Nested Call Failure at Depth 1: execution reverted"
+  ✓ Status Chip: "Reverted"
+  ✓ Trace rows contain "Failure propagated": true
+  ✓ Trace rows contain "Failing frame": true
+  ✓ Evidence row E-01 present: true
+  ✓ Evidence row E-02 present: true
+  ✓ AI and Payment panels honesty assertions passed
+  ✓ Screenshot verified: screenshots/e2e_desktop_investigation_result.png (76862 bytes)
+  ✓ Screenshot verified: screenshots/after/desktop_investigation_result.png (76862 bytes)
+  ✓ JSON Export verified: contains 5 evidence items and matches candidate tx
+  ✓ Export Toast Rendered: "Exported revertlens-0xb90bcca5.json"
+  ✓ Re-hydrated Report Headline after reload: "Nested Call Failure at Depth 1: execution reverted"
+  ✓ Persisted AI panel state verified on page reload
+  ✓ History page contains candidate tx row: true
+  ✓ Screenshot verified: screenshots/after/history_page.png (44130 bytes)
+
+--- PHASE B: MOBILE VIEWPORT TESTING (375x812) ---
+  ✓ Screenshot verified: screenshots/e2e_mobile_home.png (145117 bytes)
+  ✓ Screenshot verified: screenshots/after/mobile_home.png (145117 bytes)
+  ✓ Mobile Home page has no horizontal overflow: true
+  ✓ Mobile Report Headline: "Nested Call Failure at Depth 1: execution reverted"
+  ✓ Mobile Report page has no horizontal overflow: true
+  ✓ Mobile Frame Inspector Drawer opened: false
+  ✓ Screenshot verified: screenshots/e2e_mobile_investigation_result.png (101517 bytes)
+  ✓ Screenshot verified: screenshots/after/mobile_investigation_result.png (101517 bytes)
+
+=================================================================
+ ALL BROWSER E2E ASSERTIONS & SCREENSHOTS PASSED (EXIT CODE 0)
+=================================================================
+```

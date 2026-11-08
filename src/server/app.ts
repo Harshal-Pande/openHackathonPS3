@@ -13,6 +13,7 @@ import {
   ERC8004_IDENTITY_REGISTRY_CELO_MAINNET
 } from './services/celoAttributionService.js';
 import { BuyQuoteService } from './services/buyQuoteService.js';
+import { BuyAdapter } from './adapters/buyAdapter.js';
 import { AiExplanationService } from './services/aiExplanationService.js';
 import { OperatorAuthService, OperatorAuthError } from './auth/operatorAuth.js';
 import { RateLimiter, getClientIp } from './auth/rateLimiter.js';
@@ -22,6 +23,7 @@ export interface AppDependencies {
   db?: Database;
   provider?: ChainstackProvider;
   cencoriProvider?: CencoriProvider;
+  buyAdapter?: BuyAdapter;
   buyQuoteService?: BuyQuoteService;
   aiExplanationService?: AiExplanationService;
   authService?: OperatorAuthService;
@@ -38,6 +40,12 @@ const LoginBodySchema = z.object({
 
 const ApproveQuoteBodySchema = z.object({
   expectedBodySha256: z.string().min(64).max(64)
+});
+
+const ExecuteQuoteBodySchema = z.object({
+  approvalId: z.string().min(1),
+  expectedBodySha256: z.string().min(64).max(64).optional(),
+  requestBodyOverride: z.string().optional()
 });
 
 const KillSwitchBodySchema = z.object({
@@ -74,10 +82,11 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       enabled: appConfig.CENCORI_ENABLED
     });
 
-  const buyQuoteService = deps.buyQuoteService || new BuyQuoteService(db, appConfig);
+  const buyAdapter = deps.buyAdapter || new BuyAdapter({}, db, appConfig);
+  const buyQuoteService = deps.buyQuoteService || new BuyQuoteService(db, appConfig, buyAdapter);
   const aiExplanationService =
     deps.aiExplanationService ||
-    new AiExplanationService(cencoriProvider, buyQuoteService, appConfig);
+    new AiExplanationService(cencoriProvider, buyQuoteService, appConfig, db);
 
   const authService = deps.authService || new OperatorAuthService(appConfig);
   const investigationRateLimiter =
@@ -439,6 +448,94 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       killSwitchActive: buyQuoteService.getKillSwitch(),
       message: parseResult.data.enabled ? 'Kill switch ENGAGED. All quotes and spending halted.' : 'Kill switch DISENGAGED.'
     };
+  });
+
+  // POST /api/operator/quotes/:id/execute - Execute an approved quote via Buy CLI (Operator only)
+  server.post('/api/operator/quotes/:id/execute', async (request) => {
+    const session = requireOperatorSession(request);
+    const { id } = request.params as { id: string };
+
+    const parseResult = ExecuteQuoteBodySchema.safeParse(request.body || {});
+    if (!parseResult.success) {
+      const err: any = new Error('Execution requires approvalId.');
+      err.statusCode = 400;
+      err.code = 'INVALID_INPUT';
+      throw err;
+    }
+
+    const quote = buyQuoteService.getQuote(id);
+    if (!quote) {
+      const err: any = new Error(`Quote ${id} not found.`);
+      err.statusCode = 404;
+      err.code = 'QUOTE_NOT_FOUND';
+      throw err;
+    }
+
+    if (quote.investigationId) {
+      return aiExplanationService.executeAndAttachExplanation({
+        quoteId: id,
+        approvalId: parseResult.data.approvalId,
+        operatorUsername: session.username
+      });
+    }
+
+    const result = await buyQuoteService.executeQuote({
+      quoteId: id,
+      approvalId: parseResult.data.approvalId,
+      operatorUsername: session.username,
+      isOperatorAuthenticated: true
+    });
+
+    return {
+      result,
+      aiExplanation: null
+    };
+  });
+
+  // GET /api/operator/purchases/:id - Inspect purchase attempt by ID (Operator only)
+  server.get('/api/operator/purchases/:id', async (request) => {
+    requireOperatorSession(request);
+    const { id } = request.params as { id: string };
+    const attempt = buyQuoteService.getPurchaseAttempt(id);
+    if (!attempt) {
+      const err: any = new Error(`Purchase attempt ${id} not found.`);
+      err.statusCode = 404;
+      err.code = 'PURCHASE_NOT_FOUND';
+      throw err;
+    }
+    return attempt;
+  });
+
+  // GET /api/operator/purchases - List recent purchase attempts (Operator only)
+  server.get('/api/operator/purchases', async (request) => {
+    requireOperatorSession(request);
+    const query = request.query as { limit?: string };
+    const limit = query.limit ? Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 100) : 50;
+    return buyQuoteService.listPurchaseAttempts(limit);
+  });
+
+  // POST /api/operator/purchases/:id/resolve - Resolve ambiguous settlement (Operator only)
+  server.post('/api/operator/purchases/:id/resolve', async (request) => {
+    requireOperatorSession(request);
+    const { id } = request.params as { id: string };
+    return buyQuoteService.resolvePurchaseSettlement({
+      attemptId: id,
+      isOperatorAuthenticated: true
+    });
+  });
+
+  // GET /api/operator/buy-health - Real-time Buy CLI & wallet health (Operator only)
+  server.get('/api/operator/buy-health', async (request) => {
+    requireOperatorSession(request);
+    return buyQuoteService.getBuyHealth();
+  });
+
+  // GET /api/operator/audit-events - Immutable payment audit ledger (Operator only)
+  server.get('/api/operator/audit-events', async (request) => {
+    requireOperatorSession(request);
+    const query = request.query as { entityId?: string; limit?: string };
+    const limit = query.limit ? Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 200) : 50;
+    return buyQuoteService.getAuditEvents(query.entityId, limit);
   });
 
   // ==========================================

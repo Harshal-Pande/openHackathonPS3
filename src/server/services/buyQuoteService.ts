@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { AppConfig } from '../config.js';
-import { Database, QuoteRow } from '../db/database.js';
-import { BuyQuoteSummary, QuoteStatus } from '../forensics/types.js';
+import { Database, QuoteRow, PurchaseAttemptRow, PaymentAuditEventRow } from '../db/database.js';
+import { BuyQuoteSummary, QuoteStatus, BuyHealthStatus } from '../forensics/types.js';
+import { BuyAdapter, PurchaseExecutionResult, SettlementResolutionResult } from '../adapters/buyAdapter.js';
 
 export interface OperatorApprovalPacket {
   approvalId: string;
@@ -56,10 +57,19 @@ export function resolveAllowlist(configured: string[] | undefined | null, defaul
 }
 
 export class BuyQuoteService {
+  private buyAdapter?: BuyAdapter;
+
   constructor(
     private db: Database,
-    private config: AppConfig
-  ) {}
+    private config: AppConfig,
+    buyAdapter?: BuyAdapter
+  ) {
+    this.buyAdapter = buyAdapter;
+  }
+
+  public setBuyAdapter(adapter: BuyAdapter): void {
+    this.buyAdapter = adapter;
+  }
 
   public getKillSwitch(): boolean {
     return this.db.getKillSwitch();
@@ -304,9 +314,88 @@ export class BuyQuoteService {
     return rows.map((r) => this.toSummary(r));
   }
 
+  /**
+   * Executes a quote that has been explicitly approved by the operator.
+   * Requires authenticated operator session.
+   */
+  public async executeQuote(params: {
+    quoteId: string;
+    approvalId: string;
+    operatorUsername: string;
+    isOperatorAuthenticated: boolean;
+  }): Promise<PurchaseExecutionResult> {
+    if (!params.isOperatorAuthenticated) {
+      throw new BuyQuoteServiceError(
+        'Public callers cannot execute project-wallet purchases. Authenticated operator session required.',
+        401,
+        'UNAUTHORIZED'
+      );
+    }
+
+    if (!this.buyAdapter) {
+      throw new BuyQuoteServiceError('Buy adapter is not configured or unavailable.', 500, 'ADAPTER_UNAVAILABLE');
+    }
+
+    return this.buyAdapter.executeApprovedRequest(
+      params.quoteId,
+      params.approvalId,
+      params.operatorUsername
+    );
+  }
+
+  /**
+   * Resolves settlement for a purchase attempt (e.g. following timeout or unknown status).
+   */
+  public async resolvePurchaseSettlement(params: {
+    attemptId: string;
+    isOperatorAuthenticated: boolean;
+  }): Promise<SettlementResolutionResult> {
+    if (!params.isOperatorAuthenticated) {
+      throw new BuyQuoteServiceError(
+        'Public callers cannot resolve settlements. Authenticated operator session required.',
+        401,
+        'UNAUTHORIZED'
+      );
+    }
+
+    if (!this.buyAdapter) {
+      throw new BuyQuoteServiceError('Buy adapter is not configured or unavailable.', 500, 'ADAPTER_UNAVAILABLE');
+    }
+
+    return this.buyAdapter.resolveSettlement(params.attemptId);
+  }
+
+  public getPurchaseAttempt(id: string): PurchaseAttemptRow | null {
+    return this.db.getPurchaseAttempt(id);
+  }
+
+  public listPurchaseAttempts(limit: number = 20): PurchaseAttemptRow[] {
+    return this.db.listPurchaseAttempts(limit);
+  }
+
+  public getAuditEvents(entityId?: string, limit: number = 50): PaymentAuditEventRow[] {
+    return this.db.listPaymentAuditEvents(entityId, limit);
+  }
+
+  public async getBuyHealth(): Promise<BuyHealthStatus> {
+    if (!this.buyAdapter) {
+      return {
+        ready: false,
+        cliVersion: 'unavailable',
+        account: '0x3e1bef07824cd0E076F4907641F0A0EF27898e52',
+        network: 'celo',
+        balances: {},
+        killSwitchActive: this.getKillSwitch(),
+        timestamp: new Date().toISOString()
+      };
+    }
+    return this.buyAdapter.getHealth();
+  }
+
   private toSummary(row: QuoteRow): BuyQuoteSummary {
     return {
       quoteId: row.id,
+      investigationId: row.investigation_id,
       capabilityId: row.capability_id,
       status: row.status as QuoteStatus,
       url: row.url,

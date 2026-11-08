@@ -214,6 +214,61 @@ async function testAllRoutes() {
     payload: { enabled: true }
   }, '/api/operator/kill-switch', [200], (res, body) => body.data?.killSwitchActive === true);
 
+  // 15b. GET /api/operator/buy-health (Unauthenticated -> 401)
+  await testRoute('Buy Health Unauthenticated', {
+    method: 'GET',
+    url: '/api/operator/buy-health'
+  }, '/api/operator/buy-health', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+
+  // 15c. GET /api/operator/buy-health (Authenticated -> 200)
+  await testRoute('Buy Health Authenticated', {
+    method: 'GET',
+    url: '/api/operator/buy-health',
+    headers: { authorization: `Bearer ${operatorToken}` }
+  }, '/api/operator/buy-health', [200], (res, body) => body.data?.network === 'celo' && body.data?.killSwitchActive === true);
+
+  // 15d. GET /api/operator/purchases (Unauthenticated -> 401)
+  await testRoute('List Purchases Unauthenticated', {
+    method: 'GET',
+    url: '/api/operator/purchases'
+  }, '/api/operator/purchases', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+
+  // 15e. GET /api/operator/purchases (Authenticated -> 200)
+  await testRoute('List Purchases Authenticated', {
+    method: 'GET',
+    url: '/api/operator/purchases',
+    headers: { authorization: `Bearer ${operatorToken}` }
+  }, '/api/operator/purchases', [200], (res, body) => Array.isArray(body.data));
+
+  // 15f. GET /api/operator/purchases/:id (Non-existent -> 404)
+  await testRoute('Get Purchase Not Found', {
+    method: 'GET',
+    url: '/api/operator/purchases/non-existent-attempt-id',
+    headers: { authorization: `Bearer ${operatorToken}` }
+  }, '/api/operator/purchases/:id', [404], (res, body) => body.error?.code === 'PURCHASE_NOT_FOUND');
+
+  // 15g. GET /api/operator/audit-events (Authenticated -> 200)
+  await testRoute('List Audit Events Authenticated', {
+    method: 'GET',
+    url: '/api/operator/audit-events',
+    headers: { authorization: `Bearer ${operatorToken}` }
+  }, '/api/operator/audit-events', [200], (res, body) => Array.isArray(body.data));
+
+  // 15h. POST /api/operator/quotes/:id/execute (Unauthenticated -> 401)
+  await testRoute('Execute Quote Unauthenticated', {
+    method: 'POST',
+    url: `/api/operator/quotes/${quoteId}/execute`,
+    payload: { approvalId: 'some-approval' }
+  }, '/api/operator/quotes/:id/execute', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+
+  // 15i. POST /api/operator/quotes/:id/execute (Missing approvalId -> 400)
+  await testRoute('Execute Quote Missing Approval ID', {
+    method: 'POST',
+    url: `/api/operator/quotes/${quoteId}/execute`,
+    headers: { authorization: `Bearer ${operatorToken}` },
+    payload: {}
+  }, '/api/operator/quotes/:id/execute', [400], (res, body) => body.error?.code === 'INVALID_INPUT');
+
   // 16. POST /api/operator/logout (Logout session -> 200)
   await testRoute('Operator Logout', {
     method: 'POST',

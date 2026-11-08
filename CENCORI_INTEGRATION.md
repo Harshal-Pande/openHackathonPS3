@@ -107,3 +107,22 @@ Implemented in `src/server/schemas/aiExplanationSchema.ts`. Every response must 
 8. **Prompt Injection Quarantine:** Scanned for adversarial patterns (`ignore previous instructions`, `export private key`, etc.).
 9. **Length Bounds:** Rejects responses exceeding 50,000 characters or empty strings.
 10. **Graceful Fallback:** If validation fails, `AiExplanationService` captures the errors and falls back to the deterministic explanation without throwing or crashing.
+
+---
+
+## 5. MOD-03 Procurement Lifecycle via Buy CLI
+
+In MOD-03, Cencori AI completions can be procured through the official Buy CLI when explicitly authorized:
+
+1. **Quote Phase:** Investigation triggers `CencoriProvider.getQuote()`. System obtains 402 challenge, canonicalizes payload, calculates SHA-256 hash, and saves immutable quote in `AWAITING_OPERATOR_APPROVAL` state.
+2. **Approval Phase:** Operator unlocks the console, inspects quote payload hash, and issues `POST /api/operator/quotes/:id/approve`. Quote transitions to `APPROVED`.
+3. **Execution Phase (`executeAndAttachExplanation`):** Operator calls `POST /api/operator/quotes/:id/execute`.
+   - `BuyAdapter` reserves budget atomically.
+   - Writes exact serialized payload to secure temporary file with permissions `0600`.
+   - Invokes `@celo/buy@latest curl --max-amount 0.01 --token USDC --data-file <temp> -X POST <url>`.
+   - Redacts sensitive credentials from stdout/stderr.
+   - Extracts on-chain payment proof and verifies receipt on Celo node.
+   - Parses completion response, validates against strict anti-hallucination rules (`validateAiExplanation`).
+   - If valid, updates SQLite investigation with `status: 'SUCCESS'` explanation.
+   - If invalid or settlement unconfirmed, sets safe fallback status (`VALIDATION_FAILED` or `UNAVAILABLE`).
+   - Deletes temporary request file immediately.

@@ -92,6 +92,7 @@ export type QuoteStatus =
 
 export interface BuyQuoteSummary {
   quoteId: string;
+  investigationId?: string | null;
   capabilityId: string;
   status: QuoteStatus;
   url: string;
@@ -158,4 +159,93 @@ export interface InvestigationReport {
   buyQuote?: BuyQuoteSummary | null;
   createdAt: string;
   completedAt: string;
+}
+
+export type PurchaseStatus =
+  | 'EXECUTION_PENDING'
+  | 'SETTLED'
+  | 'SETTLEMENT_UNKNOWN'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export interface PurchaseAttemptRecord {
+  id: string;
+  quoteId: string;
+  approvalId: string;
+  investigationId?: string | null;
+  capabilityId: string;
+  url: string;
+  bodySha256: string;
+  tokenContract: string;
+  amountAtomic: string;
+  status: PurchaseStatus;
+  txHash?: string | null;
+  settlementTxHash?: string | null;
+  payerAddress?: string | null;
+  payeeAddress?: string | null;
+  errorMessage?: string | null;
+  rawStdoutRedacted?: string | null;
+  rawStderrRedacted?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SettlementProofRecord {
+  id: string;
+  purchaseAttemptId: string;
+  quoteId: string;
+  txHash: string;
+  chainId: number;
+  blockNumber?: number | null;
+  tokenContract: string;
+  payer: string;
+  recipient: string;
+  amountAtomic: string;
+  receiptStatus: number;
+  verifiedAt: string;
+}
+
+export interface BudgetReservationRecord {
+  id: string;
+  quoteId: string;
+  investigationId?: string | null;
+  amountAtomic: string;
+  status: 'RESERVED' | 'COMMITTED' | 'RELEASED';
+  reservedAt: string;
+  settledAt?: string | null;
+}
+
+export interface PaymentAuditEvent {
+  id?: number;
+  entityType: 'QUOTE' | 'APPROVAL' | 'PURCHASE' | 'SETTLEMENT' | 'BUDGET' | 'KILL_SWITCH';
+  entityId: string;
+  fromStatus?: string | null;
+  toStatus: string;
+  operatorUsername?: string | null;
+  details?: string | null;
+  createdAt: string;
+}
+
+export interface DiscoveredCapability {
+  id?: string;
+  capabilityId: string;
+  name: string;
+  category: string;
+  serviceUrl: string;
+  method?: string;
+  priceDisplay: string;
+  tokenSymbol: string;
+  recipient: string;
+  supportedModels?: string[];
+}
+
+export interface BuyHealthStatus {
+  ready: boolean;
+  cliVersion: string;
+  account: string;
+  network: string;
+  funded?: boolean;
+  balances: Record<string, string>;
+  killSwitchActive: boolean;
+  timestamp: string;
 }

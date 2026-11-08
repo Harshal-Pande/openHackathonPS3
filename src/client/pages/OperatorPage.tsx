@@ -7,26 +7,30 @@ import { CopyButton } from '../components/CopyButton.js';
 import { Modal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { quoteStatusTone } from '../lib/status.js';
-import { shortAddr, celoscanAddr } from '../lib/format.js';
-import type { BuyQuoteSummary } from '../lib/types.js';
-import { Lock, Unlock, ShieldAlert, AlertTriangle, RefreshCw } from 'lucide-react';
+import { shortAddr, celoscanAddr, celoscanTx } from '../lib/format.js';
+import type { BuyQuoteSummary, PurchaseAttemptRecord, BuyHealthStatus } from '../lib/types.js';
+import { Lock, Unlock, ShieldAlert, AlertTriangle, RefreshCw, Zap, ExternalLink } from 'lucide-react';
 
 export const OperatorPage: React.FC = () => {
   const [token, setToken] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<BuyQuoteSummary[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseAttemptRecord[]>([]);
+  const [buyHealth, setBuyHealth] = useState<BuyHealthStatus | null>(null);
   const [selectedQuote, setSelectedQuote] = useState<BuyQuoteSummary | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [confirmCheckbox, setConfirmCheckbox] = useState(false);
   const [hashConfirmInput, setHashConfirmInput] = useState('');
   const [approveError, setApproveError] = useState<string | null>(null);
   const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
+  const [executingQuoteId, setExecutingQuoteId] = useState<string | null>(null);
+  const [resolvingPurchaseId, setResolvingPurchaseId] = useState<string | null>(null);
   const [killSwitchState, setKillSwitchState] = useState<'UNKNOWN' | 'ENGAGED' | 'DISENGAGED'>('UNKNOWN');
   const [killSwitchTimestamp, setKillSwitchTimestamp] = useState<string | null>(null);
   const [disengageModalOpen, setDisengageModalOpen] = useState(false);
 
-  // Fetch quotes when unlocked
+  // Fetch quotes, health and purchases when unlocked
   const fetchQuotes = async (authToken: string) => {
     try {
       const res = await fetch('/api/operator/quotes', {
@@ -46,9 +50,50 @@ export const OperatorPage: React.FC = () => {
     }
   };
 
+  const fetchPurchases = async (authToken: string) => {
+    try {
+      const res = await fetch('/api/operator/purchases', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data && Array.isArray(json.data)) {
+          setPurchases(json.data);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const fetchBuyHealth = async (authToken: string) => {
+    try {
+      const res = await fetch('/api/operator/buy-health', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) {
+          setBuyHealth(json.data);
+          if (json.data.killSwitchActive !== undefined) {
+            setKillSwitchState(json.data.killSwitchActive ? 'ENGAGED' : 'DISENGAGED');
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const refreshAll = (authToken: string) => {
+    fetchQuotes(authToken);
+    fetchPurchases(authToken);
+    fetchBuyHealth(authToken);
+  };
+
   useEffect(() => {
     if (token) {
-      fetchQuotes(token);
+      refreshAll(token);
     }
   }, [token]);
 
@@ -112,9 +157,64 @@ export const OperatorPage: React.FC = () => {
 
       setApproveSuccess('Approved. No payment was executed (paidExecutionTriggered: false).');
       showToast('Quote approved');
-      fetchQuotes(token);
+      refreshAll(token);
     } catch (err: any) {
       setApproveError(err.message || 'Error executing approval.');
+    }
+  };
+
+  const handleExecuteQuote = async (quote: BuyQuoteSummary) => {
+    if (!token || !quote.approvalId) return;
+    setExecutingQuoteId(quote.quoteId);
+
+    try {
+      const res = await fetch(`/api/operator/quotes/${quote.quoteId}/execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ approvalId: quote.approvalId }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        const msg = json.error?.message || 'Execution failed.';
+        showToast(msg, 'fail');
+      } else {
+        const status = json.data?.result?.status || json.data?.purchaseAttempt?.status || 'PROCESSED';
+        showToast(`Purchase execution: ${status}`, status === 'SETTLED' ? 'ok' : 'neutral');
+      }
+      refreshAll(token);
+    } catch (err: any) {
+      showToast(err.message || 'Execution error', 'fail');
+    } finally {
+      setExecutingQuoteId(null);
+    }
+  };
+
+  const handleResolvePurchase = async (purchaseId: string) => {
+    if (!token) return;
+    setResolvingPurchaseId(purchaseId);
+    try {
+      const res = await fetch(`/api/operator/purchases/${purchaseId}/resolve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) {
+        showToast(json.error?.message || 'Resolution failed', 'fail');
+      } else {
+        showToast(json.data?.message || 'Settlement checked', 'neutral');
+      }
+      refreshAll(token);
+    } catch {
+      showToast('Resolution error', 'fail');
+    } finally {
+      setResolvingPurchaseId(null);
     }
   };
 
@@ -235,7 +335,7 @@ export const OperatorPage: React.FC = () => {
               <span className="text-2" style={{ fontSize: '13px' }}>Authenticated Operator Session</span>
             </div>
             <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
-              <Button variant="ghost" size="sm" onClick={() => fetchQuotes(token)} icon={<RefreshCw size={14} />}>
+              <Button variant="ghost" size="sm" onClick={() => refreshAll(token)} icon={<RefreshCw size={14} />}>
                 Refresh
               </Button>
               <Button variant="secondary" size="sm" onClick={handleLogout} icon={<Lock size={14} />}>
@@ -243,6 +343,65 @@ export const OperatorPage: React.FC = () => {
               </Button>
             </div>
           </div>
+
+          {/* Buy CLI & Wallet Status Panel */}
+          <Panel title="Buy CLI & Agent Wallet Readiness" tag="Payment Infrastructure">
+            <div className="stack" style={{ gap: 'var(--s-3)' }}>
+              <div className="grid grid--2col">
+                <KeyValue label="Paying Wallet Address">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                    <span className="mono" style={{ fontSize: '13px' }}>
+                      {buyHealth?.account ? shortAddr(buyHealth.account) : '0x3e1b...8e52'}
+                    </span>
+                    {buyHealth?.account && (
+                      <a
+                        href={celoscanAddr(buyHealth.account)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn--ghost btn--sm"
+                        title="View on CeloScan"
+                        style={{ padding: '2px 4px' }}
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
+                </KeyValue>
+                <KeyValue label="Buy CLI Version">
+                  <span className="mono">{buyHealth?.cliVersion || '@celo/buy@latest (0.8.5)'}</span>
+                </KeyValue>
+                <KeyValue label="Network">
+                  <span className="mono">Celo Mainnet (Chain ID 42220)</span>
+                </KeyValue>
+                <KeyValue label="Wallet Readiness">
+                  <Chip tone={buyHealth?.funded ? 'ok' : 'warn'}>
+                    {buyHealth?.funded ? 'Funded & Ready' : 'Unfunded (0 CELO, 0 USDC)'}
+                  </Chip>
+                </KeyValue>
+              </div>
+
+              {!buyHealth?.funded && (
+                <div
+                  className="card"
+                  style={{
+                    padding: 'var(--s-2) var(--s-3)',
+                    background: 'var(--warn-bg)',
+                    borderColor: 'var(--warn-line)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--s-2)',
+                    fontSize: '12px',
+                    color: 'var(--warn-text)',
+                  }}
+                >
+                  <AlertTriangle size={16} />
+                  <span>
+                    <strong>Wallet unfunded:</strong> Paid on-chain settlement is blocked until the agent wallet (<code>{buyHealth?.account || '0x3e1bef07824cd0E076F4907641F0A0EF27898e52'}</code>) is funded with CELO for gas and USDC for inference.
+                  </span>
+                </div>
+              )}
+            </div>
+          </Panel>
 
           {/* Kill Switch Panel */}
           <Panel title="Global Kill Switch" tag="Emergency Control">
@@ -313,20 +472,102 @@ export const OperatorPage: React.FC = () => {
                           {q.expiry ? new Date(q.expiry).toLocaleTimeString() : '—'}
                         </td>
                         <td style={{ textAlign: 'right' }}>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedQuote(q);
-                              setConfirmCheckbox(false);
-                              setHashConfirmInput('');
-                              setApproveError(null);
-                              setApproveSuccess(null);
-                              setReviewModalOpen(true);
-                            }}
-                          >
-                            Review
-                          </Button>
+                          <div style={{ display: 'inline-flex', gap: 'var(--s-1)', justifyContent: 'flex-end' }}>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedQuote(q);
+                                setConfirmCheckbox(false);
+                                setHashConfirmInput('');
+                                setApproveError(null);
+                                setApproveSuccess(null);
+                                setReviewModalOpen(true);
+                              }}
+                            >
+                              Review
+                            </Button>
+                            {q.status === 'APPROVED' && q.approvalId && (
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                disabled={executingQuoteId === q.quoteId}
+                                onClick={() => handleExecuteQuote(q)}
+                                icon={<Zap size={14} />}
+                              >
+                                {executingQuoteId === q.quoteId ? 'Executing...' : 'Execute'}
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+
+          {/* Purchases & Settlement Ledger */}
+          <Panel title="Purchases & Settlement Ledger" tag="On-Chain Settlement">
+            {purchases.length === 0 ? (
+              <p className="text-3" style={{ padding: 'var(--s-4) 0', textAlign: 'center' }}>
+                No purchases executed yet.
+              </p>
+            ) : (
+              <div className="table-container">
+                <table className="quotes-table">
+                  <thead>
+                    <tr>
+                      <th>Attempt ID</th>
+                      <th>Quote ID</th>
+                      <th>Capability</th>
+                      <th>Status</th>
+                      <th>Settlement TX</th>
+                      <th>Date</th>
+                      <th style={{ textAlign: 'right' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchases.map(p => (
+                      <tr key={p.id}>
+                        <td className="mono text-2">{p.id.slice(0, 10)}...</td>
+                        <td className="mono text-2">{p.quoteId.slice(0, 10)}...</td>
+                        <td className="mono text-1" style={{ fontSize: '13px' }}>{p.capabilityId}</td>
+                        <td>
+                          <Chip tone={p.status === 'SETTLED' ? 'ok' : p.status === 'SETTLEMENT_UNKNOWN' ? 'warn' : p.status === 'FAILED' ? 'fail' : 'neutral'}>
+                            {p.status}
+                          </Chip>
+                        </td>
+                        <td className="mono text-2">
+                          {p.settlementTxHash ? (
+                            <a
+                              href={celoscanTx(p.settlementTxHash)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-link"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                            >
+                              {p.settlementTxHash.slice(0, 10)}... <ExternalLink size={10} />
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="text-2" style={{ fontSize: '12px' }}>
+                          {new Date(p.createdAt).toLocaleTimeString()}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {p.status === 'SETTLEMENT_UNKNOWN' && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={resolvingPurchaseId === p.id}
+                              onClick={() => handleResolvePurchase(p.id)}
+                            >
+                              Resolve
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}

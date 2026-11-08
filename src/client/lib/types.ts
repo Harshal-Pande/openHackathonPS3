@@ -109,6 +109,7 @@ export interface AiExplanation {
 
 export interface BuyQuoteSummary {
   quoteId: string;
+  investigationId?: string | null;
   capabilityId: string;
   status:
     | 'QUOTE_REQUESTED'
@@ -133,6 +134,43 @@ export interface BuyQuoteSummary {
   chainId: number;
   expiry?: string | null;
   reason?: string | null;
+  approvalId?: string | null;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+}
+
+export interface PurchaseAttemptRecord {
+  id: string;
+  quoteId: string;
+  approvalId: string;
+  investigationId?: string | null;
+  capabilityId: string;
+  url: string;
+  bodySha256: string;
+  tokenContract: string;
+  amountAtomic: string;
+  status: 'EXECUTION_PENDING' | 'SETTLED' | 'SETTLEMENT_UNKNOWN' | 'FAILED' | 'CANCELLED';
+  txHash?: string | null;
+  settlementTxHash?: string | null;
+  payerAddress?: string | null;
+  payeeAddress?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BuyHealthStatus {
+  ready: boolean;
+  cliVersion: string;
+  account: string;
+  network: string;
+  funded?: boolean;
+  balances: Record<string, string>;
+  availableCapabilities?: string[];
+  killSwitchActive: boolean;
+  dailyBudgetLimitAtomic?: string;
+  dailyBudgetSpentAtomic?: string;
+  timestamp: string;
 }
 
 export interface InvestigationReport {

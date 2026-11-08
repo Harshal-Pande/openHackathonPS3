@@ -644,3 +644,62 @@ An independent security review of the MOD-02.3 implementation identified a subtl
 - **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
 - **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports.
+
+---
+
+## Phase 15 — Module 3: Secure Buy CLI Integration, Cencori AI Procurement, Payment Lifecycle & Live Settlement Verification (MOD-03)
+**Date:** 2026-11-08
+**Scope:** Official Buy CLI discovery, bounded Buy adapter implementation, Cencori AI procurement, quote-bound operator execution, 11-state transition enforcement, atomic budget reservation, on-chain settlement verification, and operator console UI integration.
+
+### 1. Summary of Changes
+1. **Official Buy CLI Discovery (Phase A):**
+   - Verified `@celo/buy@latest` version 0.8.5.
+   - Inspected `whoami`: paying address `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` on `celo` with balances: `0 CELO, 0 USDC, 0 USDT, 0 USAT, 0 USDm`.
+   - Inspected `skills show cencori/inference`: flat price $0.01 USDC (10,000 atomic units), model `maximo-atlas-1.3`, request body limit 32 KiB, receipts via `X-PAYMENT-RESPONSE` and `buy receipts --resolve`.
+   - Verified live 402 challenge output via `buy quote`.
+   - Documented discovery in `MOD03_BASELINE_AUDIT.md` and `MOD03_BUY_CLI_DISCOVERY.md`.
+
+2. **Secure Buy Adapter (`src/server/adapters/buyAdapter.ts`):**
+   - Built `BuyAdapter` class with `discoverCapabilities()`, `getHealth()`, `executeApprovedRequest()`, `resolveSettlement()`, and `verifyOnChainSettlement()`.
+   - Enforced fixed executable execution via `execFile` with `shell: false` (resolving Windows `npx.cmd`), 512 KiB buffer, 60s timeout, and temporary request file cleanup with mode `0600`.
+   - Implemented `redactSensitiveOutput()` scrubbing private keys (`0x[0-9a-fA-F]{64}`), Bearer tokens, and HTTP authorization headers.
+   - Enforced ambiguous outcome handling: any timeout or interruption marks `SETTLEMENT_UNKNOWN`, preserves budget reservation, and strictly forbids automatic retries.
+   - Provided deterministic `cliRunner` and `settlementVerifier` injection for 100% automated mock testing.
+
+3. **Database Layer Hardening & Forensic Types (`src/server/db/database.ts`, `src/server/forensics/types.ts`):**
+   - Added tables: `purchase_attempts`, `settlement_records`, `budget_reservations`, `payment_audit_events`.
+   - Added transition validators: `VALID_QUOTE_TRANSITIONS` (11 states) and `VALID_PURCHASE_TRANSITIONS`.
+   - Implemented atomic budget reservation methods: `reserveBudgetAtomic()`, `commitBudgetReservation()`, `releaseBudgetReservation()`.
+   - Added immutable payment audit event logging: `recordPaymentAuditEvent()`, `listPaymentAuditEvents()`.
+   - Updated `getGlobalDailySpendAtomic()` to count active `RESERVED` budget reservations and `EXECUTION_PENDING` / `SETTLEMENT_UNKNOWN` quotes.
+
+4. **Cencori AI Inference Procurement (`src/server/services/aiExplanationService.ts`):**
+   - Implemented `executeAndAttachExplanation()` orchestrating quote execution, Cencori response extraction, strict schema & anti-hallucination validation (`validateAiExplanation`), and SQLite investigation report updates.
+   - Preserves deterministic ground truth fallback if AI response fails validation or payment settlement is unconfirmed.
+
+5. **Fastify Operator API Routes (`src/server/app.ts`):**
+   - Added `POST /api/operator/quotes/:id/execute` (requires operator session, binds to approval, executes purchase).
+   - Added `GET /api/operator/purchases/:id` and `GET /api/operator/purchases` (inspect purchase attempts).
+   - Added `POST /api/operator/purchases/:id/resolve` (resolves ambiguous settlement on-chain).
+   - Added `GET /api/operator/buy-health` (queries real-time Buy CLI & wallet health).
+   - Added `GET /api/operator/audit-events` (queries immutable audit ledger).
+
+6. **Frontend Operator Console (`src/client/pages/OperatorPage.tsx`):**
+   - Added Buy CLI & Agent Wallet Readiness panel with paying address, CLI version, network, balances, and honest unfunded wallet warning.
+   - Added "Execute" purchase button for `APPROVED` quotes.
+   - Added Purchases & Settlement Ledger table with status chips and CeloScan transaction links.
+
+7. **Automated Test Suites & Route Audits:**
+   - Created `tests/buyAdapter.test.ts` (8 tests covering redactions, discovery, health, execution, exit code failure, timeouts, settlement verification).
+   - Created `tests/paymentLifecycle.test.ts` (10 tests covering 11-state matrix, atomic reservations, single-use approval, hash integrity, emergency kill-switch, audit events, operator API routes).
+   - Expanded `scripts/verify_all_routes.mjs` to 36 scenarios across 25 endpoints (100% pass).
+   - Verified `node scripts/browser_e2e_cdp.mjs` (exit code 0).
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **20/20 test files, 213/213 tests passing** (100% green).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` has 0 CELO and 0 USDC balances; live mainnet spend blocked pending operator funding. $0.00 personal funds spent.
