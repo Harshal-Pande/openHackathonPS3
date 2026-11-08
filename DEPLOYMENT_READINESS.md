@@ -1,7 +1,7 @@
-# RevertLens â€” Cloud Deployment & Production Container Readiness Guide
+# RevertLens — Cloud Deployment & Production Container Readiness Guide
 
 **Document Version:** 2.0.0 (MOD-05A.1 Pre-Deployment Audit)
-**Hackathon:** Agents on Open Rails 2026 | Track PS3 â€” Build with Buy
+**Hackathon:** Agents on Open Rails 2026 | Track PS3 — Build with Buy
 **Target Blockchain:** Celo Mainnet (`eip155:42220` / `0xa4ec`)
 **Deployment Target:** Cloud Container (Render, Railway, or Fly.io Docker Web Service)
 **Current Lifecycle State:** `READY_FOR_PUBLIC_CLOUD_DEPLOYMENT` (Scheduled for Module MOD-06)

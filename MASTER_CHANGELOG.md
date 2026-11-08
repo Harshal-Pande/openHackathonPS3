@@ -1,13 +1,15 @@
 # REVERTLENS — MASTER CHANGELOG & ARCHITECTURAL EVOLUTION
 **Project:** RevertLens — "Your Celo transaction failed. Find out why."
-**Hackathon:** Agents on Open Rails 2026 | Loops House Ã— Celo
+**Hackathon:** Agents on Open Rails 2026 | Loops House × Celo
 **Track:** PS3 — Build with Buy
 **Target Network:** Celo Mainnet (`eip155:42220`), Chain ID: `42220`
 **Official Assigned Attribution Tag:** `celo_235f6ef56f5b`
 **Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
 **Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`
-**Status:** RELEASE CANDIDATE (LOCAL VERIFIED, PREPARED FOR HUMAN SUBMISSION)
-**Last Updated:** 2026-11-08 (Phase 16 - MOD-03.2)
+**Status:** MOD-05A.1-R2 COMPLETE (LOCAL VERIFIED & PROVENANCE RECONCILED — PENDING INDEPENDENT REVIEW)
+**Current Milestone:** Milestone MOD-05A.1-R2 (Pre-Deployment Audit & Provenance Integrity)
+**Roadmap Sequence:** MOD-04 ACCEPTED → MOD-05A PREPARATION → MOD-05A.1 / MOD-05A.1-R / MOD-05A.1-R2 JUDGE READINESS & PROVENANCE → MOD-06 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION
+**Last Updated:** 2026-11-08 (Phase 25.2 — MOD-05A.1-R2)
 
 ---
 
@@ -17,38 +19,38 @@ RevertLens was conceived and developed across 12 distinct engineering phases to 
 
 ```
 Phase 0: Architecture & Protocol Specification
-  â”‚
+  │
 Phase 1: Buy Gateway & Cencori LLM Integration Spike
-  â”‚
+  │
 Phase 2: EVM Transaction & Receipt Ingestion Layer
-  â”‚
+  │
 Phase 3: OP Geth Debug Trace Ingestion & Call Tree Parser
-  â”‚
+  │
 Phase 4: Deterministic Revert Reason Decoder & Custom Error Registry
-  â”‚
+  │
 Phase 5: Automated Forensic Inference & Evidence Assembler
-  â”‚
+  │
 Phase 6: Reactive Web UI (React + Vite + Tailwind CSS)
-  â”‚
+  │
 Phase 7: End-to-End User Journeys & Local SQLite Persistence
-  â”‚
+  │
 Phase 8: Security Hardening & Zero-Spend Payment Invariant Enforcement
-  â”‚
+  │
 Phase 9: Hackathon Release Readiness & Docker Containerization Audit
-  â”‚
+  │
 Phase 10: Root-Cause Stabilization & CDP Browser Automation Harness
-  â”‚
+  │
 Phase 11: Official Celo Attribution Tag (`celo_235f6ef56f5b`) & Agent Wallet Ingestion
-  â”‚
+  │
 Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Verification
 ```
 
 ### Key Milestones:
-- **Phase 0â€“3:** Established strict Fastify backend with Node.js 22 LTS, SQLite persistence, and viem. Identified that the public Celo RPC (`forno.celo.org`) disables `debug_traceTransaction`. Pivoted cleanly under AD-008 to a dedicated Chainstack Celo Mainnet Elastic Global Node (OP Geth, Chain ID 42220) providing full tracer access.
-- **Phase 4â€“6:** Implemented deterministic ABI decoding for Standard Errors (`Error(string)`, `Panic(uint256)`), ERC-20, Uniswap V2/V3, and native Celo governance/fee currencies. Built interactive UI displaying transaction metadata, gas consumption, root-cause call frame highlights, and structured forensic evidence.
-- **Phase 7â€“8:** Integrated Buy protocol client (`@celo/buy`) for paid Cencori AI completions (`cencori.v1.chat.completions`), enforcing strict 402 quote parsing, SHA-256 body binding, per-call budget limits, and human operator approval barriers.
-- **Phase 9â€“10:** Overcame headless browser automation limitations by authoring a direct Chrome DevTools Protocol (CDP) WebSocket test harness (`scripts/browser_e2e_cdp.mjs`), validating real UI workflows on Desktop (1280x800) and Mobile (375x812) viewports. Resolved live execution timeout flakes by adopting OS-level isolated child processes (`child_process.fork`).
-- **Phase 11â€“11.5:** Successfully integrated the official hackathon attribution tag `celo_235f6ef56f5b` with ERC-8021 specification, verified the permanent Agent Wallet (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`), prepared ERC-8004 Identity Registration calldata (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`), and confirmed 100% test pass rate across 14 test suites (110 tests).
+- **Phase 0–3:** Established strict Fastify backend with Node.js 22 LTS, SQLite persistence, and viem. Identified that the public Celo RPC (`forno.celo.org`) disables `debug_traceTransaction`. Pivoted cleanly under AD-008 to a dedicated Chainstack Celo Mainnet Elastic Global Node (OP Geth, Chain ID 42220) providing full tracer access.
+- **Phase 4–6:** Implemented deterministic ABI decoding for Standard Errors (`Error(string)`, `Panic(uint256)`), ERC-20, Uniswap V2/V3, and native Celo governance/fee currencies. Built interactive UI displaying transaction metadata, gas consumption, root-cause call frame highlights, and structured forensic evidence.
+- **Phase 7–8:** Integrated Buy protocol client (`@celo/buy`) for paid Cencori AI completions (`cencori.v1.chat.completions`), enforcing strict 402 quote parsing, SHA-256 body binding, per-call budget limits, and human operator approval barriers.
+- **Phase 9–10:** Overcame headless browser automation limitations by authoring a direct Chrome DevTools Protocol (CDP) WebSocket test harness (`scripts/browser_e2e_cdp.mjs`), validating real UI workflows on Desktop (1280x800) and Mobile (375x812) viewports. Resolved live execution timeout flakes by adopting OS-level isolated child processes (`child_process.fork`).
+- **Phase 11–11.5:** Successfully integrated the official hackathon attribution tag `celo_235f6ef56f5b` with ERC-8021 specification, verified the permanent Agent Wallet (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`), prepared ERC-8004 Identity Registration calldata (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`), and confirmed 100% test pass rate across 14 test suites (110 tests).
 
 ---
 
@@ -1055,7 +1057,7 @@ Following an independent audit of the MOD-04 implementation snapshot by ChatGPT,
 
 7. **DEF-55: Governance Task Register Re-alignment & Module Sequencing (P2):**
    - **Root Cause:** Tasks AGY-10 through AGY-13 were previously reused for MOD-04, conflicting with tasks already assigned to Modules 5 and 6.
-   - **Remediation:** Reconciled `ANTIGRAVITY_TASK_REGISTER.md` by assigning unique identifiers `AGY-04-01` through `AGY-04-05` for MOD-04.1. Marked MOD-04 as `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE`. Updated `MASTER_EXECUTION_ROADMAP.md` establishing the explicit dependency chain `MOD-04 â†’ MOD-04.1 â†’ MOD-06 â†’ MOD-05 â†’ MOD-07 â†’ MOD-08`. Kept MOD-03 live settlement gated on funding/approval and MOD-05 registration dependent on public deployment.
+   - **Remediation:** Reconciled `ANTIGRAVITY_TASK_REGISTER.md` by assigning unique identifiers `AGY-04-01` through `AGY-04-05` for MOD-04.1. Marked MOD-04 as `IMPLEMENTED_PENDING_REMEDIATION_ACCEPTANCE`. Updated `MASTER_EXECUTION_ROADMAP.md` establishing the explicit dependency chain `MOD-04 → MOD-04.1 → MOD-06 → MOD-05 → MOD-07 → MOD-08`. Kept MOD-03 live settlement gated on funding/approval and MOD-05 registration dependent on public deployment.
 
 ### 2. Verification Evidence
 - **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
@@ -1160,7 +1162,7 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
    - Authored `tests/erc8004Registration.test.ts` with 24 comprehensive unit and integration tests covering schema validation, calldata encoding, endpoint readiness states, and receipt verification paths.
    - Overhauled `ERC8004_REGISTRATION_PREPARATION.md` covering all 18 checklist items from Section 6.
    - Updated `ANTIGRAVITY_TASK_REGISTER.md` adding tasks `AGY-05-01` through `AGY-05-04`.
-   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence `MOD-04 ACCEPTED â†’ MOD-05A PREPARATION â†’ MOD-06 DEPLOYMENT â†’ MOD-05B LIVE REGISTRATION â†’ MOD-07 USER TESTING â†’ MOD-08 SUBMISSION`.
+   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence `MOD-04 ACCEPTED → MOD-05A PREPARATION → MOD-06 DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION`.
 
 ### 2. Verification Evidence
 - **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
@@ -1200,7 +1202,7 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
    - Updated `.env.example` to explicitly document immutable hackathon defaults (`CELO_ATTRIBUTION_TAG=celo_235f6ef56f5b`, `AGENT_WALLET_ADDRESS=0x3e1bef07824cd0E076F4907641F0A0EF27898e52`) and Chainstack RPC configuration instructions.
 
 5. **Roadmap & Checklist Reconciliation:**
-   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence: `MOD-04 ACCEPTED â†’ MOD-05A PREPARATION â†’ MOD-05A.1 JUDGE READINESS â†’ MOD-06 PUBLIC DEPLOYMENT â†’ MOD-05B LIVE REGISTRATION â†’ MOD-07 USER TESTING â†’ MOD-08 SUBMISSION`.
+   - Updated `MASTER_EXECUTION_ROADMAP.md` setting roadmap sequence: `MOD-04 ACCEPTED → MOD-05A PREPARATION → MOD-05A.1 JUDGE READINESS → MOD-06 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION`.
    - Updated `SUBMISSION_CHECKLIST.md` and `PROOF.md` with verified test counts (498 tests) and direct explorer links.
 
 ### 2. Verification Evidence
@@ -1239,3 +1241,35 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Relative Markdown Links:** Verified zero `file:///` URLs across all documentation.
 - **Zero-Spend Invariant Enforced:** $0.00 spent across all project phases.
 - **Lifecycle State:** `MOD-05A.1 — DOCUMENTATION ACCEPTANCE CORRECTIONS COMPLETE — PENDING REVIEW`.
+
+
+---
+
+## Phase 25.2 — Module 5A.1-R2: Snapshot Provenance, UTF-8 Integrity & Changelog Reconciliation (MOD-05A.1-R2)
+**Date:** 2026-11-08<br/>
+**Baseline Commit:** `87899d75a4ec525ace27b1cb9dd6c6aaedb8a3e9`<br/>
+**Scope:** Complete UTF-8 character restoration (remediating mojibake across documentation), reconciliation of project-level changelog metadata, hardening of Gitingest digest generator labels, and authoritative verification of snapshot provenance metrics.
+
+### 1. Summary of Changes
+1. **UTF-8 Integrity Restoration across Entire Repository (DEF-61):**
+   - Replaced all corrupted mojibake sequences across `MASTER_CHANGELOG.md`, `DEPLOYMENT_READINESS.md`, and `JUDGE_LOCAL_RUNBOOK.md` with intended Unicode characters:
+     - Multiplication symbol `×` (U+00D7) restored in `Loops House × Celo`.
+     - En-dash `–` (U+2013) restored across phase ranges (`Phase 0–3`, etc.) and time estimates (`~11–12 seconds`).
+     - Em-dash `—` (U+2014) restored across document titles and headers.
+     - Right arrow `→` (U+2192) restored across execution sequence chains (`MOD-04 → MOD-04.1`, etc.).
+     - Box drawing vertical bar `│` (U+2502) restored across architectural ASCII sequence trees.
+   - Performed repository-wide automated scan confirming 0 remaining mojibake patterns.
+2. **Project-Level Changelog Metadata Reconciliation (DEF-61):**
+   - Reconciled top-level project metadata: status updated to `MOD-05A.1-R2 COMPLETE`, milestone to `Milestone MOD-05A.1-R2`, and explicitly defined roadmap sequence: `MOD-04 ACCEPTED → MOD-05A PREPARATION → MOD-05A.1 / MOD-05A.1-R / MOD-05A.1-R2 JUDGE READINESS & PROVENANCE → MOD-06 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION`.
+3. **Gitingest Generator Identity & Snapshot Provenance Hardening (DEF-60, DEF-62):**
+   - Updated `scripts/generate_gitingest.mjs` console logging and header metadata to reflect `MOD-05A.1` instead of stale `MOD-04` labels.
+   - Refined exclusion logic to exclude all `*gitingest.txt` artifacts and self-referential output file while correctly preserving repository scripts (such as `generate_gitingest.mjs`).
+   - Regenerated authoritative snapshot `revertlens_mod05a_1_gitingest.txt` and verified directory listing count matches included file sections exactly.
+
+### 2. Verification Evidence
+- **UTF-8 Character Integrity:** Automated repository-wide regex scan detected 0 mojibake instances.
+- **Automated Test Suite:** Re-verified `npm test` passing 100% (22 test files, 498 tests passed).
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Relative Markdown Links:** Verified zero `file:///` URLs across all documentation.
+- **Zero-Spend Invariant Enforced:** $0.00 spent across all project phases.
+- **Lifecycle State:** `MOD-05A.1-R2 — EVIDENCE AND DOCUMENTATION RECONCILIATION COMPLETE — PENDING INDEPENDENT REVIEW`.

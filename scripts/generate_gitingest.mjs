@@ -29,19 +29,7 @@ const EXCLUDE_DIRS = new Set([
 const EXCLUDE_FILES = new Set([
   '.env',
   '.env.local',
-  '.DS_Store',
-  'revertlens_mod02_gitingest.txt',
-  'revertlens_mod03_gitingest.txt',
-  'revertlens_mod03_2_gitingest.txt',
-  'revertlens_mod03_3_gitingest.txt',
-  'revertlens_mod03_4_gitingest.txt',
-  'revertlens_mod03_5_gitingest.txt',
-  'revertlens_mod03_6_gitingest.txt',
-  'revertlens_mod04_gitingest.txt',
-  'revertlens_mod04_1_gitingest.txt',
-  'revertlens_mod04_2_gitingest.txt',
-  'revertlens_mod05a_gitingest.txt',
-  'revertlens_mod05a_1_gitingest.txt'
+  '.DS_Store'
 ]);
 
 const EXCLUDE_EXTENSIONS = new Set([
@@ -66,10 +54,13 @@ function shouldIncludeFile(filePath) {
   const baseName = path.basename(filePath);
   const ext = path.extname(filePath).toLowerCase();
 
+  // Exclude explicit files and extensions
   if (EXCLUDE_FILES.has(baseName)) return false;
   if (EXCLUDE_EXTENSIONS.has(ext)) return false;
   if (baseName.startsWith('.env')) return false;
-  if (baseName.includes('gitingest')) return false;
+
+  // Exclude all current and historical Gitingest text artifacts
+  if (baseName.endsWith('_gitingest.txt') || (baseName.includes('gitingest') && ext === '.txt')) return false;
 
   return true;
 }
@@ -81,6 +72,11 @@ function walkDir(currentDir, relativeRoot = '') {
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
     const relPath = path.join(relativeRoot, entry.name).replace(/\\/g, '/');
+
+    // Prevent inclusion of the output file itself
+    if (path.resolve(fullPath) === path.resolve(OUTPUT_FILE)) {
+      continue;
+    }
 
     if (entry.isDirectory()) {
       if (EXCLUDE_DIRS.has(entry.name)) continue;
@@ -110,7 +106,7 @@ function generateDirectoryTree(files) {
 }
 
 async function main() {
-  console.log('Generating fresh Gitingest snapshot for MOD-04...');
+  console.log('Generating fresh Gitingest snapshot for MOD-05A.1 (Judge Verification & Provenance)...');
 
   const files = walkDir(REPO_ROOT);
   files.sort((a, b) => a.relPath.localeCompare(b.relPath));
@@ -120,7 +116,7 @@ async function main() {
   // 1. Header & Directory Tree
   outputStream.write(`Repository: RevertLens\n`);
   outputStream.write(`Snapshot Generated: ${new Date().toISOString()}\n`);
-  outputStream.write(`Module: MOD-04 (Official Attribution Engine & Celo SDK Integration)\n`);
+  outputStream.write(`Module: MOD-05A.1 (Judge Verification, Fresh-Clone Reproducibility & Celo DevRel Closure)\n`);
   outputStream.write(`Included Files: ${files.length}\n\n`);
 
   const tree = generateDirectoryTree(files);

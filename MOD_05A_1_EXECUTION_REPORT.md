@@ -14,7 +14,7 @@
 
 ## 1. Executive Summary
 
-This phase (`MOD-05A.1` and corrective reconciliation `MOD-05A.1-R`) delivers a comprehensive overhaul of the RevertLens repository for hackathon judges, evaluation bots (such as AskBots), and external developers, addressing all feedback received from the early-stage Celo DevRel automated hands-on review.
+This phase (`MOD-05A.1` and corrective reconciliations `MOD-05A.1-R` and `MOD-05A.1-R2`) delivers a comprehensive overhaul of the RevertLens repository for hackathon judges, evaluation bots (such as AskBots), and external developers, addressing all feedback received from the early-stage Celo DevRel automated hands-on review.
 
 The repository has been verified to be **100% reproducible and verifiable from a clean git clone**. The automated test suite (22 files, 498 tests) runs completely offline without API keys or private keys. The README has been rewritten to provide immediate copy-paste run instructions, transparent on-chain evidence tables with direct Celoscan/Blockscout links, architecture flowcharts, and clean relative Markdown documentation links.
 
@@ -132,11 +132,13 @@ The authoritative Gitingest digest of the repository has been recorded:
 |:---|:---|:---|
 | **Snapshot File Name** | `revertlens_mod05a_1_gitingest.txt` | Authoritative single-file repository digest |
 | **Snapshot File Path** | `D:\Blockchain\BuildWithBuy\revertlens_mod05a_1_gitingest.txt` | Workspace root |
-| **Exact Byte Size** | `2,193,625` bytes | 2.09 MB uncompressed |
-| **Total Line Count** | `46,503` lines | Including headers, directory tree, and file contents |
-| **Included File Sections** | `230` tracked files | Filtered via strict exclusion patterns |
-| **Generation Timestamp** | `2026-11-08T15:12:43.219Z` | Recorded from filesystem mtime |
-| **Exclusion Policy** | Verified | Excludes all previous `*gitingest.txt` digests, `.env*`, SQLite databases, node_modules, dist, and media |
+| **Exact Byte Size** | `2,202,612` bytes | ~2.10 MB uncompressed |
+| **Total Line Count** | `46,711` lines | Including headers, directory tree, and file contents |
+| **Included File Sections** | `231` tracked files | Filtered via strict exclusion patterns (excluding all `*gitingest*` digests) |
+| **Directory Tree File Count** | `231` tracked files | Confirmed 100% match between directory listing and file sections |
+| **Header Generation Timestamp** | `2026-11-08T15:24:18.585Z` | Recorded directly from snapshot header |
+| **Filesystem Timestamp (mtime)** | `2026-11-08T15:24:18.663Z` | Recorded from filesystem mtime |
+| **Exclusion Policy** | Verified | Excludes all previous and current `*gitingest.txt` digests, `.env*`, SQLite databases, node_modules, dist, and media |
 
 ---
 
@@ -147,11 +149,20 @@ A focused documentation reconciliation was executed to ensure complete historica
 1. **DevRel Review Context Reconciliation:** Updated `CELO_DEVREL_FEEDBACK_CLOSURE.md` to clearly specify that the Celo DevRel AskBots review was an early-stage/interim automated check conducted before the RevertLens forensic platform and its test suite were built. Clarified that it was not a review of the completed 498-test project. Preserved verbatim feedback and the distinction between CLOSED suggestions and the live demo item still `BLOCKED_BY_PUBLIC_DEPLOYMENT`.
 2. **README Documentation Index Update:** Aligned `README.md` documentation index to cover `Phases 0 through 25 / MOD-05A.1-R`.
 3. **Digest Generator Hardening:** Hardened `scripts/generate_gitingest.mjs` with wildcard exclusion `baseName.includes('gitingest')` to prevent any recursive self-inclusion or duplicate snapshot tracking.
-4. **Metadata Reconciliation:** Reconciled actual snapshot metrics in this report from disk inspection.
 
 ---
 
-## 9. Remaining Blockers & Next Human Operator Actions
+## 9. Second Corrective Pass: Provenance, UTF-8 Integrity & Metadata (MOD-05A.1-R2)
+
+An independent audit identified three specific defects that were resolved in this phase:
+
+1. **DEF-60 (Snapshot Metadata & Provenance):** Resolved discrepancy between reported snapshot size and actual disk artifact. Hardened generator to exclude all Gitingest text digests while properly preserving repository scripts (`generate_gitingest.mjs`). Verified exact agreement between directory tree file count (231) and included file sections (231).
+2. **DEF-61 (UTF-8 Integrity Restoration):** Repaired 34 instances of mojibake across `MASTER_CHANGELOG.md`, `DEPLOYMENT_READINESS.md`, and `JUDGE_LOCAL_RUNBOOK.md`. Restored multiplication symbols (U+00D7 `×`), en-dashes (U+2013 `–`), em-dashes (U+2014 `—`), right arrows (U+2192 `→`), and box-drawing lines (U+2502 `│`). Reconciled project-level changelog status, milestone, and roadmap sequence.
+3. **DEF-62 (Generator Identity Alignment):** Updated `scripts/generate_gitingest.mjs` console output and snapshot header to correctly identify `MOD-05A.1` instead of outdated `MOD-04` labels.
+
+---
+
+## 10. Remaining Blockers & Next Human Operator Actions
 
 1. **MOD-06 (Public Cloud Deployment):** Deploy container to Render or Railway using [`DEPLOYMENT_READINESS.md`](DEPLOYMENT_READINESS.md) to obtain canonical HTTPS domain.
 2. **MOD-05B (On-Chain Agent Registration):** Fund agent wallet with `~0.1 CELO` and broadcast pre-computed registration transaction.
@@ -160,4 +171,4 @@ A focused documentation reconciliation was executed to ensure complete historica
 
 ---
 
-**MOD-05A.1 — DOCUMENTATION ACCEPTANCE CORRECTIONS COMPLETE — PENDING REVIEW**
+**MOD-05A.1-R2 — EVIDENCE AND DOCUMENTATION RECONCILIATION COMPLETE — PENDING INDEPENDENT REVIEW**

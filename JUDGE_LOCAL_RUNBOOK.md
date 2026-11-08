@@ -1,9 +1,9 @@
-# RevertLens â€” Judge Local Verification & Runbook
+# RevertLens — Judge Local Verification & Runbook
 
 **Target Audience:** Hackathon Judges & Independent Reviewers
-**Hackathon:** Agents on Open Rails 2026 | Track PS3 â€” Build with Buy
+**Hackathon:** Agents on Open Rails 2026 | Track PS3 — Build with Buy
 **Target Blockchain:** Celo Mainnet (`eip155:42220` / `0xa4ec`)
-**Project:** RevertLens â€” "Your Celo transaction failed. Find out why."
+**Project:** RevertLens — "Your Celo transaction failed. Find out why."
 **Repository:** `https://github.com/Harshal-Pande/openHackathonPS3`
 
 ---
@@ -55,7 +55,7 @@ npm test
 *Expected result:*
 - **22 test files passed (22)**
 - **498 tests passed (498)**
-- Duration: ~11â€“12 seconds.
+- Duration: ~11–12 seconds.
 - Zero failures, zero skipped tests.
 
 ### Step 4: Verify Static Typing

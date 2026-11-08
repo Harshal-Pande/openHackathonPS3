@@ -78,7 +78,7 @@ GATE E: Actual Build with Buy Payment Evidence   ===>  NOT_MET — NO VERIFIED P
 
 | Action | Owner | Target Time | Reference Guide |
 |:---|:---:|:---:|:---|
-| **1. Deploy to Render / Railway / Fly.io** | Human Operator | 10–15 min | [`DEPLOYMENT_READINESS.md`](file:///d:/Blockchain/BuildWithBuy/DEPLOYMENT_READINESS.md) |
-| **2. Record 2–3 Minute Demo Video** | Human Operator | 15–20 min | [`DEMO_SCRIPT.md`](file:///d:/Blockchain/BuildWithBuy/DEMO_SCRIPT.md) |
+| **1. Deploy to Render / Railway / Fly.io** | Human Operator | 10–15 min | [`DEPLOYMENT_READINESS.md`](DEPLOYMENT_READINESS.md) |
+| **2. Record 2–3 Minute Demo Video** | Human Operator | 15–20 min | [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) |
 | **3. (Optional) Sign ERC-8004 On-Chain Identity** | Human Operator | 5 min | Project Wallet on Celo Mainnet |
 | **4. Submit Hackathon Form** | Human Operator | 5 min | Loops House Portal |
