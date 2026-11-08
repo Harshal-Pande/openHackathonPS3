@@ -293,3 +293,30 @@ Engineered to resolve DEF-42 and DEF-43:
   - Dedicated identifiers `AGY-04-01` through `AGY-04-05` assigned for MOD-04.1 remediation.
   - Strict dependency sequencing enforced: `MOD-04 → MOD-04.1 → MOD-06 → MOD-05 → MOD-07 → MOD-08`.
 
+---
+
+## 15. Read-Only Provider Enforcement & Final Attribution Hardening (MOD-04.2 / DEF-56 through DEF-59)
+
+- **Strict Read-Only RPC Method Allowlist at Gateway Boundary (DEF-56):**
+  - Enforced an authoritative `ALLOWED_READ_ONLY_RPC_METHODS` allowlist inside `ChainstackProvider.callRpc()` before endpoint configuration checks, payload construction, or network `fetch`.
+  - Allowed methods: `eth_chainId`, `eth_blockNumber`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_call`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getLogs`, `eth_getTransactionCount`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_estimateGas`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber`, `debug_traceBlockByHash`.
+  - Any state-changing (`eth_sendTransaction`, `eth_sendRawTransaction`, `personal_sendTransaction`, `wallet_sendCalls`, `eth_signTransaction`, `personal_sign`), unapproved, or unknown method immediately throws typed `ChainstackProviderError('READ_ONLY_METHOD_REQUIRED', 400)` before network execution.
+  - Tested with mocked fetch asserting that network fetch is never called for unauthorized methods.
+- **Robust Non-Public IP URL Validation (DEF-57):**
+  - Upgraded `validatePublicBaseUrl()` in `src/server/config.ts` with socket-level IP classification (`net.isIP`), IPv6 bracket stripping, and word expansion algorithms (`parseIpv6ToWords`, `isNonPublicIpv4`, `isNonPublicIpv6`).
+  - Evaluates all non-public network blocks in production:
+    - IPv4 loopback `127.0.0.0/8` (entire block, including `127.0.0.2`, `127.1.2.3`), current network `0.0.0.0/8`, private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local `169.254.0.0/16`, CGNAT `100.64.0.0/10`, test networks, and multicast/reserved (`224.0.0.0/4`, `240.0.0.0/4`).
+    - IPv6 loopback (`::1`), unspecified (`::`), unique local (`fc00::/7`), link-local (`fe80::/10`), multicast (`ff00::/8`), documentation (`2001:db8::/32`), and IPv4-mapped IPv6 literals (`::ffff:0:0/96`).
+  - Permits only valid public HTTPS domains, public IPv4, and public IPv6 in production.
+- **Request Classification Decision Architecture & Unknown Operation Fail-Closed Policy (DEF-58):**
+  - Extended request classification to include explicit `ClassificationDecision`:
+    - Category A (Outgoing EVM): `decision: 'REQUIRES_ATTRIBUTION'`.
+    - Category B (Read-Only RPC): `decision: 'MUST_REMAIN_UNTAGGED'`.
+    - Category C (HTTP 402 Payment): `decision: 'MUST_REMAIN_UNTAGGED'`.
+    - Category D (Internal): `decision: 'MUST_REMAIN_UNTAGGED'`.
+    - Category Unknown: `decision: 'REJECT_UNKNOWN'`.
+  - Eliminates ambiguity where callers could assume `shouldAddAttribution: false` implies untagged execution is permitted.
+  - Added `assertOperationDispatchable()` helper throwing typed `AttributionError('UNRECOGNIZED_OPERATION_REJECTED')` when encountering unknown operations.
+- **Strict Calldata Input & Whitespace Rejection (DEF-59):**
+  - Eliminated `.trim()` sanitization in `appendAttribution()`.
+  - Enforced strict regex validation (`/\s/.test(calldata)`); rejects leading, trailing, and embedded whitespace (spaces, tabs, newlines) with typed `AttributionError('INVALID_CALLDATA')` without mutating inputs.

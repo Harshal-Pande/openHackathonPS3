@@ -161,6 +161,34 @@ flowchart TD
 
 ---
 
+### MODULE 4.2 — Read-Only Provider Enforcement & Final Attribution Hardening
+- **Module ID:** `MOD-04.2`
+- **Status:** `IMPLEMENTED_PENDING_INDEPENDENT_REVIEW` (Tasks AGY-04-06 through AGY-04-09 implemented; 474/474 passing tests across 21 suites)
+- **Objective:** Remediate remaining findings from MOD-04.1 review: enforce strict read-only RPC method allowlist inside `ChainstackProvider.callRpc()` before network execution (DEF-56), robust non-public IP validation covering loopback blocks, bracketed IPv6, and IPv4-mapped IPv6 in `validatePublicBaseUrl()` (DEF-57), eliminate ambiguous `CATEGORY_UNKNOWN` untagged assumption with explicit `REJECT_UNKNOWN` decision and typed dispatch assertion (DEF-58), and strictly reject whitespace in calldata inputs without trimming (DEF-59).
+- **Hackathon Relevance:** Guarantees that the Chainstack gateway can never be misused for state-changing transactions, ensures public agent URLs cannot point to internal or loopback addresses, and prevents ambiguous execution of unknown operations.
+- **Exact Tasks:**
+  1. `AGY-04-06`: Strict read-only RPC method allowlist (`ALLOWED_READ_ONLY_RPC_METHODS`) inside `ChainstackProvider.callRpc()` before URL checks, payload construction, or `fetch` (DEF-56). [COMPLETED]
+  2. `AGY-04-07`: Complete non-public IP validation using `net.isIP`, IPv6 word expansion, and rejection of all loopback/private/link-local/multicast blocks in `validatePublicBaseUrl()` (DEF-57). [COMPLETED]
+  3. `AGY-04-08`: Explicit request classification decision architecture (`ClassificationDecision`), `REJECT_UNKNOWN` for Category Unknown, and `assertOperationDispatchable()` helper (DEF-58). [COMPLETED]
+  4. `AGY-04-09`: Strict calldata input validation rejecting leading, trailing, or embedded whitespace with typed `AttributionError('INVALID_CALLDATA')` without `.trim()` (DEF-59). [COMPLETED]
+- **User Dependencies:** None (100% automated software hardening).
+- **Antigravity Tasks:** `AGY-04-06`, `AGY-04-07`, `AGY-04-08`, `AGY-04-09`.
+- **Files Changed:** `src/server/providers/chainstack.ts`, `src/server/config.ts`, `src/server/services/celoAttributionService.ts`, `tests/chainstackProvider.test.ts`, `tests/config.test.ts`, `tests/erc8021.test.ts`, governance documents.
+- **Security Impact:** Closes DEF-56, DEF-57, DEF-58, DEF-59. Enforces strictly read-only provider isolation, hardens public base URL validation, eliminates fail-open classification ambiguity, and prevents malformed whitespace inputs.
+- **Prerequisites:** `MOD-04.1`.
+- **Downstream Dependency Chain:** `MOD-04 → MOD-04.1 → MOD-04.2 → MOD-06 → MOD-05 → MOD-07 → MOD-08`.
+- **Acceptance Criteria:**
+  - `ChainstackProvider.callRpc()` rejects state-changing and unknown methods before `fetch`; verified `fetchMock` is never called. [VERIFIED]
+  - `validatePublicBaseUrl()` rejects `127.0.0.2`, `10.0.0.1`, `[::1]`, `[fc00::1]`, `[fe80::1]`, `[::ffff:127.0.0.1]` in production. [VERIFIED]
+  - `classifyOperation()` assigns `decision: 'REJECT_UNKNOWN'` to unrecognized operations; `assertOperationDispatchable()` throws typed error. [VERIFIED]
+  - `appendAttribution()` strictly rejects calldata containing whitespace with `INVALID_CALLDATA`. [VERIFIED]
+  - 474/474 tests pass across 21 suites. [VERIFIED]
+- **Verification Commands:** `npx vitest run tests/chainstackProvider.test.ts`, `npx vitest run tests/config.test.ts`, `npx vitest run tests/erc8021.test.ts`, `npm test`, `npm run typecheck`, `npm run build`, `node scripts/verify_all_routes.mjs`, `node scripts/browser_e2e_cdp.mjs`. [ALL PASS]
+- **Evidence Required:** Terminal outputs, test logs, and clean Git status. [VERIFIED]
+- **Completion Definition:** All criteria met, 474 passing tests, clean build, clean git diff. [IMPLEMENTED_PENDING_INDEPENDENT_REVIEW]
+
+---
+
 ### MODULE 6 — Cloud Deployment & Public Infrastructure Setup
 - **Module ID:** `MOD-06`
 - **Objective:** Deploy RevertLens to a high-availability cloud platform (Render/Railway) with persistent storage and HTTPS.

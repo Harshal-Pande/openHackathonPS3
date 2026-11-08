@@ -25,6 +25,7 @@ export {
   OFFICIAL_AGENT_WALLET_ADDRESS,
   ERC8021_SCHEMA_0_ID,
   ERC8021_MARKER_HEX,
+  ERC_8021_MARKER,
   EXPECTED_ATTRIBUTION_SUFFIX_HEX,
   ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
   ERC8004_REPUTATION_REGISTRY_CELO_MAINNET,
@@ -49,10 +50,16 @@ export type OperationCategory =
   | 'CATEGORY_D_INTERNAL'
   | 'CATEGORY_UNKNOWN';
 
+export type ClassificationDecision =
+  | 'REQUIRES_ATTRIBUTION'
+  | 'MUST_REMAIN_UNTAGGED'
+  | 'REJECT_UNKNOWN';
+
 export interface RequestClassification {
   operation: string;
   category: OperationCategory;
   shouldAddAttribution: boolean;
+  decision: ClassificationDecision;
   description: string;
 }
 
@@ -60,11 +67,11 @@ export interface RequestClassification {
  * Authoritative operation classifier separating state-mutating EVM transactions
  * from read-only RPC calls, HTTP payment requests, and internal operations.
  *
- * Security Invariants (DEF-50):
+ * Security Invariants (DEF-50, DEF-58):
  * - Explicit allowlists for each category; never uses broad prefix wildcards (e.g. eth_*).
- * - Outgoing state-mutating EVM transactions have shouldAddAttribution: true.
- * - Read-only RPC, HTTP payment, and internal operations have shouldAddAttribution: false.
- * - Unrecognized operations are classified as CATEGORY_UNKNOWN with no assumption of safety.
+ * - Outgoing state-mutating EVM transactions have shouldAddAttribution: true and decision: REQUIRES_ATTRIBUTION.
+ * - Read-only RPC, HTTP payment, and internal operations have shouldAddAttribution: false and decision: MUST_REMAIN_UNTAGGED.
+ * - Unrecognized operations are classified as CATEGORY_UNKNOWN with decision: REJECT_UNKNOWN under fail-closed security policy.
  */
 export function classifyOperation(operation: string): RequestClassification {
   const op = operation.trim();
@@ -88,6 +95,7 @@ export function classifyOperation(operation: string): RequestClassification {
       operation: op,
       category: 'CATEGORY_A_OUTGOING_TX',
       shouldAddAttribution: true,
+      decision: 'REQUIRES_ATTRIBUTION',
       description: 'Outgoing state-mutating EVM transaction; must include ERC-8021 attribution suffix.'
     };
   }
@@ -121,6 +129,7 @@ export function classifyOperation(operation: string): RequestClassification {
       operation: op,
       category: 'CATEGORY_B_READ_ONLY_RPC',
       shouldAddAttribution: false,
+      decision: 'MUST_REMAIN_UNTAGGED',
       description: 'Read-only JSON-RPC query inspecting mined blocks/receipts; must NEVER be tagged.'
     };
   }
@@ -140,6 +149,7 @@ export function classifyOperation(operation: string): RequestClassification {
       operation: op,
       category: 'CATEGORY_C_HTTP_PAYMENT',
       shouldAddAttribution: false,
+      decision: 'MUST_REMAIN_UNTAGGED',
       description: 'HTTP x402 / Buy payment lifecycle request; separate protocol from EVM transaction calldata.'
     };
   }
@@ -163,17 +173,34 @@ export function classifyOperation(operation: string): RequestClassification {
       operation: op,
       category: 'CATEGORY_D_INTERNAL',
       shouldAddAttribution: false,
+      decision: 'MUST_REMAIN_UNTAGGED',
       description: 'Internal backend/frontend operation (SQLite persistence, report formatting, exports); untagged.'
     };
   }
 
-  // Unknown operations fail closed to CATEGORY_UNKNOWN with no assumption of safety
+  // Unknown operations fail closed to CATEGORY_UNKNOWN with explicit REJECT_UNKNOWN decision (DEF-58)
   return {
     operation: op,
     category: 'CATEGORY_UNKNOWN',
     shouldAddAttribution: false,
-    description: `Unknown operation '${op}'; not recognized in allowlists, no safety assumption.`
+    decision: 'REJECT_UNKNOWN',
+    description: `Unknown operation '${op}'; prohibited from execution or dispatch under fail-closed security policy.`
   };
+}
+
+/**
+ * Asserts that an operation is recognized and dispatchable under policy rules.
+ * Throws AttributionError with UNRECOGNIZED_OPERATION_REJECTED for any unknown operation (DEF-58).
+ */
+export function assertOperationDispatchable(operation: string): RequestClassification {
+  const classification = classifyOperation(operation);
+  if (classification.decision === 'REJECT_UNKNOWN') {
+    throw new AttributionError(
+      `Operation '${operation}' is unrecognized and rejected under fail-closed attribution policy.`,
+      'UNRECOGNIZED_OPERATION_REJECTED'
+    );
+  }
+  return classification;
 }
 
 export interface OutgoingTransactionRequest {
@@ -386,6 +413,8 @@ export class CeloAttributionService {
    *   If existing calldata contains Schema 2 role-based attribution without the official tag,
    *   refuses with typed AttributionError (SCHEMA_2_MERGE_PROHIBITED) to prevent silent omission.
    *   Verifies the final calldata via hasExpectedAttribution() before returning.
+   * - DEF-59: Rejects leading, trailing, or embedded whitespace strictly with typed
+   *   AttributionError without silently trimming.
    */
   public appendAttribution(calldata?: string): `0x${string}` {
     let base: `0x${string}`;
@@ -394,25 +423,24 @@ export class CeloAttributionService {
       base = '0x';
     } else if (typeof calldata !== 'string') {
       throw new AttributionError('Calldata must be a string or undefined.', 'INVALID_CALLDATA');
+    } else if (/\s/.test(calldata)) {
+      throw new AttributionError('Calldata must not contain whitespace.', 'INVALID_CALLDATA');
+    } else if (calldata === '' || calldata === '0x') {
+      base = '0x';
     } else {
-      const trimmed = calldata.trim();
-      if (trimmed === '' || trimmed === '0x') {
-        base = '0x';
-      } else {
-        if (!trimmed.startsWith('0x')) {
-          throw new AttributionError("Calldata must start with '0x' prefix.", 'INVALID_CALLDATA');
-        }
-        if (trimmed.length % 2 !== 0) {
-          throw new AttributionError(
-            `Calldata '${trimmed}' has odd hexadecimal length (${trimmed.length - 2} nibbles).`,
-            'INVALID_CALLDATA'
-          );
-        }
-        if (!/^0x[0-9a-fA-F]+$/.test(trimmed)) {
-          throw new AttributionError('Calldata contains non-hexadecimal characters.', 'INVALID_CALLDATA');
-        }
-        base = trimmed as `0x${string}`;
+      if (!calldata.startsWith('0x')) {
+        throw new AttributionError("Calldata must start with '0x' prefix.", 'INVALID_CALLDATA');
       }
+      if (calldata.length % 2 !== 0) {
+        throw new AttributionError(
+          `Calldata '${calldata}' has odd hexadecimal length (${calldata.length - 2} nibbles).`,
+          'INVALID_CALLDATA'
+        );
+      }
+      if (!/^0x[0-9a-fA-F]+$/.test(calldata)) {
+        throw new AttributionError('Calldata contains non-hexadecimal characters.', 'INVALID_CALLDATA');
+      }
+      base = calldata as `0x${string}`;
     }
 
     const existing = this.decodeAttributionData(base);
@@ -753,5 +781,12 @@ export class CeloAttributionService {
    */
   public static classifyOperation(operation: string): RequestClassification {
     return classifyOperation(operation);
+  }
+
+  /**
+   * Static helper asserting that an operation is recognized and dispatchable (DEF-58).
+   */
+  public static assertOperationDispatchable(operation: string): RequestClassification {
+    return assertOperationDispatchable(operation);
   }
 }

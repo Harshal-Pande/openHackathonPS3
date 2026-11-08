@@ -1066,3 +1066,45 @@ Following an independent audit of the MOD-04 implementation snapshot by ChatGPT,
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
 - **On-Chain Verification Status:** `PENDING_LIVE_PROOF` (no on-chain transaction has been broadcast yet; deferred to Module 5 registration following Module 6 deployment).
+
+---
+
+## Phase 23 — Module 4.2: Read-Only Provider Enforcement & Final Attribution Hardening (MOD-04.2 / DEF-56 through DEF-59)
+**Date:** 2026-11-08
+**Baseline Commit:** `05f510588d685a7852e6b1c1d99bd05e8e86990a`
+**Scope:** Remediation of 4 security, IP validation, and attribution policy findings from the independent review of MOD-04.1: strict read-only RPC allowlist enforcement at the Chainstack gateway boundary before network execution (DEF-56), robust non-public IP validation covering loopback blocks, bracketed IPv6, and IPv4-mapped IPv6 literals (DEF-57), fail-closed request classification decision architecture eliminating ambiguous untagged assumptions (DEF-58), and strict calldata whitespace rejection without trimming (DEF-59).
+
+### 1. Summary of Changes
+Following the independent security review of MOD-04.1 by ChatGPT, 4 findings were addressed and verified:
+
+1. **DEF-56: Strict Read-Only RPC Method Allowlist & Network Bypass Prevention (P1):**
+   - **Root Cause:** `assertReadOnlyRpcUntagged` in `src/server/providers/chainstack.ts` returned `void` for non-read-only calls. Consequently, calls like `provider.callRpc('eth_sendTransaction', ...)` bypassed checks, proceeded to URL checks, constructed the payload, and executed `fetch`.
+   - **Remediation:** Enforced an authoritative `ALLOWED_READ_ONLY_RPC_METHODS` set (20 approved read-only RPC methods) inside `ChainstackProvider.callRpc()` before endpoint configuration checks, payload construction, or network `fetch`. Any state-changing method (`eth_sendTransaction`, `eth_sendRawTransaction`, `personal_sendTransaction`, `wallet_sendCalls`, `eth_signTransaction`, `personal_sign`), unapproved method, or unknown method immediately throws typed `ChainstackProviderError('READ_ONLY_METHOD_REQUIRED', 400)`.
+   - Tested in `tests/chainstackProvider.test.ts` with mocked `fetch` asserting that `fetchMock` was never called for forbidden or unknown methods.
+
+2. **DEF-57: Complete Non-Public IP URL Validation (P2):**
+   - **Root Cause:** `validatePublicBaseUrl()` in `src/server/config.ts` used naive hostname regexes that only caught `127.0.0.1` (missing other loopbacks like `127.0.0.2`), failed to cleanly parse bracketed IPv6 literals (e.g. `[::1]`, `[fc00::1]`, `[fe80::1]`), and missed IPv4-mapped IPv6 literals (e.g. `[::ffff:127.0.0.1]`).
+   - **Remediation:** Integrated `node:net.isIP`, bracket stripping, and word expansion algorithms (`parseIpv6ToWords`, `isNonPublicIpv4`, `isNonPublicIpv6`). Rejects: loopback `127.0.0.0/8`, private IPv4 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `0.0.0.0`), CGNAT `100.64.0.0/10`, test nets, multicast, reserved blocks, IPv6 loopback (`::1`), unique-local (`fc00::/7`), link-local (`fe80::/10`), multicast (`ff00::/8`), and IPv4-mapped IPv6 literals (`::ffff:0:0/96`). Permits valid public HTTPS domains, public IPv4, and public IPv6. Tested in `tests/config.test.ts` (30/30 tests).
+
+3. **DEF-58: Request Classification Decision Architecture & Unknown Operations Fail-Closed Policy (P2):**
+   - **Root Cause:** `classifyOperation()` classified unrecognized operations as `CATEGORY_UNKNOWN` with `shouldAddAttribution: false`, creating ambiguity where callers could interpret `shouldAddAttribution: false` as safe to execute untagged.
+   - **Remediation:** Introduced explicit `ClassificationDecision = 'REQUIRES_ATTRIBUTION' | 'MUST_REMAIN_UNTAGGED' | 'REJECT_UNKNOWN'` in `src/server/services/celoAttributionService.ts`. Category A assigns `decision: 'REQUIRES_ATTRIBUTION'`; Categories B, C, D assign `decision: 'MUST_REMAIN_UNTAGGED'`; Category Unknown assigns `decision: 'REJECT_UNKNOWN'` with explicit fail-closed policy description. Added `assertOperationDispatchable()` helper (and static class method) throwing typed `AttributionError('UNRECOGNIZED_OPERATION_REJECTED')` when encountering unknown operations. Tested in `tests/erc8021.test.ts`.
+
+4. **DEF-59: Strict Calldata Input & Whitespace Rejection (P3):**
+   - **Root Cause:** `appendAttribution()` used `calldata.trim()`, silently normalizing invalid calldata that contained leading, trailing, or embedded whitespace.
+   - **Remediation:** Replaced `.trim()` in `src/server/services/celoAttributionService.ts` with strict whitespace regex validation (`/\s/.test(calldata)`). Rejects leading, trailing, and embedded whitespace (spaces, tabs, newlines) with typed `AttributionError('INVALID_CALLDATA')` without mutating inputs. Tested in `tests/erc8021.test.ts`.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **21/21 test files, 474/474 tests passing** in ~11.8s (100% green; +16 new tests covering DEF-56 through DEF-59).
+- **Targeted Test Suites:**
+  - `npx vitest run tests/chainstackProvider.test.ts`: 11/11 tests passed.
+  - `npx vitest run tests/config.test.ts`: 30/30 tests passed.
+  - `npx vitest run tests/erc8021.test.ts`: 104/104 tests passed.
+  - `npx vitest run tests/attribution.test.ts`: 11/11 tests passed.
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
+- **On-Chain Verification Status:** `PENDING_LIVE_PROOF` (no on-chain transaction has been broadcast yet; deferred to Module 5 registration following Module 6 deployment).

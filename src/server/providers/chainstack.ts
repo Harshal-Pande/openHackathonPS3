@@ -1,5 +1,33 @@
 import { CeloAttributionService } from '../services/celoAttributionService.js';
 
+/**
+ * Strict allowlist of authorized read-only JSON-RPC methods permitted on the Chainstack gateway.
+ * All state-mutating, wallet-signing, account management, and unapproved methods are rejected
+ * before network execution (DEF-56).
+ */
+export const ALLOWED_READ_ONLY_RPC_METHODS = new Set<string>([
+  'eth_chainId',
+  'eth_blockNumber',
+  'eth_getTransactionByHash',
+  'eth_getTransactionReceipt',
+  'eth_call',
+  'eth_getBalance',
+  'eth_getCode',
+  'eth_getStorageAt',
+  'eth_getLogs',
+  'eth_getTransactionCount',
+  'eth_getBlockByNumber',
+  'eth_getBlockByHash',
+  'eth_estimateGas',
+  'eth_gasPrice',
+  'eth_maxPriorityFeePerGas',
+  'eth_feeHistory',
+  'debug_traceTransaction',
+  'debug_traceCall',
+  'debug_traceBlockByNumber',
+  'debug_traceBlockByHash'
+]);
+
 export interface NormalizedTransaction {
   hash: string;
   blockNumber: number | null;
@@ -76,12 +104,23 @@ export class ChainstackProvider {
 
   /**
    * Safe JSON-RPC caller with retry on transient network errors and strict URL redaction.
-   * Intercepts and guards read-only RPC methods against illicit ERC-8021 marker injection (DEF-52).
+   * Intercepts and guards read-only RPC methods against illicit ERC-8021 marker injection (DEF-52)
+   * and enforces strict read-only RPC method allowlist before URL checks, payload construction, or network fetch (DEF-56).
    */
   public async callRpc<T = unknown>(method: string, params: unknown[] = []): Promise<T> {
-    // Enforce read-only RPC isolation at the provider gateway boundary
+    // 1. Strict read-only RPC method enforcement (DEF-56)
+    if (!ALLOWED_READ_ONLY_RPC_METHODS.has(method)) {
+      throw new ChainstackProviderError(
+        `Method '${method}' is not an authorized read-only RPC method. ChainstackProvider is strictly read-only.`,
+        'READ_ONLY_METHOD_REQUIRED',
+        400
+      );
+    }
+
+    // 2. Enforce read-only RPC isolation at the provider gateway boundary
     CeloAttributionService.assertReadOnlyRpcUntagged(method, params);
 
+    // 3. Ensure endpoint configuration
     if (!this.isConfigured()) {
       throw new ChainstackProviderError(
         'Chainstack Celo RPC URL is not configured. Set CHAINSTACK_CELO_MAINNET_RPC_URL in .env',

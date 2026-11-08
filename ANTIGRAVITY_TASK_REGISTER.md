@@ -221,3 +221,31 @@ This register contains all technical and operational tasks owned and executed di
 - **Files Involved:** `MASTER_DEFECT_REGISTER.md`, `ANTIGRAVITY_TASK_REGISTER.md`, `MASTER_EXECUTION_ROADMAP.md`, `MASTER_CHANGELOG.md`, `TEST_RESULTS.md`, `README.md`, `SECURITY.md`.
 - **Results:** 458/458 tests passing across all 21 test files (100% green). Full typecheck and build green. Route verification (36/36 scenarios) and CDP E2E passing.
 - **Status:** `COMPLETED_PENDING_REVIEW`.
+
+---
+
+## MODULE 4.2 — Read-Only Provider Enforcement & Final Attribution Hardening (MOD-04.2)
+
+### TASK AGY-04-06: Strict Read-Only Chainstack Provider Allowlist (DEF-56)
+- **Objective:** Enforce strict read-only RPC method allowlist inside `ChainstackProvider.callRpc()` before URL checks, payload construction, or network `fetch`.
+- **Files Involved:** `src/server/providers/chainstack.ts`, `tests/chainstackProvider.test.ts`.
+- **Implementation:** Defined `ALLOWED_READ_ONLY_RPC_METHODS` with 20 approved methods (`eth_chainId`, `eth_blockNumber`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_call`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getLogs`, `eth_getTransactionCount`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_estimateGas`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber`, `debug_traceBlockByHash`). `callRpc()` checks allowlist first; rejects state-changing (`eth_sendTransaction`, `eth_sendRawTransaction`, `personal_sendTransaction`, `wallet_sendCalls`, `eth_signTransaction`, `personal_sign`), unapproved, or unknown methods with typed `ChainstackProviderError('READ_ONLY_METHOD_REQUIRED', 400)`. Tested with mocked fetch asserting `fetchMock` was never called.
+- **Status:** `COMPLETED_PENDING_REVIEW`.
+
+### TASK AGY-04-07: Robust Non-Public IP URL Validation (DEF-57)
+- **Objective:** Prevent non-public, loopback, private-network, link-local, and reserved IPv4 and IPv6 URLs in production configuration.
+- **Files Involved:** `src/server/config.ts`, `tests/config.test.ts`.
+- **Implementation:** Upgraded `validatePublicBaseUrl()` with `node:net.isIP`, IPv6 bracket stripping, and word expansion (`parseIpv6ToWords`, `isNonPublicIpv4`, `isNonPublicIpv6`). Rejects loopback `127.0.0.0/8`, private IPv4 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `0.0.0.0`), bracketed IPv6 (`[::1]`, `[fc00::1]`, `[fd00::1]`, `[fe80::1]`), and IPv4-mapped IPv6 literals (`[::ffff:127.0.0.1]`). Permits valid public HTTPS domains, public IPv4, and public IPv6.
+- **Status:** `COMPLETED_PENDING_REVIEW`.
+
+### TASK AGY-04-08: Unknown Operations Fail-Closed Policy & Decision Architecture (DEF-58)
+- **Objective:** Eliminate ambiguous `CATEGORY_UNKNOWN -> shouldAddAttribution: false` and enforce explicit dispatchability decisions.
+- **Files Involved:** `src/server/services/celoAttributionService.ts`, `tests/erc8021.test.ts`.
+- **Implementation:** Added `ClassificationDecision = 'REQUIRES_ATTRIBUTION' | 'MUST_REMAIN_UNTAGGED' | 'REJECT_UNKNOWN'`. Category A yields `REQUIRES_ATTRIBUTION`; Categories B, C, D yield `MUST_REMAIN_UNTAGGED`; Category Unknown yields `REJECT_UNKNOWN`. Added `assertOperationDispatchable()` throwing typed `AttributionError('UNRECOGNIZED_OPERATION_REJECTED')` when encountering unknown operations.
+- **Status:** `COMPLETED_PENDING_REVIEW`.
+
+### TASK AGY-04-09: Strict Calldata Input & Whitespace Rejection (DEF-59)
+- **Objective:** Eliminate permissive `.trim()` in `appendAttribution()` and fail closed on invalid whitespace.
+- **Files Involved:** `src/server/services/celoAttributionService.ts`, `tests/erc8021.test.ts`.
+- **Implementation:** Replaced `.trim()` in `appendAttribution()` with strict whitespace regex validation (`/\s/.test(calldata)`). Rejects leading, trailing, and embedded whitespace with typed `AttributionError('INVALID_CALLDATA')` without mutating inputs.
+- **Status:** `COMPLETED_PENDING_REVIEW`.

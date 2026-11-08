@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import net from 'node:net';
 import { validateScryptHashFormat } from './auth/passwordHasher.js';
 import {
   OFFICIAL_CELO_ATTRIBUTION_TAG,
@@ -27,11 +28,130 @@ export interface BaseUrlValidationResult {
 }
 
 /**
- * Validates and normalizes PUBLIC_BASE_URL (DEF-49).
+ * Evaluates whether an IPv4 address belongs to a private, loopback, link-local,
+ * multicast, or reserved non-public network block (DEF-57).
+ */
+function isNonPublicIpv4(octets: number[]): boolean {
+  if (octets.length !== 4 || octets.some((o) => isNaN(o) || o < 0 || o > 255)) {
+    return true;
+  }
+  const [o1, o2, o3] = octets;
+  // 0.0.0.0/8 (Current network)
+  if (o1 === 0) return true;
+  // 10.0.0.0/8 (Private network, RFC 1918)
+  if (o1 === 10) return true;
+  // 100.64.0.0/10 (Shared address space / CGNAT, RFC 6598)
+  if (o1 === 100 && o2 >= 64 && o2 <= 127) return true;
+  // 127.0.0.0/8 (Loopback, RFC 1122 - entire block 127.0.0.0 - 127.255.255.255)
+  if (o1 === 127) return true;
+  // 169.254.0.0/16 (Link-local, RFC 3927)
+  if (o1 === 169 && o2 === 254) return true;
+  // 172.16.0.0/12 (Private network, RFC 1918)
+  if (o1 === 172 && o2 >= 16 && o2 <= 31) return true;
+  // 192.0.0.0/24 (IETF Protocol Assignments)
+  if (o1 === 192 && o2 === 0 && o3 === 0) return true;
+  // 192.0.2.0/24 (TEST-NET-1, RFC 5737)
+  if (o1 === 192 && o2 === 0 && o3 === 2) return true;
+  // 192.168.0.0/16 (Private network, RFC 1918)
+  if (o1 === 192 && o2 === 168) return true;
+  // 198.18.0.0/15 (Network benchmark tests, RFC 2544)
+  if (o1 === 198 && (o2 === 18 || o2 === 19)) return true;
+  // 198.51.100.0/24 (TEST-NET-2, RFC 5737)
+  if (o1 === 198 && o2 === 51 && o3 === 100) return true;
+  // 203.0.113.0/24 (TEST-NET-3, RFC 5737)
+  if (o1 === 203 && o2 === 0 && o3 === 113) return true;
+  // 224.0.0.0/4 (Multicast, RFC 5771) and 240.0.0.0/4 (Reserved, RFC 1112)
+  if (o1 >= 224) return true;
+
+  return false;
+}
+
+/**
+ * Parses an IPv6 string into 8 16-bit numeric words.
+ * Robustly handles standard IPv6, compressed ::, and IPv4-mapped IPv6 suffix formats (DEF-57).
+ */
+function parseIpv6ToWords(ip: string): number[] | null {
+  let clean = ip.toLowerCase();
+  let ipv4Words: number[] = [];
+
+  if (clean.includes('.')) {
+    const lastColon = clean.lastIndexOf(':');
+    if (lastColon === -1) return null;
+    const ipv4Str = clean.slice(lastColon + 1);
+    clean = clean.slice(0, lastColon);
+    const octets = ipv4Str.split('.').map((p) => Number(p));
+    if (octets.length !== 4 || octets.some((o) => isNaN(o) || o < 0 || o > 255)) {
+      return null;
+    }
+    ipv4Words = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
+  }
+
+  const parts = clean.split('::');
+  if (parts.length > 2) return null;
+  const targetWords = 8 - ipv4Words.length;
+
+  let words: number[] = [];
+  if (parts.length === 1) {
+    const raw = parts[0].split(':').filter(Boolean);
+    if (raw.length !== targetWords) return null;
+    words = raw.map((w) => parseInt(w, 16));
+  } else {
+    const left = parts[0] ? parts[0].split(':').filter(Boolean).map((w) => parseInt(w, 16)) : [];
+    const right = parts[1] ? parts[1].split(':').filter(Boolean).map((w) => parseInt(w, 16)) : [];
+    const missing = targetWords - (left.length + right.length);
+    if (missing < 0) return null;
+    words = [...left, ...new Array(missing).fill(0), ...right];
+  }
+
+  if (words.some((w) => isNaN(w) || w < 0 || w > 0xffff)) {
+    return null;
+  }
+  return [...words, ...ipv4Words];
+}
+
+/**
+ * Evaluates whether an IPv6 address belongs to a non-public, loopback,
+ * unique-local, link-local, multicast, or IPv4-mapped non-public range (DEF-57).
+ */
+function isNonPublicIpv6(words: number[]): boolean {
+  if (!words || words.length !== 8) return true;
+
+  // Loopback ::1
+  if (words.slice(0, 7).every((w) => w === 0) && words[7] === 1) return true;
+
+  // Unspecified ::
+  if (words.every((w) => w === 0)) return true;
+
+  // Unique Local Address fc00::/7 (covers fc00:: through fdff::)
+  if ((words[0] & 0xfe00) === 0xfc00) return true;
+
+  // Link-local fe80::/10 (covers fe80:: through febf::)
+  if ((words[0] & 0xffc0) === 0xfe80) return true;
+
+  // Multicast ff00::/8
+  if ((words[0] & 0xff00) === 0xff00) return true;
+
+  // Documentation 2001:db8::/32
+  if (words[0] === 0x2001 && words[1] === 0x0db8) return true;
+
+  // IPv4-mapped IPv6 (::ffff:0:0/96)
+  if (words.slice(0, 5).every((w) => w === 0) && words[5] === 0xffff) {
+    const o1 = (words[6] >> 8) & 0xff;
+    const o2 = words[6] & 0xff;
+    const o3 = (words[7] >> 8) & 0xff;
+    const o4 = words[7] & 0xff;
+    return isNonPublicIpv4([o1, o2, o3, o4]);
+  }
+
+  return false;
+}
+
+/**
+ * Validates and normalizes PUBLIC_BASE_URL (DEF-49, DEF-57).
  * In production:
  * - Must be an absolute HTTPS URL.
  * - Must not contain embedded credentials (username/password).
- * - Must not be localhost, loopback, or private-network IP ranges.
+ * - Must not be localhost, loopback, private-network, link-local, or reserved IP ranges (IPv4 and IPv6).
  * In development/test:
  * - Accepts http:// and https:// including localhost.
  */
@@ -52,39 +172,33 @@ export function validatePublicBaseUrl(rawUrl: unknown, isProduction: boolean = f
     return { valid: false, reason: 'PUBLIC_BASE_URL must not contain embedded username or password credentials.' };
   }
 
-  const hostname = parsed.hostname.toLowerCase();
+  let host = parsed.hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
 
   if (isProduction) {
     if (parsed.protocol !== 'https:') {
       return { valid: false, reason: `PUBLIC_BASE_URL in production must use https: protocol, got '${parsed.protocol}'.` };
     }
 
-    // Check localhost / loopback
-    if (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname === '::1' ||
-      hostname === '[::1]' ||
-      hostname.endsWith('.localhost')
-    ) {
-      return { valid: false, reason: `PUBLIC_BASE_URL in production cannot be localhost or loopback address '${hostname}'.` };
+    // Check localhost hostname
+    if (host === 'localhost' || host.endsWith('.localhost')) {
+      return { valid: false, reason: `PUBLIC_BASE_URL in production cannot be localhost or loopback address '${parsed.hostname}'.` };
     }
 
-    // Check private network IP ranges
-    const isPrivateIpv4 =
-      /^10\./.test(hostname) ||
-      /^192\.168\./.test(hostname) ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
-      /^169\.254\./.test(hostname) ||
-      hostname === '0.0.0.0';
-
-    const isPrivateIpv6 =
-      hostname.startsWith('fc') ||
-      hostname.startsWith('fd') ||
-      hostname.startsWith('fe80');
-
-    if (isPrivateIpv4 || isPrivateIpv6) {
-      return { valid: false, reason: `PUBLIC_BASE_URL in production cannot be a private network or link-local address '${hostname}'.` };
+    // Check IP addresses using reliable socket IP parser (DEF-57)
+    const ipVersion = net.isIP(host);
+    if (ipVersion === 4) {
+      const octets = host.split('.').map(Number);
+      if (isNonPublicIpv4(octets)) {
+        return { valid: false, reason: `PUBLIC_BASE_URL in production cannot be a private, loopback, or reserved network address '${parsed.hostname}'.` };
+      }
+    } else if (ipVersion === 6) {
+      const words = parseIpv6ToWords(host);
+      if (!words || isNonPublicIpv6(words)) {
+        return { valid: false, reason: `PUBLIC_BASE_URL in production cannot be a private, loopback, or reserved network address '${parsed.hostname}'.` };
+      }
     }
   } else {
     // In dev / test, accept http and https

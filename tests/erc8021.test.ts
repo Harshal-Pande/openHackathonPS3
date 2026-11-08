@@ -10,6 +10,7 @@ import {
   validateAttributionTag,
   getConfiguredAttributionTag,
   classifyOperation,
+  assertOperationDispatchable,
   AttributionError,
   ERC8004_IDENTITY_REGISTRY_ABI
 } from '../src/server/services/celoAttributionService.js';
@@ -733,6 +734,7 @@ describe('MOD-04: ERC-8021 Attribution Engine & Celo SDK Integration', () => {
         const result = classifyOperation(method);
         expect(result.category).toBe('CATEGORY_A_OUTGOING_TX');
         expect(result.shouldAddAttribution).toBe(true);
+        expect(result.decision).toBe('REQUIRES_ATTRIBUTION');
       }
     });
 
@@ -765,6 +767,7 @@ describe('MOD-04: ERC-8021 Attribution Engine & Celo SDK Integration', () => {
         const result = classifyOperation(method);
         expect(result.category).toBe('CATEGORY_B_READ_ONLY_RPC');
         expect(result.shouldAddAttribution).toBe(false);
+        expect(result.decision).toBe('MUST_REMAIN_UNTAGGED');
       }
     });
 
@@ -774,6 +777,8 @@ describe('MOD-04: ERC-8021 Attribution Engine & Celo SDK Integration', () => {
       expect(classifyOperation('eth_sendRawTransaction').category).toBe('CATEGORY_A_OUTGOING_TX');
       expect(classifyOperation('eth_sendTransaction').shouldAddAttribution).toBe(true);
       expect(classifyOperation('eth_sendRawTransaction').shouldAddAttribution).toBe(true);
+      expect(classifyOperation('eth_sendTransaction').decision).toBe('REQUIRES_ATTRIBUTION');
+      expect(classifyOperation('eth_sendRawTransaction').decision).toBe('REQUIRES_ATTRIBUTION');
     });
 
     it('classifies HTTP 402 / Buy payment lifecycle operations as CATEGORY_C_HTTP_PAYMENT', () => {
@@ -791,16 +796,61 @@ describe('MOD-04: ERC-8021 Attribution Engine & Celo SDK Integration', () => {
         const result = classifyOperation(op);
         expect(result.category).toBe('CATEGORY_C_HTTP_PAYMENT');
         expect(result.shouldAddAttribution).toBe(false);
+        expect(result.decision).toBe('MUST_REMAIN_UNTAGGED');
       }
     });
 
-    it('classifies unknown operations as CATEGORY_UNKNOWN with no assumption of safety', () => {
-      const unknownOps = ['eth_customExtensionMethod', 'unknown_rpc_query', 'arbitrary_operation'];
+    it('classifies internal application operations as CATEGORY_D_INTERNAL', () => {
+      const internalOps = [
+        'sqlite_persist',
+        'sqlite_write',
+        'password_scrypt',
+        'session_hmac',
+        'report_generate',
+        'report_export',
+        'export_csv',
+        'auth_rate_limit',
+        'operator_login',
+        'investigation_cache',
+        'internal_api'
+      ];
+
+      for (const op of internalOps) {
+        const result = classifyOperation(op);
+        expect(result.category).toBe('CATEGORY_D_INTERNAL');
+        expect(result.shouldAddAttribution).toBe(false);
+        expect(result.decision).toBe('MUST_REMAIN_UNTAGGED');
+      }
+    });
+
+    it('classifies unknown operations as CATEGORY_UNKNOWN with REJECT_UNKNOWN decision (DEF-58)', () => {
+      const unknownOps = ['eth_customExtensionMethod', 'unknown_rpc_query', 'arbitrary_operation', 'eth_submitWork'];
       for (const op of unknownOps) {
         const result = classifyOperation(op);
         expect(result.category).toBe('CATEGORY_UNKNOWN');
         expect(result.shouldAddAttribution).toBe(false);
+        expect(result.decision).toBe('REJECT_UNKNOWN');
         expect(result.description).toContain('Unknown operation');
+      }
+    });
+
+    it('assertOperationDispatchable throws typed AttributionError on unknown operations (DEF-58)', () => {
+      // Allowed operations succeed
+      expect(assertOperationDispatchable('eth_call').decision).toBe('MUST_REMAIN_UNTAGGED');
+      expect(assertOperationDispatchable('eth_sendTransaction').decision).toBe('REQUIRES_ATTRIBUTION');
+      expect(CeloAttributionService.assertOperationDispatchable('buy_whoami').decision).toBe('MUST_REMAIN_UNTAGGED');
+
+      // Unknown operations throw UNRECOGNIZED_OPERATION_REJECTED
+      const unknownOps = ['unknown_method_xyz', 'eth_fake', 'admin_nodeInfo'];
+      for (const op of unknownOps) {
+        expect(() => assertOperationDispatchable(op)).toThrow(AttributionError);
+        try {
+          assertOperationDispatchable(op);
+        } catch (err: unknown) {
+          const attrErr = err as AttributionError;
+          expect(attrErr.code).toBe('UNRECOGNIZED_OPERATION_REJECTED');
+          expect(attrErr.message).toContain('unrecognized and rejected');
+        }
       }
     });
   });
@@ -824,6 +874,33 @@ describe('MOD-04: ERC-8021 Attribution Engine & Celo SDK Integration', () => {
       const tagged = service.appendAttribution(calldata);
       expect(tagged.startsWith(calldata)).toBe(true);
       expect(tagged.endsWith(EXPECTED_ATTRIBUTION_SUFFIX_HEX.slice(2))).toBe(true);
+    });
+
+    it('rejects calldata with leading, trailing, or embedded whitespace strictly (DEF-59)', () => {
+      const whitespaceInputs = [
+        ' 0x12345678',
+        '0x12345678 ',
+        '  0x12345678  ',
+        '0x12 345678',
+        '0x1234 5678',
+        '\t0x12345678',
+        '0x12345678\t',
+        '\n0x12345678',
+        '0x12345678\n',
+        ' 0x ',
+        '   '
+      ];
+
+      for (const input of whitespaceInputs) {
+        expect(() => service.appendAttribution(input)).toThrow(AttributionError);
+        try {
+          service.appendAttribution(input);
+        } catch (err: unknown) {
+          const attrErr = err as AttributionError;
+          expect(attrErr.code).toBe('INVALID_CALLDATA');
+          expect(attrErr.message).toContain('whitespace');
+        }
+      }
     });
 
     it('rejects calldata missing the 0x prefix (DEF-51 fail closed)', () => {

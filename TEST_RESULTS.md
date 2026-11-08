@@ -1,7 +1,7 @@
 # RevertLens — Automated Test & Verification Results
 
-**Date/time:** 2026-11-08 18:45:00 UTC
-**Phase:** Module 4.1: Attribution Security Remediation & Release Gate (MOD-04.1 / DEF-49 through DEF-55)
+**Date/time:** 2026-11-08 19:55:00 UTC
+**Phase:** Module 4.2: Read-Only Provider Enforcement & Final Attribution Hardening (MOD-04.2 / DEF-56 through DEF-59)
 **Node:** v22.14.0
 **npm:** 11.6.1
 **Target Network:** Celo Mainnet (`eip155:42220`)
@@ -14,12 +14,13 @@
 
 | Command | Exit Code | Result | Key Output & Notes |
 |:---|:---:|:---:|:---|
-| `npx vitest run tests/erc8021.test.ts` | **0** | **`PASS`** | **101/101 tests passed** (100% green; tag validation, wire format vectors, calldata preservation, idempotency, caller immutability, request classification allowlists, fail-closed calldata, recursive read-only RPC guard, official wallet invariant, on-chain verification). |
+| `npx vitest run tests/chainstackProvider.test.ts` | **0** | **`PASS`** | **11/11 tests passed** (100% green; DEF-56 strict read-only RPC method allowlist before fetch, state-changing/unknown method rejection, marker injection rejection). |
+| `npx vitest run tests/config.test.ts` | **0** | **`PASS`** | **30/30 tests passed** (100% green; DEF-57 complete non-public IP validation covering loopbacks, bracketed IPv6, IPv4-mapped IPv6, public domain/IP acceptance). |
+| `npx vitest run tests/erc8021.test.ts` | **0** | **`PASS`** | **104/104 tests passed** (100% green; DEF-58 classification decision architecture, REJECT_UNKNOWN policy, assertOperationDispatchable, DEF-59 whitespace rejection without trim). |
 | `npx vitest run tests/attribution.test.ts` | **0** | **`PASS`** | **11/11 tests passed** (100% green). |
-| `npx vitest run tests/config.test.ts` | **0** | **`PASS`** | **22/22 tests passed** (100% green; includes production base URL and official wallet invariants). |
 | `npx vitest run tests/buySecurity.test.ts` | **0** | **`PASS`** | **147/147 tests passed** (100% green). |
 | `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
-| `npm test` | **0** | **`PASS`** | **21 test files passed, 458/458 tests passed** (100% green). |
+| `npm test` | **0** | **`PASS`** | **21 test files passed, 474/474 tests passed** (100% green). |
 | `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430.4 kB), `vendor-icons` (15.7 kB), `index` (189.6 kB). **0 warnings**. |
 | `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **36/36 test scenarios passed** across 25 unique Fastify endpoints (including agent metadata and canonical tagged ERC-8004 preparation). |
 | `node scripts/browser_e2e_cdp.mjs` | **0** | **`PASS`** | Real Chrome DevTools Protocol automated testing: Desktop (1280x800) and Mobile (375x812) viewports fully validated with exit code 0. |
@@ -27,16 +28,16 @@
 
 ---
 
-## 2. Test Breakdown by File (21 Suites, 458 Tests)
+## 2. Test Breakdown by File (21 Suites, 474 Tests)
 
 | # | Test File | Test Count | Classification | Result |
 |:---:|:---|:---:|:---|:---:|
 | 1 | `tests/operatorAuth.test.ts` | **40** | `LOCAL_INTEGRATION` | **PASS** |
 | 2 | `tests/rateLimiter.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| 3 | `tests/config.test.ts` | **22** | `LOCAL` | **PASS** |
+| 3 | `tests/config.test.ts` | **30** | `LOCAL` | **PASS** |
 | 4 | `tests/databaseReliability.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
 | 5 | `tests/revertDecoder.test.ts` | **12** | `LOCAL` | **PASS** |
-| 6 | `tests/chainstackProvider.test.ts` | **6** | `LOCAL` | **PASS** |
+| 6 | `tests/chainstackProvider.test.ts` | **11** | `LOCAL` | **PASS** |
 | 7 | `tests/traceParser.test.ts` | **8** | `LOCAL` | **PASS** |
 | 8 | `tests/aiValidation.test.ts` | **9** | `LOCAL` | **PASS** |
 | 9 | `tests/forensics.test.ts` | **3** | `LOCAL` | **PASS** |
@@ -44,7 +45,7 @@
 | 11 | `tests/clientLib.test.ts` | **20** | `LOCAL` | **PASS** |
 | 12 | `tests/cencoriProvider.test.ts` | **3** | `LOCAL` | **PASS** |
 | 13 | `tests/attribution.test.ts` | **11** | `LOCAL` | **PASS** |
-| 14 | `tests/erc8021.test.ts` | **101** | `LOCAL_INTEGRATION` | **PASS** |
+| 14 | `tests/erc8021.test.ts` | **104** | `LOCAL_INTEGRATION` | **PASS** |
 | 15 | `tests/health.test.ts` | **4** | `LOCAL` | **PASS** |
 | 16 | `tests/regressionEdgeCases.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
 | 17 | `tests/buySecurity.test.ts` | **147** | `LOCAL_INTEGRATION` | **PASS** |
@@ -52,7 +53,7 @@
 | 19 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
 | 20 | `tests/buyAdapter.test.ts` | **9** | `LOCAL_INTEGRATION` | **PASS** |
 | 21 | `tests/paymentLifecycle.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| **Total** | **21 Test Suites** | **458 Tests** | **100% Automated** | **458 PASS** |
+| **Total** | **21 Test Suites** | **474 Tests** | **100% Automated** | **474 PASS** |
 
 ---
 

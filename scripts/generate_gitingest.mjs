@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = process.cwd();
-const OUTPUT_FILE = path.join(REPO_ROOT, 'revertlens_mod04_1_gitingest.txt');
+const OUTPUT_FILE = path.join(REPO_ROOT, 'revertlens_mod04_2_gitingest.txt');
 
 // Strict exclusion patterns
 const EXCLUDE_DIRS = new Set([
@@ -38,7 +38,8 @@ const EXCLUDE_FILES = new Set([
   'revertlens_mod03_5_gitingest.txt',
   'revertlens_mod03_6_gitingest.txt',
   'revertlens_mod04_gitingest.txt',
-  'revertlens_mod04_1_gitingest.txt'
+  'revertlens_mod04_1_gitingest.txt',
+  'revertlens_mod04_2_gitingest.txt'
 ]);
 
 const EXCLUDE_EXTENSIONS = new Set([

@@ -16,7 +16,7 @@ RevertLens is an evidence-based forensic investigation platform for Celo Mainnet
 - **Persistence:** Native Node 22 SQLite (`node:sqlite`) with automated schema migrations.
 - **Frontend Workbench ("The Evidence Bench"):** React 19 + Vite modular institutional forensics workbench with interactive call trace viewer, deepest failing frame badges, evidence ledger, WCAG AAA contrast, and JSON report export.
 - **Attribution & Identity:** Assigned attribution tag `celo_235f6ef56f5b` enforced via `@celo/attribution-tags` (ERC-8021) with Schema 0 wire format validation, centralized configuration (`src/server/config/attribution.ts`), and request classification; ERC-8004 agent registration calldata prepared for Celo Identity Registry (`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`).
-- **Testing:** 458 unit and integration tests passing in Vitest across 21 suites (100% pass rate), 36/36 API route injection tests, 14/14 live mainnet verification checks, plus real Chrome DevTools Protocol (CDP) automated browser testing on Desktop (1280x800) and Mobile (375x812) viewports.
+- **Testing:** 474 unit and integration tests passing in Vitest across 21 suites (100% pass rate), 36/36 API route injection tests, 14/14 live mainnet verification checks, plus real Chrome DevTools Protocol (CDP) automated browser testing on Desktop (1280x800) and Mobile (375x812) viewports.
 
 ---
 

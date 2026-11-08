@@ -3,6 +3,7 @@ import {
   loadConfig,
   createTestConfig,
   ensureAppConfig,
+  validatePublicBaseUrl,
   TEST_OPERATOR_HASH
 } from '../src/server/config.js';
 
@@ -264,5 +265,101 @@ describe('Production Security Invariants', () => {
     expect(config.BUY_DAILY_BUDGET_ATOMIC).toBe('0');
     expect(config.BUY_PER_INVESTIGATION_BUDGET_ATOMIC).toBe('0');
     expect(config.BUY_PER_CALL_CAP_ATOMIC).toBe('0');
+  });
+
+  describe('PUBLIC_BASE_URL Non-Public Network Validation (DEF-57)', () => {
+    it('rejects invalid inputs and non-absolute URLs', () => {
+      expect(validatePublicBaseUrl('').valid).toBe(false);
+      expect(validatePublicBaseUrl('not-a-url').valid).toBe(false);
+      expect(validatePublicBaseUrl('ftp://example.com').valid).toBe(false);
+      expect(validatePublicBaseUrl('https://user:pass@example.com').valid).toBe(false);
+    });
+
+    it('permits localhost and http in development/test', () => {
+      const devRes = validatePublicBaseUrl('http://localhost:3000', false);
+      expect(devRes.valid).toBe(true);
+      expect(devRes.normalized).toBe('http://localhost:3000');
+
+      const slashRes = validatePublicBaseUrl('https://localhost:3000/api/', false);
+      expect(slashRes.valid).toBe(true);
+      expect(slashRes.normalized).toBe('https://localhost:3000/api');
+    });
+
+    it('rejects http protocol in production', () => {
+      const res = validatePublicBaseUrl('http://revertlens.example.com', true);
+      expect(res.valid).toBe(false);
+      expect(res.reason).toContain('must use https: protocol');
+    });
+
+    it('rejects localhost and .localhost in production', () => {
+      expect(validatePublicBaseUrl('https://localhost:3000', true).valid).toBe(false);
+      expect(validatePublicBaseUrl('https://app.localhost', true).valid).toBe(false);
+    });
+
+    it('rejects all IPv4 loopback variations in production', () => {
+      const loopbacks = [
+        'https://127.0.0.1:3000',
+        'https://127.0.0.2:3000',
+        'https://127.1.2.3:8080',
+        'https://127.255.255.254'
+      ];
+      for (const url of loopbacks) {
+        const res = validatePublicBaseUrl(url, true);
+        expect(res.valid).toBe(false);
+        expect(res.reason).toContain('private, loopback, or reserved');
+      }
+    });
+
+    it('rejects private and link-local IPv4 ranges in production', () => {
+      const privateIps = [
+        'https://10.0.0.1:3000',
+        'https://10.254.1.2',
+        'https://172.16.0.1:4000',
+        'https://172.31.255.255',
+        'https://192.168.1.1:8080',
+        'https://192.168.100.50',
+        'https://169.254.1.1',
+        'https://0.0.0.0:3000'
+      ];
+      for (const url of privateIps) {
+        const res = validatePublicBaseUrl(url, true);
+        expect(res.valid).toBe(false);
+        expect(res.reason).toContain('private, loopback, or reserved');
+      }
+    });
+
+    it('rejects bracketed IPv6 loopback, unique-local, link-local and IPv4-mapped addresses in production', () => {
+      const ipv6Urls = [
+        'https://[::1]:3000',
+        'https://[::1]',
+        'https://[fc00::1]:3000',
+        'https://[fd00::1]:8080',
+        'https://[fe80::1]:3000',
+        'https://[::ffff:127.0.0.1]:3000',
+        'https://[::ffff:192.168.1.1]:8080',
+        'https://[::ffff:7f00:1]:3000'
+      ];
+      for (const url of ipv6Urls) {
+        const res = validatePublicBaseUrl(url, true);
+        expect(res.valid).toBe(false);
+        expect(res.reason).toContain('private, loopback, or reserved');
+      }
+    });
+
+    it('permits valid public HTTPS domain and IP in production', () => {
+      const valid1 = validatePublicBaseUrl('https://revertlens.example.com', true);
+      expect(valid1.valid).toBe(true);
+      expect(valid1.normalized).toBe('https://revertlens.example.com');
+
+      const valid2 = validatePublicBaseUrl('https://revertlens.celo.org/app/', true);
+      expect(valid2.valid).toBe(true);
+      expect(valid2.normalized).toBe('https://revertlens.celo.org/app');
+
+      const validPublicIp = validatePublicBaseUrl('https://8.8.8.8', true);
+      expect(validPublicIp.valid).toBe(true);
+
+      const validPublicIpv6 = validatePublicBaseUrl('https://[2607:f8b0:4005:805::200e]', true);
+      expect(validPublicIpv6.valid).toBe(true);
+    });
   });
 });

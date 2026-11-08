@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ChainstackProvider, ChainstackProviderError } from '../src/server/providers/chainstack.js';
+import {
+  ChainstackProvider,
+  ChainstackProviderError,
+  ALLOWED_READ_ONLY_RPC_METHODS
+} from '../src/server/providers/chainstack.js';
+import { AttributionError, ERC_8021_MARKER } from '../src/server/services/celoAttributionService.js';
 
 describe('Chainstack Provider', () => {
   afterEach(() => {
@@ -91,5 +96,132 @@ describe('Chainstack Provider', () => {
 
     // Method not supported returns null rather than throwing fatal error
     expect(trace).toBeNull();
+  });
+
+  describe('Read-Only RPC Method Enforcement (DEF-56)', () => {
+    it('defines the approved set of 20 read-only methods', () => {
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.size).toBe(20);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_chainId')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_blockNumber')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getTransactionByHash')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getTransactionReceipt')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_call')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getBalance')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getCode')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getStorageAt')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getLogs')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getTransactionCount')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getBlockByNumber')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_getBlockByHash')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_estimateGas')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_gasPrice')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_maxPriorityFeePerGas')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('eth_feeHistory')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('debug_traceTransaction')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('debug_traceCall')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('debug_traceBlockByNumber')).toBe(true);
+      expect(ALLOWED_READ_ONLY_RPC_METHODS.has('debug_traceBlockByHash')).toBe(true);
+    });
+
+    it('rejects state-changing and wallet-signing methods before fetch is called', async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal('fetch', mockFetch);
+
+      const provider = new ChainstackProvider({ rpcUrl: 'https://test-rpc' });
+      const forbiddenMethods = [
+        'eth_sendTransaction',
+        'eth_sendRawTransaction',
+        'personal_sendTransaction',
+        'wallet_sendCalls',
+        'eth_signTransaction',
+        'personal_sign'
+      ];
+
+      for (const method of forbiddenMethods) {
+        await expect(provider.callRpc(method, [])).rejects.toThrowError(
+          ChainstackProviderError
+        );
+
+        try {
+          await provider.callRpc(method, []);
+        } catch (err: unknown) {
+          const rpcErr = err as ChainstackProviderError;
+          expect(rpcErr.code).toBe('READ_ONLY_METHOD_REQUIRED');
+          expect(rpcErr.statusCode).toBe(400);
+          expect(rpcErr.message).toContain('not an authorized read-only RPC method');
+        }
+      }
+
+      // Assert fetch was NEVER invoked across any forbidden method calls
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects unapproved and unknown RPC methods before fetch is called', async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal('fetch', mockFetch);
+
+      const provider = new ChainstackProvider({ rpcUrl: 'https://test-rpc' });
+      const unknownMethods = [
+        'eth_unknownFoo',
+        'custom_method',
+        'random_rpc',
+        'eth_submitWork',
+        'admin_nodeInfo',
+        'eth_mining',
+        'debug_setHead',
+        'eth_accounts'
+      ];
+
+      for (const method of unknownMethods) {
+        await expect(provider.callRpc(method, [])).rejects.toThrowError(
+          ChainstackProviderError
+        );
+
+        try {
+          await provider.callRpc(method, []);
+        } catch (err: unknown) {
+          const rpcErr = err as ChainstackProviderError;
+          expect(rpcErr.code).toBe('READ_ONLY_METHOD_REQUIRED');
+          expect(rpcErr.statusCode).toBe(400);
+        }
+      }
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('rejects attribution marker injection in read-only RPC parameters before fetch', async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal('fetch', mockFetch);
+
+      const provider = new ChainstackProvider({ rpcUrl: 'https://test-rpc' });
+      const maliciousPayload = [{ to: '0x123', data: '0x1234' + ERC_8021_MARKER.slice(2) }];
+
+      await expect(provider.callRpc('eth_call', maliciousPayload)).rejects.toThrowError(
+        AttributionError
+      );
+
+      try {
+        await provider.callRpc('eth_call', maliciousPayload);
+      } catch (err: unknown) {
+        const attrErr = err as AttributionError;
+        expect(attrErr.code).toBe('ILLEGAL_READ_ONLY_TAGGING');
+      }
+
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('permits authorized read-only methods when fetch succeeds', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ jsonrpc: '2.0', id: 1, result: '0x123' })
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const provider = new ChainstackProvider({ rpcUrl: 'https://test-rpc' });
+      const res = await provider.callRpc('eth_blockNumber');
+
+      expect(res).toBe('0x123');
+      expect(mockFetch).toHaveBeenCalledOnce();
+    });
   });
 });
