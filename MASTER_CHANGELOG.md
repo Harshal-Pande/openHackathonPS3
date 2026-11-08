@@ -527,3 +527,39 @@ Following an independent source audit of the MOD-02 Gitingest snapshot, five spe
 - **Production Build:** `npm run build` passed with zero errors.
 - **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop and Mobile viewports.
+
+---
+
+## Phase 14.2 — Module 2.2: Final Authentication Resource-Boundary Hardening (MOD-02.2)
+**Date:** 2026-11-08
+**Scope:** Hard session capacity upper bounds (DEF-19), fail-closed login attempt rate-limiter capacity (DEF-20), combined scrypt memory requirement validation against 64 MiB budget (DEF-21), and error envelope propagation.
+
+### 1. Summary of Changes
+Following an independent review of the MOD-02.1 snapshot, three resource-boundary defects were addressed and verified:
+
+1. **DEF-19: Enforce Hard Session Capacity:**
+   - Enforced a hard upper bound of 5,000 active sessions in `OperatorAuthService` (`src/server/auth/operatorAuth.ts`).
+   - Pruned expired sessions before evaluating capacity.
+   - If capacity is exhausted and all remaining sessions are active, new session creation is rejected with HTTP 503 `SESSION_CAPACITY_EXCEEDED` without evicting active sessions.
+   - Preserved active sessions; verified that logout and expired pruning restore capacity.
+   - Prevented race condition overruns during asynchronous password completion via single-tick synchronous insertion.
+2. **DEF-20: Fail-Closed Login Attempt Capacity:**
+   - Replaced arbitrary 20% eviction in `failedAttempts` tracker with a deterministic fail-closed policy (`src/server/auth/operatorAuth.ts`).
+   - Genuinely expired entries older than 15 minutes are pruned.
+   - If capacity remains full (`maxTrackedIps = 5000`), login attempts from new, untracked identities fail closed with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`.
+   - Existing active counters and lockouts are never evicted or deleted to make room.
+   - Locked-out identities remain locked out for their full duration.
+3. **DEF-21: Validate Combined scrypt Memory Requirements:**
+   - Implemented `calculateScryptMemoryRequirement(cost, blockSize, parallelism)` and `isScryptMemoryWithinBudget()` in `src/server/auth/passwordHasher.ts`.
+   - Validated that $128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$ (67,108,864 bytes).
+   - Rejected parameter combinations that exceed the 64 MiB memory budget before invoking `crypto.scrypt` (e.g. $N=65536, r=16$; $N=65536, r=8$).
+   - Protected against safe integer overflow and wrapped scrypt dispatch in synchronous `try/catch` to intercept OpenSSL parameter RangeErrors safely without server crashes.
+4. **Fastify Operator Route Error Handling:**
+   - Updated `/api/operator/login` in `src/server/app.ts` to preserve `statusCode`, `code`, and message for all `OperatorAuthError` instances (401, 429, 503), preventing capacity errors from being masked as invalid credentials.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **18/18 test files, 185/185 tests passing** (added 13 new regression tests in `operatorAuth.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop and Mobile viewports.

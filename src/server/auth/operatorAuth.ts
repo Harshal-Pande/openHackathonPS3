@@ -8,6 +8,14 @@ export interface OperatorSession {
   expiresAt: string;
 }
 
+export interface OperatorAuthServiceOptions {
+  maxTrackedSessions?: number;
+  maxTrackedIps?: number;
+  sessionLifetimeMs?: number;
+  attemptWindowMs?: number;
+  maxFailedAttempts?: number;
+}
+
 export class OperatorAuthError extends Error {
   public statusCode: number;
   public code: string;
@@ -36,19 +44,26 @@ const HEX_64_REGEX = /^[0-9a-f]{64}$/i;
 export class OperatorAuthService {
   private failedAttempts: Map<string, { count: number; lastAttempt: number }> = new Map();
   private validSessions: Map<string, OperatorSession> = new Map();
-  private readonly MAX_FAILED_ATTEMPTS = 5;
-  private readonly ATTEMPT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-  private readonly SESSION_LIFETIME_MS = 2 * 60 * 60 * 1000; // 2 hours
-  private readonly MAX_TRACKED_IPS = 5000;
-  private readonly MAX_TRACKED_SESSIONS = 5000;
+  private readonly maxFailedAttempts: number;
+  private readonly attemptWindowMs: number;
+  private readonly sessionLifetimeMs: number;
+  private readonly maxTrackedIps: number;
+  private readonly maxTrackedSessions: number;
 
-  constructor(private config: AppConfig) {}
+  constructor(private config: AppConfig, options: OperatorAuthServiceOptions = {}) {
+    this.maxFailedAttempts = options.maxFailedAttempts ?? 5;
+    this.attemptWindowMs = options.attemptWindowMs ?? 15 * 60 * 1000; // 15 minutes
+    this.sessionLifetimeMs = options.sessionLifetimeMs ?? 2 * 60 * 60 * 1000; // 2 hours
+    this.maxTrackedIps = options.maxTrackedIps ?? 5000;
+    this.maxTrackedSessions = options.maxTrackedSessions ?? 5000;
+  }
 
   /**
    * Verifies submitted operator credentials against OPERATOR_PASSWORD_HASH using scrypt.
    * On success, generates an HMAC-signed session token using SESSION_SECRET.
    * Enforces brute-force rate limiting per client IP (max 5 failed attempts per 15 min).
-   * Stale attempt counts outside the 15-minute window are strictly reset to 0.
+   * Enforces fail-closed capacity on failedAttempts tracker (DEF-20).
+   * Enforces hard session capacity without evicting active sessions (DEF-19).
    */
   public async login(
     clientIp: string,
@@ -60,18 +75,34 @@ export class OperatorAuthService {
 
     let currentCount = 0;
     if (rateInfo) {
-      if (now - rateInfo.lastAttempt < this.ATTEMPT_WINDOW_MS) {
+      if (now - rateInfo.lastAttempt < this.attemptWindowMs) {
         currentCount = rateInfo.count;
       } else {
-        // Window expired: reset stale count to 0
+        // Window expired: reset stale count and delete entry
         currentCount = 0;
         this.failedAttempts.delete(cleanIp);
       }
     }
 
-    // Enforce 5 failed attempts lockout within 15-minute window
-    if (currentCount >= this.MAX_FAILED_ATTEMPTS) {
-      const waitSeconds = Math.max(1, Math.ceil((this.ATTEMPT_WINDOW_MS - (now - rateInfo!.lastAttempt)) / 1000));
+    // If this is a new or un-tracked identity, check tracker capacity (DEF-20)
+    if (!this.failedAttempts.has(cleanIp)) {
+      if (this.failedAttempts.size >= this.maxTrackedIps) {
+        this.pruneExpiredFailedAttempts(now);
+      }
+      // If capacity is still exhausted, fail closed for new identities
+      // Active counters and existing identities are never deleted to make room
+      if (this.failedAttempts.size >= this.maxTrackedIps) {
+        throw new OperatorAuthError(
+          'Login service temporarily unavailable due to rate limiter capacity. Please try again later.',
+          503,
+          'LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED'
+        );
+      }
+    }
+
+    // Enforce 5 failed attempts lockout within 15-minute window for known identity
+    if (currentCount >= this.maxFailedAttempts) {
+      const waitSeconds = Math.max(1, Math.ceil((this.attemptWindowMs - (now - rateInfo!.lastAttempt)) / 1000));
       const waitMinutes = Math.ceil(waitSeconds / 60);
       throw new OperatorAuthError(
         `Rate limit exceeded for operator login. Please wait ${waitMinutes} minutes.`,
@@ -89,7 +120,6 @@ export class OperatorAuthService {
     );
 
     if (!isPasswordValid) {
-      this.pruneFailedAttemptsIfNeeded(now);
       this.failedAttempts.set(cleanIp, {
         count: currentCount + 1,
         lastAttempt: now
@@ -99,6 +129,21 @@ export class OperatorAuthService {
 
     // Reset failed attempt counter on authenticated success
     this.failedAttempts.delete(cleanIp);
+
+    // Prune expired sessions if at capacity before rejecting or creating (DEF-19)
+    if (this.validSessions.size >= this.maxTrackedSessions) {
+      this.pruneExpiredSessions(now);
+    }
+
+    // Hard session capacity check: reject new session if capacity is full (DEF-19)
+    // Never evicts active sessions
+    if (this.validSessions.size >= this.maxTrackedSessions) {
+      throw new OperatorAuthError(
+        'Session capacity reached. Active sessions cannot be evicted. Please try again later.',
+        503,
+        'SESSION_CAPACITY_EXCEEDED'
+      );
+    }
 
     // Cryptographically unpredictable 32-byte (64 hex) session ID
     const sessionId = crypto.randomBytes(32).toString('hex');
@@ -114,10 +159,9 @@ export class OperatorAuthService {
     const session: OperatorSession = {
       username: 'operator',
       authenticatedAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + this.SESSION_LIFETIME_MS).toISOString()
+      expiresAt: new Date(now + this.sessionLifetimeMs).toISOString()
     };
 
-    this.pruneExpiredSessionsIfNeeded(now);
     this.validSessions.set(sessionId, session);
     return { token, session };
   }
@@ -210,27 +254,15 @@ export class OperatorAuthService {
     return this.validSessions.size;
   }
 
-  private pruneExpiredSessionsIfNeeded(now: number): void {
-    if (this.validSessions.size >= this.MAX_TRACKED_SESSIONS) {
-      this.pruneExpiredSessions(now);
+  public pruneExpiredFailedAttempts(now: number = Date.now()): void {
+    for (const [ip, entry] of this.failedAttempts.entries()) {
+      if (now - entry.lastAttempt >= this.attemptWindowMs) {
+        this.failedAttempts.delete(ip);
+      }
     }
   }
 
-  private pruneFailedAttemptsIfNeeded(now: number): void {
-    if (this.failedAttempts.size >= this.MAX_TRACKED_IPS) {
-      for (const [ip, entry] of this.failedAttempts.entries()) {
-        if (now - entry.lastAttempt >= this.ATTEMPT_WINDOW_MS) {
-          this.failedAttempts.delete(ip);
-        }
-      }
-      if (this.failedAttempts.size >= this.MAX_TRACKED_IPS) {
-        let deleted = 0;
-        for (const ip of this.failedAttempts.keys()) {
-          this.failedAttempts.delete(ip);
-          deleted++;
-          if (deleted >= Math.floor(this.MAX_TRACKED_IPS * 0.2)) break;
-        }
-      }
-    }
+  public getTrackedIpCount(): number {
+    return this.failedAttempts.size;
   }
 }

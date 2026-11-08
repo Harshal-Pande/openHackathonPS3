@@ -206,12 +206,15 @@ The frontend was redesigned in Phase 12 into "The Evidence Bench", an institutio
 | Finding ID | Severity | Category | Vulnerability / Finding | Root Cause | Proper Remediation |
 |:---:|:---:|:---|:---|:---|:---|
 | **DEF-14** | **HIGH** | Security / Auth | Operator authentication compares input against `SESSION_SECRET` rather than `OPERATOR_PASSWORD_HASH`. | `OperatorAuthService:36` hashed `SESSION_SECRET`. `config.ts` required `OPERATOR_PASSWORD_HASH` for production, creating a security mismatch. | **RESOLVED in MOD-02:** Refactored `OperatorAuthService` to verify password against `OPERATOR_PASSWORD_HASH` using salted scrypt ($N=16384, r=8, p=1$), completely decoupling session signing from password verification. Verified by 15 tests in `tests/operatorAuth.test.ts`. |
-| **DEF-15** | **MEDIUM** | DB / Concurrency | SQLite connection lacks WAL mode and busy timeout. | Default SQLite journal mode is `DELETE`, risking `SQLITE_BUSY` contention under concurrent writes. | Execute `PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;` on DB initialization. |
-| **DEF-16** | **MEDIUM** | Usability / Routing | Direct navigation to non-hash deep URLs returns 404. | Fastify only mounts `GET /` and `/assets/*`. Direct browser loads on `/investigate` fail. | Add SPA fallback handler for non-API GET requests serving `index.html`. |
-| **DEF-17** | **MEDIUM** | Security / Robustness | Revert decoder parses length without upper-bound clamping. | `parseInt(lengthHex, 16)` is unconstrained in `revertDecoder.ts:46`. | Clamp `strLen`: `if (isNaN(strLen) || strLen < 0 || strLen > 4096) return fallback`. |
-| **DEF-18** | **LOW** | Performance | Client bundle chunk exceeds 500 kB (624 kB). | Single minified bundle for React, Viem, and icons. | Configure `manualChunks` in `vite.config.ts`. |
-| **DEF-19** | **INFORMATIONAL** | Operations | Live Buy payment settlement not executed. | 0 CELO wallet balance; awaiting operator funding. | Fund wallet with $0.10 USDC, approve quote, execute `buy curl`. |
-| **DEF-20** | **INFORMATIONAL** | Operations | ERC-8004 registration not broadcast on Celo. | Requires public deployment URL & 0.05 CELO gas. | Deploy to cloud, fund wallet, broadcast tagged registration tx. |
+| **DEF-15** | **MEDIUM** | DB / Concurrency | SQLite connection lacks WAL mode and busy timeout. | Default SQLite journal mode is `DELETE`, risking `SQLITE_BUSY` contention under concurrent writes. | **RESOLVED in MOD-01:** Executed `PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;` on DB initialization. Tested in `tests/databaseReliability.test.ts`. |
+| **DEF-16** | **MEDIUM** | Usability / Routing | Direct navigation to non-hash deep URLs returns 404. | Fastify only mounts `GET /` and `/assets/*`. Direct browser loads on `/investigate` fail. | **RESOLVED in MOD-01:** Added SPA redirects for clean routes and 404 fallback. Tested in `scripts/verify_all_routes.mjs`. |
+| **DEF-17** | **MEDIUM** | Security / Robustness | Revert decoder parses length without upper-bound clamping. | `parseInt(lengthHex, 16)` is unconstrained in `revertDecoder.ts:46`. | **RESOLVED in MOD-01:** Clamped `strLen` to 4096 bytes and added safe offset parsing. Tested in `tests/revertDecoder.test.ts`. |
+| **DEF-18** | **LOW** | Performance | Client bundle chunk exceeds 500 kB (624 kB). | Single minified bundle for React, Viem, and icons. | **RESOLVED in MOD-01:** Configured `manualChunks` in `vite.config.ts`. Verified via `npm run build`. |
+| **DEF-19** | **HIGH** | Security / Auth | Declared `MAX_TRACKED_SESSIONS = 5000` was not enforced as hard upper bound. | Expired sessions pruned but new sessions inserted even if all 5,000 active. | **RESOLVED in MOD-02.2:** Enforced hard capacity check rejecting new sessions with HTTP 503 `SESSION_CAPACITY_EXCEEDED` without evicting active sessions. Tested in `tests/operatorAuth.test.ts`. |
+| **DEF-20** | **HIGH** | Security / Rate Limiting | Failed-login IP tracker silently evicted active records upon reaching capacity. | Tracker arbitrarily deleted 20% of entries, unblocking attackers. | **RESOLVED in MOD-02.2:** Enforced fail-closed rate-limiting tracker rejecting new identities with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED` without deleting active records or resetting lockouts. Tested in `tests/operatorAuth.test.ts`. |
+| **DEF-21** | **HIGH** | Security / Cryptography | Permitted scrypt parameter combinations exceeded 64 MiB memory budget. | Memory requirement $128 \times N \times r$ could reach 128 MiB, causing OpenSSL memory limit RangeErrors under maxmem. | **RESOLVED in MOD-02.2:** Enforced combined-parameter validation ($128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$) before invoking scrypt; safely caught sync errors. Tested in `tests/operatorAuth.test.ts`. |
+| **OP-01** | **INFORMATIONAL** | Operations | Live Buy payment settlement not executed. | 0 CELO wallet balance; awaiting operator funding. | Fund wallet with $0.10 USDC, approve quote, execute `buy curl`. Scheduled for Module 3. |
+| **OP-02** | **INFORMATIONAL** | Operations | ERC-8004 registration not broadcast on Celo. | Requires public deployment URL & 0.05 CELO gas. | Deploy to cloud, fund wallet, broadcast tagged registration tx. Scheduled for Module 5. |
 
 ---
 
@@ -223,6 +226,7 @@ Antigravity re-executed all verification commands in the workspace:
    - Result: **0 errors** across server and client codebases.
 2. **Vitest Automated Suites (`npm test`):**
    - Command: `vitest run`
+   - Result: **18 test files passed, 185/185 tests passed** (100% green).
    - Result: **15 test files passed (15/15), 130 tests passed (130/130)** in 4.25s.
 3. **Production Build (`npm run build`):**
    - Command: `npm run build:server && npm run build:client`

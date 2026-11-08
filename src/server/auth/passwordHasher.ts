@@ -38,7 +38,8 @@ export const SCRYPT_POLICY = {
   DEFAULT_PARALLELISM: 1,
   REQUIRED_SALT_BYTES: 16,
   REQUIRED_KEY_BYTES: 32,
-  MAX_MEMORY_BUDGET_BYTES: 64 * 1024 * 1024 // 64 MiB
+  MAX_MEMORY_BUDGET_BYTES: 64 * 1024 * 1024, // 64 MiB (67,108,864 bytes)
+  SAFETY_OVERHEAD_BYTES: 1024 * 1024 // 1 MiB conservative safety overhead
 } as const;
 
 export const DEFAULT_SCRYPT_OPTIONS: ScryptOptions = {
@@ -47,6 +48,56 @@ export const DEFAULT_SCRYPT_OPTIONS: ScryptOptions = {
   parallelism: SCRYPT_POLICY.DEFAULT_PARALLELISM,
   keyLen: SCRYPT_POLICY.REQUIRED_KEY_BYTES
 };
+
+/**
+ * Calculates estimated memory required by scrypt in bytes.
+ * OpenSSL's scrypt implementation requires memory for the SMix scratchpad
+ * (128 * N * r bytes) plus the input/output array B (128 * r * p bytes),
+ * plus internal working context.
+ * A 1 MiB safety overhead is added to ensure Node.js crypto.scrypt does not
+ * hit memory limit RangeErrors under maxmem.
+ *
+ * Returns Infinity if parameters cause numeric overflow or are invalid.
+ */
+export function calculateScryptMemoryRequirement(
+  cost: number,
+  blockSize: number,
+  parallelism: number = SCRYPT_POLICY.DEFAULT_PARALLELISM
+): number {
+  if (!Number.isSafeInteger(cost) || !Number.isSafeInteger(blockSize) || !Number.isSafeInteger(parallelism)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (cost <= 0 || blockSize <= 0 || parallelism <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const nr = cost * blockSize;
+  if (!Number.isSafeInteger(nr)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const mainScratchpad = 128 * nr;
+  const parallelBuffers = 128 * blockSize * parallelism;
+  const total = mainScratchpad + parallelBuffers + SCRYPT_POLICY.SAFETY_OVERHEAD_BYTES;
+
+  if (!Number.isSafeInteger(total)) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return total;
+}
+
+/**
+ * Validates that the combined scrypt parameters do not exceed the declared 64 MiB ceiling.
+ */
+export function isScryptMemoryWithinBudget(
+  cost: number,
+  blockSize: number,
+  parallelism: number = SCRYPT_POLICY.DEFAULT_PARALLELISM
+): boolean {
+  const required = calculateScryptMemoryRequirement(cost, blockSize, parallelism);
+  return required <= SCRYPT_POLICY.MAX_MEMORY_BUDGET_BYTES;
+}
 
 const HASH_PREFIX = 'scrypt$v=1$';
 const STRICT_DECIMAL_REGEX = /^[1-9]\d*$/;
@@ -131,9 +182,10 @@ export function parseScryptHash(encodedHash: string): ScryptParsedParams | null 
     return null;
   }
 
-  // Ensure parameter combination does not exceed memory budget (128 * N * r bytes)
-  const memoryRequiredBytes = 128 * cost * blockSize;
-  if (memoryRequiredBytes > SCRYPT_POLICY.MAX_MEMORY_BUDGET_BYTES) {
+  // Combined parameter memory validation (DEF-21):
+  // Validates 128 * N * r + 128 * r * p + safetyOverhead <= MAX_MEMORY_BUDGET_BYTES
+  // Rejects combinations that would exceed 64 MiB or trigger OpenSSL memory limit RangeErrors
+  if (!isScryptMemoryWithinBudget(cost, blockSize, parallelism)) {
     return null;
   }
 
@@ -226,7 +278,8 @@ function validateHashOptions(options: Partial<ScryptOptions>): void {
 
   const cost = options.cost ?? SCRYPT_POLICY.DEFAULT_COST;
   const blockSize = options.blockSize ?? SCRYPT_POLICY.DEFAULT_BLOCK_SIZE;
-  if (128 * cost * blockSize > SCRYPT_POLICY.MAX_MEMORY_BUDGET_BYTES) {
+  const parallelism = options.parallelism ?? SCRYPT_POLICY.DEFAULT_PARALLELISM;
+  if (!isScryptMemoryWithinBudget(cost, blockSize, parallelism)) {
     throw new Error('scrypt parameter combination exceeds maximum memory budget of 64 MiB.');
   }
 }
@@ -291,21 +344,25 @@ export async function verifyPassword(
 
   try {
     const candidateKey = await new Promise<Buffer>((resolve, reject) => {
-      crypto.scrypt(
-        password,
-        params.salt,
-        params.derivedKey.length,
-        {
-          N: params.cost,
-          r: params.blockSize,
-          p: params.parallelism,
-          maxmem: SCRYPT_POLICY.MAX_MEMORY_BUDGET_BYTES
-        },
-        (err, derived) => {
-          if (err) reject(err);
-          else resolve(derived as Buffer);
-        }
-      );
+      try {
+        crypto.scrypt(
+          password,
+          params.salt,
+          params.derivedKey.length,
+          {
+            N: params.cost,
+            r: params.blockSize,
+            p: params.parallelism,
+            maxmem: SCRYPT_POLICY.MAX_MEMORY_BUDGET_BYTES
+          },
+          (err, derived) => {
+            if (err) reject(err);
+            else resolve(derived as Buffer);
+          }
+        );
+      } catch (syncErr) {
+        reject(syncErr);
+      }
     });
 
     if (candidateKey.length !== params.derivedKey.length) {

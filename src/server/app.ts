@@ -331,15 +331,15 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       reply.header('Set-Cookie', `operator_token=${token}; HttpOnly; SameSite=Strict; Path=/${secureSuffix}`);
       return { token, session };
     } catch (err: unknown) {
-      if (err instanceof OperatorAuthError && err.statusCode === 429) {
-        if (err.retryAfter) {
+      if (err instanceof OperatorAuthError) {
+        if (err.statusCode === 429 && err.retryAfter) {
           reply.header('Retry-After', err.retryAfter.toString());
         }
-        reply.status(429);
-        const rateErr: any = new Error(err.message);
-        rateErr.statusCode = 429;
-        rateErr.code = 'RATE_LIMITED';
-        throw rateErr;
+        reply.status(err.statusCode);
+        const authErr: any = new Error(err.message);
+        authErr.statusCode = err.statusCode;
+        authErr.code = err.code;
+        throw authErr;
       }
 
       const message = err instanceof Error ? err.message : 'Invalid operator credentials.';

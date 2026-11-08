@@ -56,34 +56,53 @@ Operator access controls are strictly decoupled between authentication and sessi
 1. **Independent Secrets:**
    - `OPERATOR_PASSWORD_HASH`: Stores the salted, computationally expensive scrypt password hash. Used exclusively for verifying operator passwords during login. Supplying `SESSION_SECRET` or the raw hash string as a password will fail authentication.
    - `SESSION_SECRET`: Used exclusively for HMAC-SHA256 signing and verifying session tokens. Never used as a password or password hash substitute.
-2. **scrypt Hashing Specification & Hardened Parsing (MOD-02.1):**
+2. **scrypt Hashing Specification & Combined Memory Validation (MOD-02.1 & MOD-02.2 / DEF-21):**
    - Algorithm: Node.js built-in `crypto.scrypt` (asynchronous, non-blocking).
    - Format: `scrypt$v=1$N=<cost>$r=<blockSize>$p=<parallelism>$<salt-base64>$<derived-key-base64>`
    - Strict Parameter Parsing: Implements `parseStrictDecimal()` rejecting signs (`+`, `-`), trailing junk, whitespace, non-integers, and NaN.
+   - Combined Memory Requirement & 64 MiB Budget Enforcement (DEF-21):
+     - Dominant memory consumed by OpenSSL scrypt is $128 \times N \times r + 128 \times r \times p$ bytes.
+     - Implements `calculateScryptMemoryRequirement(cost, blockSize, parallelism)` with a 1 MiB conservative safety overhead.
+     - Combined memory validation rejects any parameter combination where $128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} > 64 \text{ MiB}$ (67,108,864 bytes).
+     - Parameter sets like $N=65536, r=16$ (128 MiB) and $N=65536, r=8$ (64 MiB + overhead) are rejected before calling `crypto.scrypt`, preventing OpenSSL memory limit RangeErrors.
+     - Safe integer overflow protection returns `Infinity` on non-safe integer multiplications.
+     - Synchronous `try/catch` wrapper inside the Promise constructor safely intercepts unexpected runtime exceptions without crashing the server.
    - Parameter Policy Limits:
      - Cost factor $N$: must be a power of 2 between $1024$ and $65536$ ($2^{10}$ to $2^{16}$).
      - Block size $r$: integer between $1$ and $16$.
      - Parallelism $p$: integer between $1$ and $4$.
-     - Memory ceiling: fixed strict 64 MiB (`maxmem = 67_108_864`) preventing denial-of-service via resource exhaustion.
+     - Memory ceiling: fixed strict 64 MiB (`maxmem = 67_108_864`).
    - Cryptographic Bounds & Canonical Base64:
      - Salt length: exactly 16 bytes.
      - Key length: exactly 32 bytes.
      - Canonical encoding: Base64 strings must round-trip exactly to their encoded representation, rejecting padded/unpadded discrepancies and non-base64 characters.
    - Verification: Constant-time buffer comparison via `crypto.timingSafeEqual` after buffer length verification.
    - Fault Tolerance: Malformed hashes, unsupported versions, or invalid parameter ranges return `false` gracefully without crashing the server process.
-3. **Session Management, Lifecycle & Dual Delivery Model (MOD-02.1):**
+3. **Session Management, Hard Capacity & Dual Delivery Model (MOD-02.1 & MOD-02.2 / DEF-19):**
    - Tokens are formatted as `<sessionId>.<hmacHex>`, where `sessionId` is a strict 64-character lowercase hexadecimal string (32 bytes entropy), and `hmacHex` is a strict 64-character lowercase hexadecimal HMAC-SHA256 signature generated with `SESSION_SECRET`.
    - Expiration Boundary: Enforces hard boundary check `now >= expiresAt`.
-   - Session Pruning: Bounded automatic cleanup of expired sessions runs during session operations without dropping valid concurrent sessions.
-   - Stale Failed-Attempt Cleanup: Stale failed login records older than 15 minutes are discarded during rate limit checks.
+   - Hard Session Capacity Upper Bound (DEF-19):
+     - Enforces hard maximum of 5,000 active sessions (`maxTrackedSessions = 5000`).
+     - Expired sessions are pruned when capacity is reached.
+     - If all remaining sessions are active and capacity is exhausted, new session creation is rejected with HTTP 503 `SESSION_CAPACITY_EXCEEDED`.
+     - Active sessions are never evicted to make room for new logins.
+     - Concurrent login completions execute synchronously during session insertion, preventing capacity overruns.
+     - No session identifiers, secrets, or internal data are leaked in capacity error messages.
    - Dual Token Delivery:
      - Login responses set an `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure` (in production) cookie for browser session handling.
      - Login responses also return the token in the JSON envelope (`token` field). In the React client, this token is held strictly in transient React component state (`useState`) without persisting to `localStorage` or `sessionStorage`. This provides automated script and CLI compatibility without exposing persistent storage to cross-site script extraction.
-4. **Login Brute-Force Rate Limiting:**
+4. **Login Brute-Force Rate Limiting & Fail-Closed Capacity (MOD-02.1 & MOD-02.2 / DEF-20):**
    - Enforces a maximum of 5 failed login attempts per client IP within a rolling 15-minute sliding window.
    - Subsequent attempts receive HTTP 429 (`RATE_LIMITED`) with a standard `Retry-After` header indicating remaining wait time in seconds.
    - Successful authentication resets the failed-attempt counter for that IP.
-   - Tracking memory is bounded (max 5,000 tracked IPs) with automatic cleanup of expired entries.
+   - Fail-Closed Tracker Capacity (DEF-20):
+     - Maximum tracked identities is capped at 5,000 (`maxTrackedIps = 5000`).
+     - Expired entries older than 15 minutes are pruned.
+     - If all 5,000 tracked entries are active and capacity is exhausted, login attempts from new, untracked identities fail closed with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`.
+     - Active failed-attempt records and lockouts are never evicted or deleted to make room for new callers.
+     - Locked-out identities remain locked out for their full window even when capacity is full.
+   - Process-Local Operational Limitation:
+     - Session and lockout registries are process-local in memory. In multi-replica cloud deployments, a shared store (such as Redis) is required for cluster-wide synchronization.
 
 ---
 

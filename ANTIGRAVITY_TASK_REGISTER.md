@@ -93,14 +93,18 @@ This register contains all technical and operational tasks owned and executed di
 - **Acceptance Criteria:** All individual JS chunks are below 350 kB; no build chunk warnings.
 - **Evidence:** Build terminal output showing chunks < 350 kB.
 
-### TASK AGY-05: Separate Operator Auth Password from Session Secret (DEF-14 & MOD-02.1 Hardening)
-- **Objective:** Resolve DEF-14 by ensuring `OperatorAuthService` verifies passwords against `OPERATOR_PASSWORD_HASH` using asynchronous salted scrypt, completely separating password verification from HMAC session signing with `SESSION_SECRET`.
+### TASK AGY-05: Separate Operator Auth Password from Session Secret (DEF-14, MOD-02.1 & MOD-02.2 Hardening)
+- **Objective:** Resolve DEF-14, DEF-19, DEF-20, and DEF-21 by ensuring `OperatorAuthService` verifies passwords against `OPERATOR_PASSWORD_HASH` using asynchronous salted scrypt, completely separating password verification from HMAC session signing with `SESSION_SECRET`, enforcing hard session capacity limits, fail-closed rate-limiter trackers, and combined scrypt memory bounds.
 - **Files Involved:** `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/config.ts`, `scripts/generate_password_hash.mjs`
-- **Implementation & Hardening:** Implemented `hashPassword` and `verifyPassword` using Node.js built-in `crypto.scrypt` with OWASP-standard parameters ($N=16384, r=8, p=1$, random 16-byte salt, constant-time `timingSafeEqual`). Hardened in MOD-02.1 with `parseStrictDecimal` rejecting signs and trailing junk, canonical Base64 verification, exact 16-byte salt / 32-byte key checks, strict parameter policy ($1024 \le N \le 65536, 1 \le r \le 16, 1 \le p \le 4$, 64 MiB ceiling), bounded session pruning, and stale failed-attempt counter resets.
-- **Security Considerations:** Protects against side-channel timing attacks, brute force, secret reuse, parameter DoS, and token tampering.
-- **Required Tests:** `tests/operatorAuth.test.ts` (17/17 passed), `tests/config.test.ts` (22/22 passed), `tests/buySecurity.test.ts` (4/4 passed).
-- **Acceptance Criteria:** Supplying `SESSION_SECRET` as password returns HTTP 401. Supplying valid password returns signed session token. Token tampering is rejected. Strict decimal parsing and Base64 round-trip verified.
-- **Evidence:** 17 passing tests in `tests/operatorAuth.test.ts` and route test 11 in `scripts/verify_all_routes.mjs`.
+- **Implementation & Hardening:** Implemented `hashPassword` and `verifyPassword` using Node.js built-in `crypto.scrypt` with OWASP-standard parameters ($N=16384, r=8, p=1$, random 16-byte salt, constant-time `timingSafeEqual`). Hardened in MOD-02.1 and MOD-02.2:
+  - Hard session limit (`maxTrackedSessions = 5000`) rejecting new sessions with HTTP 503 `SESSION_CAPACITY_EXCEEDED` without evicting active sessions (DEF-19).
+  - Fail-closed login attempt tracker (`maxTrackedIps = 5000`) rejecting new identities with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED` when full of active entries without evicting active records or resetting lockouts (DEF-20).
+  - Combined scrypt memory validation ($128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$) rejecting dangerous parameter combinations before invoking scrypt (DEF-21).
+  - `parseStrictDecimal` rejecting signs and trailing junk, canonical Base64 verification, exact 16-byte salt / 32-byte key checks.
+- **Security Considerations:** Protects against side-channel timing attacks, brute force, secret reuse, parameter DoS, memory exhaustion, and token tampering.
+- **Required Tests:** `tests/operatorAuth.test.ts` (30/30 passed), `tests/config.test.ts` (22/22 passed), `tests/buySecurity.test.ts` (4/4 passed).
+- **Acceptance Criteria:** Supplying `SESSION_SECRET` as password returns HTTP 401. Supplying valid password returns signed session token. Token tampering is rejected. Strict decimal parsing and Base64 round-trip verified. Hard capacity bounds and fail-closed behaviors proven with zero eviction of active records.
+- **Evidence:** 30 passing tests in `tests/operatorAuth.test.ts` and route test 11 in `scripts/verify_all_routes.mjs`.
 
 ### TASK AGY-06: Public Forensic Ingestion Rate Limiting (MOD-02.1 Hardening)
 - **Objective:** Protect `POST /api/investigations` against abusive automated volume and upstream Chainstack RPC quota exhaustion without external infrastructure dependencies.

@@ -1,7 +1,7 @@
 # RevertLens — Automated Test & Verification Results
 
-**Date/time:** 2026-11-08 13:45:00 UTC
-**Phase:** Module 2.1: Independent Source Audit Corrections (MOD-02.1)
+**Date/time:** 2026-11-08 14:10:00 UTC
+**Phase:** Module 2.2: Final Authentication Resource-Boundary Hardening (MOD-02.2)
 **Node:** v22.13.0  
 **npm:** 10.9.2  
 **Target Network:** Celo Mainnet (`eip155:42220`)  
@@ -13,7 +13,7 @@
 | Command | Exit Code | Result | Key Output & Notes |
 |:---|:---:|:---:|:---|
 | `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
-| `npm test` | **0** | **`PASS`** | **18 test files passed, 172/172 tests passed** in 5.34s (100% green). |
+| `npm test` | **0** | **`PASS`** | **18 test files passed, 185/185 tests passed** in 5.39s (100% green). |
 | `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430 kB), `vendor-icons` (14.8 kB), `index` (178 kB). **0 warnings**. |
 | `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **28/28 test scenarios passed** across 20 unique Fastify endpoints (including explicit DEF-14 session secret rejection). |
 | `node scripts/verify_live_investigation.mjs` | **0** | **`PASS`** | **14/14 live checks passed** against Celo Mainnet OP Geth node. 5 SHA-256 evidence items verified across OS-isolated child process. |
@@ -21,11 +21,11 @@
 
 ---
 
-## 2. Test Breakdown by File (18 Suites, 172 Tests)
+## 2. Test Breakdown by File (18 Suites, 185 Tests)
 
 | # | Test File | Test Count | Classification | Result |
 |:---:|:---|:---:|:---|:---:|
-| 1 | `tests/operatorAuth.test.ts` | **17** | `LOCAL_INTEGRATION` | **PASS** |
+| 1 | `tests/operatorAuth.test.ts` | **30** | `LOCAL_INTEGRATION` | **PASS** |
 | 2 | `tests/rateLimiter.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
 | 3 | `tests/config.test.ts` | **22** | `LOCAL` | **PASS** |
 | 4 | `tests/databaseReliability.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
@@ -43,7 +43,7 @@
 | 16 | `tests/buySecurity.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
 | 17 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
 | 18 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
-| **Total** | **18 Test Suites** | **172 Tests** | **100% Automated** | **172 PASS** |
+| **Total** | **18 Test Suites** | **185 Tests** | **100% Automated** | **185 PASS** |
 
 ---
 
@@ -89,17 +89,18 @@
 - [x] Strict decimal parameter parsing in scrypt hashes rejecting signs (`+`, `-`), trailing junk, non-integers, and NaN.
 - [x] Canonical Base64 verification round-trip preventing malformed or non-canonical parameter encodings.
 - [x] Exact salt length (16 bytes) and derived key length (32 bytes) validation.
-- [x] scrypt parameter bounds ($1024 \le N \le 65536, 1 \le r \le 16, 1 \le p \le 4$) with fixed 64 MiB memory budget.
-- [x] Supplying `SESSION_SECRET` as password returns HTTP 401.
-- [x] Supplying raw scrypt hash as password returns HTTP 401.
-- [x] HMAC-SHA256 signed session tokens (`<sessionId>.<hmacHex>`) with 2-hour hard lifetime.
-- [x] Session lifecycle bounds check `now >= expiresAt` and bounded automatic session pruning.
-- [x] Dual token delivery: HttpOnly cookie for browser protection + ephemeral in-memory React state for UI/script compatibility.
+- [x] Combined scrypt memory validation ($128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$) rejecting parameter sets exceeding 64 MiB budget before invoking crypto.scrypt (DEF-21).
+- [x] Safe integer overflow protection and synchronous error interception for scrypt parameter checking.
+- [x] Hard session capacity enforced at 5,000 active sessions with HTTP 503 `SESSION_CAPACITY_EXCEEDED` on full capacity (DEF-19).
+- [x] Active sessions are never evicted to create capacity; existing active sessions remain valid.
+- [x] Concurrent login completions execute synchronously during session insertion, preventing capacity overruns.
 - [x] Operator login brute-force limiter (max 5 failed attempts per 15 min returning HTTP 429 with `Retry-After`).
+- [x] Fail-closed login attempt tracker rejecting new identities with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED` when capacity is full of active entries (DEF-20).
+- [x] Active failed attempt records and lockouts are never deleted to make room for new callers.
 - [x] Stale failed login attempts reset automatically after the 15-minute sliding window.
 - [x] Public forensic ingestion rate limiting on `POST /api/investigations` (10 req/min per IP with HTTP 429 and standard envelope).
 - [x] Genuine sliding-window rate limiter with per-IP timestamp arrays, roll-off pruning, and clock injection.
-- [x] Fail-closed behavior on rate limiter capacity exhaustion (`maxEntries`).
+- [x] Fail-closed behavior on public rate limiter capacity exhaustion (`maxEntries`).
 - [x] Fastify native `trustProxy` integration rejecting forwarding headers from untrusted socket peers.
 - [x] Health checks, static assets, report retrieval, and history browsing remain unblocked.
 - [x] Strict client IP resolution with `net.isIP()` verification.

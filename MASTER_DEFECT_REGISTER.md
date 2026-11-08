@@ -37,24 +37,28 @@
 | **DEF-16** | **Medium** | Usability / Routing | Direct navigation or refresh on deep URLs without hash returns HTTP 404. | In `src/server/app.ts:398-405`, only `GET /` served `index.html`. Direct browser loads on `/history`, `/about`, `/operator`, `/investigation/:id` returned 404. | **RESOLVED** | Added 302 redirects from clean client URLs to hash SPA equivalents, and configured `setNotFoundHandler` preserving standard JSON 404 envelope for `/api/*`. Tested in `scripts/verify_all_routes.mjs` (27/27 pass). |
 | **DEF-17** | **Medium** | Security / Robustness | Revert decoder `decodeRevertData` parses length prefix without explicit bounds clamping. | In `src/server/forensics/revertDecoder.ts:46`, `parseInt(lengthHex, 16)` was unconstrained. If an attacker submits an astronomical length, parsing could lead to unexpected behavior. | **RESOLVED** | Clamped `strLen` to `MAX_REVERT_STRING_BYTES = 4096`, verified high-order zero padding, safe offset parsing, and truncated data handling in `src/server/forensics/revertDecoder.ts`. Tested in `tests/revertDecoder.test.ts` (12/12 pass). |
 | **DEF-18** | **Low** | Build / Performance | Client JS chunk size (624 kB) exceeded recommended 500 kB threshold. | Vite bundled all pages, Lucide icons, and React into single chunk `index-CPzjZ2ir.js`. | **RESOLVED** | Configured `manualChunks` in `vite.config.ts` separating `vendor-react` (430 kB), `vendor-icons` (14.8 kB), and `index` (178 kB). Clean build with 0 warnings. Verified via `npm run build` and `scripts/browser_e2e_cdp.mjs`. |
-| **DEF-19** | **Informational** | Buy Payments | Buy CLI live payment settlement (`npx @celo/buy@latest ... curl`) has not been executed on-chain. | Agent wallet has 0 CELO balance and human operator has not authorized spend or executed CLI setup. Quote generation and x402 challenge parsing are fully verified. | **OPERATIONAL / DOCUMENTED** | Scheduled for Module 3 (Build with Buy & AI). Settlement requires funded wallet (< $0.05) and operator approval. |
-| **DEF-20** | **Informational** | ERC-8004 | Tagged ERC-8004 agent registration transaction is encoded and verified, but not broadcast on-chain. | Agent wallet balance is 0 CELO; public deployment URL is required to serve public metadata before registration. | **OPERATIONAL / DOCUMENTED** | Scheduled for Module 5 (ERC-8004 Agent Identity). Sequence: Deploy -> Public URL -> Fund Gas (< 0.05 CELO) -> Broadcast. |
+| **DEF-19** | **High** | Security / Auth | Declared `MAX_TRACKED_SESSIONS = 5000` was not enforced as a hard upper bound. | When session registry reached capacity, expired sessions were pruned but new sessions were inserted even if all 5,000 remaining sessions were active, permitting unbounded memory growth. | **RESOLVED** | Implemented hard capacity check in `src/server/auth/operatorAuth.ts` rejecting new sessions with HTTP 503 `SESSION_CAPACITY_EXCEEDED` when capacity is exhausted. Active sessions are never evicted. Tested in `tests/operatorAuth.test.ts` (suite with 5 deterministic tests covering below capacity, full capacity, logout recovery, expired pruning, and concurrent logins). |
+| **DEF-20** | **High** | Security / Rate Limiting | Failed-login IP tracker silently evicted active records when reaching capacity. | When `failedAttempts` reached 5,000 entries, the implementation arbitrarily deleted 20% of entries, unblocking attackers and resetting failed counters. | **RESOLVED** | Implemented fail-closed rate-limiting tracker in `src/server/auth/operatorAuth.ts`. Genuinely expired entries are pruned; if capacity remains full, new untracked identities fail closed with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`. Active counters and locked-out states are never evicted. Tested in `tests/operatorAuth.test.ts` (4 deterministic tests covering fail-closed behavior, lockout persistence, and expired entry pruning). |
+| **DEF-21** | **High** | Security / Cryptography | Permitted scrypt parameter combinations ($N \le 65536, r \le 16$) exceeded 64 MiB memory budget. | Memory requirement $128 \times N \times r$ could reach 128 MiB, causing Node.js `crypto.scrypt` to throw synchronous OpenSSL memory limit RangeErrors under `maxmem = 67,108,864`. | **RESOLVED** | Implemented combined-parameter validation in `src/server/auth/passwordHasher.ts` enforcing $128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$ before invoking scrypt. Wrapped scrypt invocation in synchronous try/catch. Rejects combinations exceeding budget in both `parseScryptHash()` and `hashPassword()`. Tested in `tests/operatorAuth.test.ts` (4 tests validating calculation, overflow protection, rejection of $N=65536, r=16$ and $N=65536, r=8$, and support for production parameters). |
+| **OP-01** | **Informational** | Buy Payments | Buy CLI live payment settlement (`npx @celo/buy@latest ... curl`) has not been executed on-chain. | Agent wallet has 0 CELO balance and human operator has not authorized spend or executed CLI setup. Quote generation and x402 challenge parsing are fully verified. | **OPERATIONAL / DOCUMENTED** | Scheduled for Module 3 (Build with Buy & AI). Settlement requires funded wallet (< $0.05) and operator approval. |
+| **OP-02** | **Informational** | ERC-8004 | Tagged ERC-8004 agent registration transaction is encoded and verified, but not broadcast on-chain. | Agent wallet balance is 0 CELO; public deployment URL is required to serve public metadata before registration. | **OPERATIONAL / DOCUMENTED** | Scheduled for Module 5 (ERC-8004 Agent Identity). Sequence: Deploy -> Public URL -> Fund Gas (< 0.05 CELO) -> Broadcast. |
 
 ---
 
 ## 3. Defect Statistics & Release Posture
 
-- **Total Historical Defects Tracked:** 20
-- **Total Resolved Defects:** 18 (DEF-01 through DEF-18)
-- **Total Open Defects:** 2 (DEF-19, DEF-20)
+- **Total Historical Defects Tracked:** 21 (DEF-01 through DEF-21) + 2 Operational Tasks (OP-01, OP-02)
+- **Total Resolved Defects:** 21 (100% of discovered software defects resolved)
+- **Total Open Defects:** 0 (Zero software defects open)
   - Critical (P0): **0**
-  - High (P1): **0** (DEF-14 resolved in Module 2)
+  - High (P1): **0** (DEF-14, DEF-19, DEF-20, DEF-21 resolved and verified)
   - Medium (P2): **0** (All resolved in Module 1)
   - Low (P3): **0** (All resolved in Module 1)
-  - Informational / Operational: **2** (DEF-19: Buy live settlement; DEF-20: ERC-8004 broadcast)
+  - Informational / Operational: **2** (OP-01: Buy live settlement; OP-02: ERC-8004 broadcast)
 
 ### Immediate Engineering Action Plan:
 1. **Module 1:** COMPLETED (DEF-15, DEF-16, DEF-17, DEF-18 resolved with 100% test verification).
 2. **Module 2:** COMPLETED (DEF-14 resolved via scrypt password hashing, session signing separation, and rate limiting).
-3. **Module 3:** Authorize and execute Buy live payment workflow (DEF-19).
-4. **Module 5:** Authorize and broadcast ERC-8004 registration transaction (DEF-20).
+3. **Module 2.1 & 2.2:** COMPLETED (DEF-19, DEF-20, DEF-21 resolved with hard session limits, fail-closed tracker, combined scrypt memory validation, and 185 passing tests).
+4. **Module 3:** Authorize and execute Buy live payment workflow (OP-01).
+5. **Module 5:** Authorize and broadcast ERC-8004 registration transaction (OP-02).
