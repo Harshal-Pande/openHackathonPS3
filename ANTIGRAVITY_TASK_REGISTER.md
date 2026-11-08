@@ -158,3 +158,13 @@ This register contains all technical and operational tasks owned and executed di
 - **Required Tests:** `tests/buySecurity.test.ts` (131/131 passed; +22 new tests covering DEF-42 and DEF-43), `tests/buyAdapter.test.ts` (9/9 passed).
 - **Acceptance Criteria:** 100% test pass rate; zero paid dispatches with invalid payer configuration; strict receipt rejection on malformed Transfer logs; zero silent skipping.
 - **Evidence:** 341/341 passing tests across all 20 test files in `npm test`.
+
+### TASK AGY-07.5: Final Payer Identity Contract Hardening (DEF-44 to DEF-45)
+- **Objective:** Enforce mandatory expected payer identity in receipt verification contract and eliminate loose text-regex scanning in CLI whoami identity resolution.
+- **Files Involved:** `src/server/adapters/buyAdapter.ts`, `tests/buySecurity.test.ts`
+- **Implementation & Hardening:**
+  - DEF-44 (Mandatory Expected Payer Parameter in Receipt Verification): Changed `expectedPayer?: string` to mandatory `expectedPayer: string` in `verifyReceiptTransferLogs()`. Added strict validation requiring a 20-byte EVM address format (`/^0[xX][0-9a-fA-F]{40}$/`). Rejects missing, empty, or malformed payer configuration immediately (`{ verified: false, reason: 'Invalid or missing expected payer address' }`). Enforced strict comparison between decoded Transfer log sender and expected payer in all matching log iterations. Updated all call sites with explicit payer addresses.
+  - DEF-45 (Strict CLI whoami Identity Parsing): Eliminated loose fallback regex scanning across arbitrary stdout lines in `getHealth()`. Identity is extracted strictly from authoritative JSON fields (`parsed.payingAddress` or `parsed.account`) validated against `/^0[xX][0-9a-fA-F]{40}$/`. Malformed JSON, missing field, or invalid format sets `account: 'UNKNOWN'` and `ready: false`. Non-zero CLI exits set `account: 'UNAVAILABLE'`. Preserves case-insensitive comparison against configured `AGENT_WALLET_ADDRESS`.
+- **Required Tests:** `tests/buySecurity.test.ts` (147/147 passed; +16 new tests covering DEF-44 and DEF-45), `tests/buyAdapter.test.ts` (9/9 passed).
+- **Acceptance Criteria:** 100% test pass rate across 357 tests in 20 suites; zero silent omission of payer checks in receipt logs; zero arbitrary text regex extraction from CLI output.
+- **Evidence:** 357/357 passing tests across all 20 test files in `npm test`.

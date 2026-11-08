@@ -246,3 +246,20 @@ Engineered to resolve DEF-42 and DEF-43:
   - Continues cleanly ignoring unrelated valid event types (e.g. Approval) and logs from unrelated token contracts.
   - Preserves exact BigInt mathematical aggregate equality (`totalTransferred === expectedAmount`).
 
+## 13. Final Payer Identity Contract Hardening (MOD-03.6 / DEF-44 & DEF-45)
+
+- **Mandatory Expected Payer in Receipt Verification (DEF-44):**
+  - Parameter `expectedPayer: string` is made strictly mandatory in `verifyReceiptTransferLogs()`.
+  - Format is validated strictly as a 20-byte EVM address (`/^0[xX][0-9a-fA-F]{40}$/`).
+  - Rejects missing, empty, or malformed payer addresses immediately.
+  - Decoded sender from log `topics[1]` is strictly compared against `expectedPayer` (case-insensitively).
+  - Receipts cannot be accepted based on token, recipient, and amount alone without cryptographic sender verification.
+  - Zero default or hardcoded payer fallback across all callers.
+- **Authoritative JSON-Only CLI whoami Identity Resolution (DEF-45):**
+  - Eliminated arbitrary text regex fallback scanning across stdout lines.
+  - CLI identity is resolved strictly from authoritative JSON fields (`parsed.payingAddress` or `parsed.account`) matching `/^0[xX][0-9a-fA-F]{40}$/`.
+  - Malformed JSON, missing paying-address field, or invalid address format sets `account: 'UNKNOWN'` and `ready: false`.
+  - CLI execution failures set `account: 'UNAVAILABLE'` and `ready: false`.
+  - Prevents incidental addresses in warning messages, diagnostics, or unrelated properties from being adopted as the paying account.
+  - Preserves strict case-insensitive equality check between CLI identity and configured `AGENT_WALLET_ADDRESS`.
+

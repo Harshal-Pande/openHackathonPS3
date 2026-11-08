@@ -905,3 +905,41 @@ Following an independent audit of the MOD-03.4 snapshot, two critical integrity 
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.
+
+---
+
+## Phase 20 — Module 3.6: Final Payer Identity Contract Hardening (MOD-03.6 / DEF-44 & DEF-45)
+**Date:** 2026-11-08
+**Scope:** Mandatory expected payer parameter in `verifyReceiptTransferLogs()` with strict 20-byte EVM address format validation, case-insensitive sender comparison, and complete elimination of loose text regex fallback scanning in CLI whoami identity resolution.
+
+### 1. Summary of Changes
+Following an independent audit of the MOD-03.5 snapshot, two critical identity and contract guards were hardened:
+
+1. **DEF-44: Mandatory Expected Payer in Receipt Verification (P1):**
+   - Changed signature of `verifyReceiptTransferLogs(receipt, quote, expectedTxHash, expectedPayer)` in `src/server/adapters/buyAdapter.ts` to require `expectedPayer: string` as a non-optional parameter.
+   - Enforced strict EVM address validation: `if (!expectedPayer || typeof expectedPayer !== 'string' || !/^0[xX][0-9a-fA-F]{40}$/.test(expectedPayer.trim())) return { verified: false, reason: 'Invalid or missing expected payer address' }`.
+   - Replaced conditional payer checking in log iteration with strict mandatory comparison against `normalizedExpectedPayer`: rejects any receipt where the Transfer log sender does not match the expected payer.
+   - Prohibits accepting any receipt based solely on token, recipient, and amount matching when sender identity is unverified or omitted.
+   - Updated all call sites in tests and server code with explicit, validated expected payer addresses.
+   - Zero default or hardcoded payer fallback.
+
+2. **DEF-45: Strict JSON-Only CLI whoami Identity Resolution (P1):**
+   - Eliminated all loose text regex fallback scanning across stdout lines (`line.match(/0x[0-9a-fA-F]{40}/)`) in `getHealth()` (`src/server/adapters/buyAdapter.ts`).
+   - CLI identity is resolved strictly from authoritative JSON paying address fields (`parsed.payingAddress` or `parsed.account`) matching `/^0[xX][0-9a-fA-F]{40}$/`.
+   - If JSON is malformed, expected address fields are missing, or the address format is invalid, sets `account: 'UNKNOWN'` and `ready: false`.
+   - If CLI execution fails (`exitCode !== 0` or spawn exception), sets `account: 'UNAVAILABLE'` and `ready: false`.
+   - Preserves strict case-insensitive equality comparison against configured `AGENT_WALLET_ADDRESS`.
+   - Prevents incidental EVM addresses appearing in CLI warning banners, diagnostics, or unrelated properties from being adopted as the paying account.
+
+### 2. Verification Evidence
+- **Targeted Vitest Suites:**
+  - `npx vitest run tests/buySecurity.test.ts` passed **147/147 tests** (+16 new tests covering DEF-44 and DEF-45).
+  - `npx vitest run tests/buyAdapter.test.ts` passed **9/9 tests**.
+  - `npx vitest run tests/health.test.ts` passed **4/4 tests**.
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Full Vitest Automated Suite:** `npm test` passed with **20/20 test files, 357/357 tests passing** in ~11.1s (100% green).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports with exit code 0.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` balance is 0 CELO and 0 USDC. $0.00 spent.

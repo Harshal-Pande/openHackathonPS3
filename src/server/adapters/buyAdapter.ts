@@ -81,11 +81,20 @@ export function verifyReceiptTransferLogs(
     amount_atomic: string;
   },
   expectedTxHash: string,
-  expectedPayer?: string
+  expectedPayer: string
 ): ReceiptVerificationResult {
   if (!receipt || typeof receipt !== 'object') {
     return { verified: false, reason: 'Missing or null receipt.' };
   }
+
+  // DEFECT-44: Make expected payer mandatory and validate format strictly as a 20-byte EVM address
+  if (!expectedPayer || typeof expectedPayer !== 'string' || !/^0[xX][0-9a-fA-F]{40}$/.test(expectedPayer.trim())) {
+    return {
+      verified: false,
+      reason: 'Expected payer address is missing, empty, or malformed: must be a valid 20-byte EVM address.'
+    };
+  }
+  const normalizedExpectedPayer = expectedPayer.trim().toLowerCase();
 
   // 1. Receipt status check (0x1 or 1 indicates success)
   const isSuccess = receipt.status === '0x1' || receipt.status === 1;
@@ -125,7 +134,6 @@ export function verifyReceiptTransferLogs(
   const expectedToken = quote.token_contract.toLowerCase();
   const expectedRecipient = quote.recipient.toLowerCase();
   const expectedAmount = BigInt(quote.amount_atomic);
-  const normalizedExpectedPayer = expectedPayer ? expectedPayer.toLowerCase() : undefined;
 
   let totalTransferredAmount = 0n;
   let matchingLogsCount = 0;
@@ -201,8 +209,8 @@ export function verifyReceiptTransferLogs(
       continue;
     }
 
-    // Requirement 9: Relevant transfer to our expected recipient: must match expected payer
-    if (normalizedExpectedPayer && logSender !== normalizedExpectedPayer) {
+    // DEFECT-44: Relevant transfer to our expected recipient: must strictly match expected payer
+    if (logSender !== normalizedExpectedPayer) {
       return {
         verified: false,
         reason: `Transfer sender "${logSender}" does not match expected payer "${normalizedExpectedPayer}".`
@@ -430,54 +438,52 @@ export class BuyAdapter {
       const verRes = await this.runCli(['-V']);
       const cliVersion = verRes.stdout.trim() || 'unknown';
 
-      // Check account & balance
+      // Check account & balance strictly from JSON schema (DEFECT-45)
+      // Only authoritative paying-address field (payingAddress or account)
+      // Do not extract addresses from arbitrary text, warnings, diagnostic output, or unrelated fields.
       const whoamiRes = await this.runCli(['--json', 'whoami']);
-      let rawCliAccount = '';
+      let rawCliAccount: string | null = null;
       const balances: Record<string, string> = {};
 
       if (whoamiRes.exitCode === 0) {
         try {
           const parsed = JSON.parse(whoamiRes.stdout);
-          if (parsed.payingAddress && typeof parsed.payingAddress === 'string') {
-            rawCliAccount = parsed.payingAddress;
-          } else if (parsed.account && typeof parsed.account === 'string') {
-            rawCliAccount = parsed.account;
-          }
-          if (parsed.balances && typeof parsed.balances === 'object') {
-            Object.assign(balances, parsed.balances);
-          }
-        } catch {
-          // Fallback to text parsing
-        }
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            // Strictly check for authoritative paying-address field
+            const candidateAddress =
+              typeof parsed.payingAddress === 'string' && parsed.payingAddress.trim()
+                ? parsed.payingAddress.trim()
+                : typeof parsed.account === 'string' && parsed.account.trim()
+                  ? parsed.account.trim()
+                  : null;
 
-        if (!rawCliAccount) {
-          const lines = whoamiRes.stdout.split('\n');
-          for (const line of lines) {
-            const trimmed = line.trim();
-            const match = trimmed.match(/0x[0-9a-fA-F]{40}/);
-            if (match && !rawCliAccount) {
-              rawCliAccount = match[0];
+            if (candidateAddress && /^0[xX][0-9a-fA-F]{40}$/.test(candidateAddress)) {
+              rawCliAccount = candidateAddress;
             }
-            if (trimmed.includes('balances')) {
-              const balanceStr = trimmed.replace(/.*balances\s*/i, '').trim();
-              const parts = balanceStr.split(',').map((p) => p.trim());
-              for (const p of parts) {
-                const [val, tok] = p.split(' ');
-                if (val && tok) balances[tok] = val;
+
+            if (parsed.balances && typeof parsed.balances === 'object' && !Array.isArray(parsed.balances)) {
+              for (const [tok, val] of Object.entries(parsed.balances)) {
+                if (typeof val === 'string' || typeof val === 'number') {
+                  balances[tok] = String(val);
+                }
               }
             }
           }
+        } catch {
+          // If JSON is malformed or stdout is not JSON, do NOT scan text lines!
+          rawCliAccount = null;
         }
       }
 
-      // DEFECT-42:
+      // DEFECT-42 & DEFECT-45:
       // 2. Do not use configured payer as substitute for CLI-reported account
       // 3. If CLI identity is unknown, report UNAVAILABLE or UNKNOWN
+      // 4. If JSON is malformed, missing paying-address, or invalid, report UNKNOWN
       let account: string;
       if (whoamiRes.exitCode !== 0) {
         account = 'UNAVAILABLE';
-      } else if (rawCliAccount && /^0x[0-9a-fA-F]{40}$/.test(rawCliAccount.trim())) {
-        account = rawCliAccount.trim().toLowerCase();
+      } else if (rawCliAccount) {
+        account = rawCliAccount.toLowerCase();
       } else {
         account = 'UNKNOWN';
       }

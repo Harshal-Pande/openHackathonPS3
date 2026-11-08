@@ -365,8 +365,8 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
     });
 
     it('rejects missing or null receipt', () => {
-      expect(verifyReceiptTransferLogs(null, validQuote, '0x' + '1'.repeat(64)).verified).toBe(false);
-      expect(verifyReceiptTransferLogs(undefined, validQuote, '0x' + '1'.repeat(64)).verified).toBe(false);
+      expect(verifyReceiptTransferLogs(null, validQuote, '0x' + '1'.repeat(64), '0x3e1bef07824cd0e076f4907641f0a0ef27898e52').verified).toBe(false);
+      expect(verifyReceiptTransferLogs(undefined, validQuote, '0x' + '1'.repeat(64), '0x3e1bef07824cd0e076f4907641f0a0ef27898e52').verified).toBe(false);
     });
 
     it('rejects malformed transaction hash in receipt', () => {
@@ -375,7 +375,7 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
         transactionHash: '0xinvalidhash',
         logs: []
       };
-      expect(verifyReceiptTransferLogs(receipt, validQuote, '0x' + '1'.repeat(64)).verified).toBe(false);
+      expect(verifyReceiptTransferLogs(receipt, validQuote, '0x' + '1'.repeat(64), '0x3e1bef07824cd0e076f4907641f0a0ef27898e52').verified).toBe(false);
     });
 
     it('verifies correctly when multiple transfer logs exist in a single transaction', () => {
@@ -3103,6 +3103,276 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
       const res = verifyReceiptTransferLogs(receipt, validQuote, validTxHash, validPayer);
       expect(res.verified).toBe(false);
       expect(res.reason).toContain('Total transferred amount 5000 does not equal quoted atomic amount 10000');
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-44: Make Expected Payer Mandatory in Receipt Verification
+  // =========================================================================
+  describe('DEFECT-44: Mandatory Expected Payer Contract in Receipt Verification', () => {
+    const validQuote = {
+      token_contract: '0x765de816845861e75a25fca122bb6898b8b1282a',
+      recipient: '0x2117973f04192eb5971a81f0571060e2b7f49e6f',
+      amount_atomic: '10000'
+    };
+    const validTxHash = '0x' + 'c'.repeat(64);
+    const validPayer = '0x3e1bef07824cd0e076f4907641f0a0ef27898e52';
+
+    const validTransferTopicSender = '0x' + '0'.repeat(24) + validPayer.replace('0x', '');
+    const validTransferTopicRecipient = '0x' + '0'.repeat(24) + validQuote.recipient.replace('0x', '');
+    const validAmountData = '0x' + BigInt(10000).toString(16).padStart(64, '0');
+
+    const validReceipt = {
+      status: '0x1',
+      transactionHash: validTxHash,
+      logs: [
+        {
+          address: validQuote.token_contract,
+          topics: [ERC20_TRANSFER_EVENT_TOPIC, validTransferTopicSender, validTransferTopicRecipient],
+          data: validAmountData
+        }
+      ]
+    };
+
+    it('Missing expected payer is rejected', () => {
+      const res = verifyReceiptTransferLogs(validReceipt, validQuote, validTxHash, undefined as any);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Expected payer address is missing, empty, or malformed');
+    });
+
+    it('Empty expected payer is rejected', () => {
+      const res = verifyReceiptTransferLogs(validReceipt, validQuote, validTxHash, '');
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Expected payer address is missing, empty, or malformed');
+    });
+
+    it('Malformed expected payer is rejected', () => {
+      const res = verifyReceiptTransferLogs(validReceipt, validQuote, validTxHash, '0xinvalidformat');
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Expected payer address is missing, empty, or malformed');
+    });
+
+    it('Correct payer succeeds', () => {
+      const res = verifyReceiptTransferLogs(validReceipt, validQuote, validTxHash, validPayer);
+      expect(res.verified).toBe(true);
+      expect(res.payer).toBe(validPayer);
+    });
+
+    it('Different payer fails', () => {
+      const differentPayer = '0x2222222222222222222222222222222222222222';
+      const res = verifyReceiptTransferLogs(validReceipt, validQuote, validTxHash, differentPayer);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain(`does not match expected payer "${differentPayer}"`);
+    });
+
+    it('Case-insensitive matching works', () => {
+      const upperPayer = '0x' + validPayer.slice(2).toUpperCase();
+      const res = verifyReceiptTransferLogs(validReceipt, validQuote, validTxHash, upperPayer);
+      expect(res.verified).toBe(true);
+      expect(res.payer).toBe(validPayer.toLowerCase());
+    });
+
+    it('Existing production verification path remains fail-closed when payingAddress is unconfigured', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: '' };
+      const adapter = new BuyAdapter({}, db, cfg as any);
+      const res = await adapter.verifyOnChainSettlement(validTxHash, { ...validQuote, id: 'q1', investigation_id: 'i1' } as any);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toContain('Agent wallet address is not configured or malformed');
+    });
+  });
+
+  // =========================================================================
+  // DEFECT-45: Strict CLI whoami Identity Parsing
+  // =========================================================================
+  describe('DEFECT-45: Strict CLI whoami Identity Parsing', () => {
+    const validConfiguredPayer = '0x3e1bef07824cd0e076f4907641f0a0ef27898e52';
+
+    it('Valid documented JSON response with matching payer produces ready=true and normalized account', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ payingAddress: validConfiguredPayer.toUpperCase(), balances: { USDC: '10' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(true);
+      expect(health.account).toBe(validConfiguredPayer.toLowerCase());
+      expect(health.payerMismatch).toBe(false);
+    });
+
+    it('Valid JSON with mismatched payer produces ready=false and payerMismatch=true', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ payingAddress: '0x1111111111111111111111111111111111111111', balances: { USDC: '10' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('0x1111111111111111111111111111111111111111');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Missing paying-address field produces account=UNKNOWN and ready=false', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ balances: { USDC: '10' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNKNOWN');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Malformed JSON produces account=UNKNOWN and ready=false without scanning arbitrary text', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: '{ broken json: payingAddress: ' + validConfiguredPayer,
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNKNOWN');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Arbitrary address embedded in warning text is NOT extracted and produces account=UNKNOWN', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: `Warning: faucet developer contact is ${validConfiguredPayer}\nBalances: 0 CELO\n`,
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNKNOWN');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Arbitrary address in an unrelated JSON field is NOT extracted and produces account=UNKNOWN', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({
+              unrelatedField: validConfiguredPayer,
+              diagnosticRecipient: validConfiguredPayer,
+              balances: { USDC: '0' }
+            }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNKNOWN');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Invalid address format in payingAddress field produces account=UNKNOWN and ready=false', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ payingAddress: '0xinvalidaddresslength', balances: { USDC: '0' } }),
+            stderr: '',
+            exitCode: 0
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNKNOWN');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Non-zero CLI exit produces account=UNAVAILABLE and ready=false', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const mockCli = async (cmd: string, args: string[]) => {
+        if (args.includes('whoami')) {
+          return {
+            stdout: JSON.stringify({ payingAddress: validConfiguredPayer }),
+            stderr: 'Failed to access keystore',
+            exitCode: 1
+          };
+        }
+        return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+      };
+      const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+      const health = await adapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNAVAILABLE');
+      expect(health.payerMismatch).toBe(true);
+    });
+
+    it('Ensure no invalid or unstructured response can produce ready=true', async () => {
+      const cfg = { ...loadConfig({ NODE_ENV: 'test', BUY_ENABLED: 'true' }), AGENT_WALLET_ADDRESS: validConfiguredPayer };
+      const invalidOutputs = [
+        '',
+        '   ',
+        'null',
+        '[]',
+        '{"account": ""}',
+        '{"payingAddress": "0x1234"}',
+        '{"random": "0x3e1bef07824cd0E076F4907641F0A0EF27898e52"}'
+      ];
+
+      for (const output of invalidOutputs) {
+        const mockCli = async (cmd: string, args: string[]) => {
+          if (args.includes('whoami')) return { stdout: output, stderr: '', exitCode: 0 };
+          return { stdout: '0.8.5\n', stderr: '', exitCode: 0 };
+        };
+        const adapter = new BuyAdapter({ cliRunner: mockCli }, db, cfg as any);
+        const health = await adapter.getHealth();
+        expect(health.ready).toBe(false);
+        expect(health.account).toBe('UNKNOWN');
+      }
     });
   });
 });

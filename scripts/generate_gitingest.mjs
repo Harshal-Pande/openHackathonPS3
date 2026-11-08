@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = process.cwd();
-const OUTPUT_FILE = path.join(REPO_ROOT, 'revertlens_mod03_5_gitingest.txt');
+const OUTPUT_FILE = path.join(REPO_ROOT, 'revertlens_mod03_6_gitingest.txt');
 
 // Strict exclusion patterns
 const EXCLUDE_DIRS = new Set([
@@ -35,7 +35,8 @@ const EXCLUDE_FILES = new Set([
   'revertlens_mod03_2_gitingest.txt',
   'revertlens_mod03_3_gitingest.txt',
   'revertlens_mod03_4_gitingest.txt',
-  'revertlens_mod03_5_gitingest.txt'
+  'revertlens_mod03_5_gitingest.txt',
+  'revertlens_mod03_6_gitingest.txt'
 ]);
 
 const EXCLUDE_EXTENSIONS = new Set([
@@ -103,7 +104,7 @@ function generateDirectoryTree(files) {
 }
 
 async function main() {
-  console.log('Generating fresh Gitingest snapshot for MOD-03.5...');
+  console.log('Generating fresh Gitingest snapshot for MOD-03.6...');
 
   const files = walkDir(REPO_ROOT);
   files.sort((a, b) => a.relPath.localeCompare(b.relPath));
@@ -113,7 +114,7 @@ async function main() {
   // 1. Header & Directory Tree
   outputStream.write(`Repository: RevertLens\n`);
   outputStream.write(`Snapshot Generated: ${new Date().toISOString()}\n`);
-  outputStream.write(`Module: MOD-03.5 (Final Readiness and Malformed Receipt Guard)\n`);
+  outputStream.write(`Module: MOD-03.6 (Final Payer Identity Contract Hardening)\n`);
   outputStream.write(`Included Files: ${files.length}\n\n`);
 
   const tree = generateDirectoryTree(files);

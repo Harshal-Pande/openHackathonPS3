@@ -303,3 +303,25 @@ Following independent audit of the MOD-03.4 snapshot, two final integrity guards
      - Fails closed immediately on any malformed Transfer event on quoted token so that adjacent valid transfers cannot conceal defects.
      - Continues cleanly ignoring unrelated valid event types (e.g. Approval) and logs from unrelated token contracts.
      - Preserves exact BigInt mathematical aggregate equality (`totalTransferred === expectedAmount`).
+
+---
+
+## 10. Final Payer Identity Contract Hardening (MOD-03.6 / DEF-44 & DEF-45)
+
+Following independent source audit of the MOD-03.5 snapshot, two critical identity and parsing guards were hardened:
+
+1. **Mandatory Expected Payer Parameter in Receipt Verification (DEF-44):**
+   - In `verifyReceiptTransferLogs()`, `expectedPayer: string` is made a mandatory, non-optional parameter.
+   - Enforces strict EVM address validation: `/^0[xX][0-9a-fA-F]{40}$/`.
+   - Rejects missing, empty, or malformed payer configurations immediately with `{ verified: false, reason: 'Invalid or missing expected payer address' }`.
+   - Strictly enforces that the decoded sender from `topics[1]` matches `expectedPayer` (case-insensitively) for all candidate Transfer logs on the payment token.
+   - Prohibits accepting any receipt based solely on token, recipient, and amount matching when sender identity is omitted or invalid.
+   - Zero default or hardcoded payer fallback. All call sites updated with explicit expected payer addresses.
+
+2. **Authoritative JSON-Only CLI whoami Identity Resolution (DEF-45):**
+   - Eliminated all loose text regex fallback scanning across stdout lines (`line.match(/0x.../)`).
+   - Parses CLI identity strictly from authoritative JSON paying address fields (`parsed.payingAddress` or `parsed.account`) matching `/^0[xX][0-9a-fA-F]{40}$/`.
+   - If JSON is malformed, expected address fields are absent, or address format is invalid, sets `account: 'UNKNOWN'` and `ready: false`.
+   - If CLI execution fails (`exitCode !== 0` or spawn exception), sets `account: 'UNAVAILABLE'` and `ready: false`.
+   - Retains strict requirement that CLI-reported identity must match configured `AGENT_WALLET_ADDRESS` case-insensitively.
+   - Prevents incidental EVM addresses appearing in CLI warning banners, diagnostics, or unrelated fields from being accepted as agent identity.
