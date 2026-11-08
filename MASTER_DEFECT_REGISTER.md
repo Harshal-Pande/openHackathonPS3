@@ -32,7 +32,7 @@
 | **DEF-11** | **Low** | Browser E2E | Button label mismatch in E2E test script (`"Investigate Failure"` vs `"Inspect Transaction"`). | Test assertion looked for old button label. | **RESOLVED** | Aligned test assertion with actual UI button label in `App.tsx`. Verified by CDP test. |
 | **DEF-12** | **Informational** | Database | Node.js emits `ExperimentalWarning: SQLite is an experimental feature`. | `node:sqlite` is marked experimental in Node 22 LTS. | **DOCUMENTED / ACCEPTED** | The native SQLite module functions with 100% stability across all 130 tests; no crashes or memory leaks observed. |
 | **DEF-13** | **Medium** | Buy Payments | `BuyQuoteService.createQuote` threw `TypeError` if allowlist arrays were omitted in partial configs. | Direct `.length` lookup on optional/undefined config arrays (`BUY_ALLOWED_CAPABILITY_IDS`, etc.). | **RESOLVED** | Added existence guard `this.config.BUY_ALLOWED_CAPABILITY_IDS && ...` before length check in `src/server/services/buyQuoteService.ts`. Verified by `scripts/verify_all_routes.mjs`. |
-| **DEF-14** | **High** | Security / Auth | Operator authentication compares input against `SESSION_SECRET` rather than `OPERATOR_PASSWORD_HASH`. | In `src/server/auth/operatorAuth.ts:36`, `expectedHash` hashes `this.config.SESSION_SECRET`. `config.ts` requires `OPERATOR_PASSWORD_HASH` in production and mentions Argon2id, but no Argon2 dependency is installed, creating a security mismatch. | **CONFIRMED / OPEN** | Scheduled for root-cause resolution in Module 2 (Security Hardening). Remediation: Use `OPERATOR_PASSWORD_HASH` with PBKDF2/scrypt (built-in `node:crypto`) or install `@node-rs/argon2`, separate session signing secret from password verification. |
+| **DEF-14** | **High** | Security / Auth | Operator authentication compares input against `SESSION_SECRET` rather than `OPERATOR_PASSWORD_HASH`. | In `src/server/auth/operatorAuth.ts:36`, `expectedHash` hashed `this.config.SESSION_SECRET`. `config.ts` required `OPERATOR_PASSWORD_HASH` in production and mentioned Argon2id, but no Argon2 dependency was installed, creating a security mismatch. | **RESOLVED** | Decoupled password verification from session signing in `src/server/auth/operatorAuth.ts` and `src/server/auth/passwordHasher.ts`. Implemented salted asynchronous scrypt hashing (OWASP standard: $N=16384, r=8, p=1$, random 16-byte salt, constant-time `timingSafeEqual`). Replaced plain token storage with HMAC-SHA256 signed session tokens keyed by `SESSION_SECRET` with 2-hour hard expiry and revocable logout. Added IP brute-force limiter (max 5 failed attempts per 15 min returning HTTP 429 with `Retry-After`). Added `scripts/generate_password_hash.mjs`. Verified by 15 tests in `tests/operatorAuth.test.ts` and route test 11 in `scripts/verify_all_routes.mjs`. |
 | **DEF-15** | **Medium** | Database / Concurrency | SQLite database lacks Write-Ahead Logging (`PRAGMA journal_mode = WAL;`) and busy timeout. | Default SQLite journal mode is `DELETE`, causing entire database locking during write transactions. Under concurrent HTTP requests, queries fail with `SQLITE_BUSY`. | **RESOLVED** | Configured `PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;` on database initialization in `src/server/db/database.ts`. Tested in `tests/databaseReliability.test.ts` (4/4 tests pass with 25 concurrent writers/readers). |
 | **DEF-16** | **Medium** | Usability / Routing | Direct navigation or refresh on deep URLs without hash returns HTTP 404. | In `src/server/app.ts:398-405`, only `GET /` served `index.html`. Direct browser loads on `/history`, `/about`, `/operator`, `/investigation/:id` returned 404. | **RESOLVED** | Added 302 redirects from clean client URLs to hash SPA equivalents, and configured `setNotFoundHandler` preserving standard JSON 404 envelope for `/api/*`. Tested in `scripts/verify_all_routes.mjs` (27/27 pass). |
 | **DEF-17** | **Medium** | Security / Robustness | Revert decoder `decodeRevertData` parses length prefix without explicit bounds clamping. | In `src/server/forensics/revertDecoder.ts:46`, `parseInt(lengthHex, 16)` was unconstrained. If an attacker submits an astronomical length, parsing could lead to unexpected behavior. | **RESOLVED** | Clamped `strLen` to `MAX_REVERT_STRING_BYTES = 4096`, verified high-order zero padding, safe offset parsing, and truncated data handling in `src/server/forensics/revertDecoder.ts`. Tested in `tests/revertDecoder.test.ts` (12/12 pass). |
@@ -45,16 +45,16 @@
 ## 3. Defect Statistics & Release Posture
 
 - **Total Historical Defects Tracked:** 20
-- **Total Resolved Defects:** 17 (DEF-01 through DEF-13, and DEF-15, DEF-16, DEF-17, DEF-18)
-- **Total Open Defects:** 3 (DEF-14, DEF-19, DEF-20)
+- **Total Resolved Defects:** 18 (DEF-01 through DEF-18)
+- **Total Open Defects:** 2 (DEF-19, DEF-20)
   - Critical (P0): **0**
-  - High (P1): **1** (DEF-14: Operator auth hash mismatch, scheduled for Module 2)
+  - High (P1): **0** (DEF-14 resolved in Module 2)
   - Medium (P2): **0** (All resolved in Module 1)
   - Low (P3): **0** (All resolved in Module 1)
   - Informational / Operational: **2** (DEF-19: Buy live settlement; DEF-20: ERC-8004 broadcast)
 
 ### Immediate Engineering Action Plan:
 1. **Module 1:** COMPLETED (DEF-15, DEF-16, DEF-17, DEF-18 resolved with 100% test verification).
-2. **Module 2:** Resolve DEF-14 (Operator authentication architecture & password hashing separation).
+2. **Module 2:** COMPLETED (DEF-14 resolved via scrypt password hashing, session signing separation, and rate limiting).
 3. **Module 3:** Authorize and execute Buy live payment workflow (DEF-19).
 4. **Module 5:** Authorize and broadcast ERC-8004 registration transaction (DEF-20).

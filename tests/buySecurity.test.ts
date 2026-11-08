@@ -4,7 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildApp } from '../src/server/app.js';
 import { Database } from '../src/server/db/database.js';
-import { loadConfig } from '../src/server/config.js';
+import {
+  loadConfig,
+  createTestConfig,
+  TEST_OPERATOR_PASSWORD,
+  TEST_OPERATOR_HASH
+} from '../src/server/config.js';
 import { BuyQuoteService } from '../src/server/services/buyQuoteService.js';
 import { ChainstackProvider } from '../src/server/providers/chainstack.js';
 
@@ -54,11 +59,11 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
     expect(body.error.message).toContain('Public callers cannot access operator endpoints');
   });
 
-  it('allows authenticated operator to log in and approve quote', async () => {
+  it('allows authenticated operator to log in and approve quote, rejecting session secret as password', async () => {
     const sessionSecret = 'test_session_secret_for_local_development_testing_only';
-    const config = loadConfig({
-      NODE_ENV: 'test',
+    const config = createTestConfig({
       SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH,
       BUY_ENABLED: 'true',
       BUY_DAILY_BUDGET_ATOMIC: '100000',
       BUY_PER_CALL_CAP_ATOMIC: '20000'
@@ -66,11 +71,28 @@ describe('Buy Payment Security, Auth & Persistence Guarantees', () => {
     const quoteService = new BuyQuoteService(db, config);
     const app = buildApp(config, { db, provider, buyQuoteService: quoteService });
 
-    // 1. Operator logs in
-    const loginRes = await app.inject({
+    // 1. Attempt login with SESSION_SECRET as password -> must be REJECTED (DEF-14)
+    const badLoginRes = await app.inject({
       method: 'POST',
       url: '/api/operator/login',
       payload: { password: sessionSecret }
+    });
+    expect(badLoginRes.statusCode).toBe(401);
+    expect(JSON.parse(badLoginRes.body).error.code).toBe('UNAUTHORIZED');
+
+    // 2. Attempt login with the raw hash as password -> must be REJECTED
+    const rawHashLoginRes = await app.inject({
+      method: 'POST',
+      url: '/api/operator/login',
+      payload: { password: TEST_OPERATOR_HASH }
+    });
+    expect(rawHashLoginRes.statusCode).toBe(401);
+
+    // 3. Operator logs in with the true operator password
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/operator/login',
+      payload: { password: TEST_OPERATOR_PASSWORD }
     });
     expect(loginRes.statusCode).toBe(200);
     const loginData = JSON.parse(loginRes.body).data;

@@ -411,3 +411,80 @@ Authorized execution of Module 1 (`MOD-01`) from `MASTER_EXECUTION_ROADMAP.md` a
 - `MASTER_EXECUTION_ROADMAP.md` (MOD-01 marked COMPLETED)
 - `TEST_RESULTS.md` (updated test ledger: 141 tests, 27 routes)
 - `MASTER_CHANGELOG.md` (appended Phase 13.1 log)
+
+---
+
+## Phase 14: Module 2 — Security Boundaries & Operator Authentication Hardening (MOD-02)
+**Date:** 2026-11-08
+**Scope Authorised:** Authorized Module 2 (MOD-02) — AGY-05 (Operator Authentication Decoupling & DEF-14 Resolution) and AGY-06 (Public Forensic Ingestion Rate Limiting).
+
+### 1. Executive Summary
+Implemented production-grade security boundary hardening across operator authentication and public ingestion:
+1. Resolved **DEF-14**: Completely decoupled operator password verification from HMAC session signing. Replaced legacy password equality check against `SESSION_SECRET` with OWASP-standard salted, asynchronous `scrypt` hashing ($N=16384, r=8, p=1$, random 16-byte salt, constant-time `timingSafeEqual`).
+2. Implemented HMAC-SHA256 signed session tokens (`<sessionId>.<hmacHex>`) keyed exclusively by `SESSION_SECRET`, enforcing 2-hour hard session lifetimes and revocable logout.
+3. Added IP-based brute-force protection on operator login (max 5 failed attempts per 15 minutes, returning HTTP 429 with `Retry-After`).
+4. Implemented sliding-window in-memory rate limiting on public forensic ingestion (`POST /api/investigations`, default 10 requests per minute per IP, returning HTTP 429 with `Retry-After` and standard JSON error envelope).
+5. Protected against reverse-proxy header spoofing: client IP is resolved from socket connection, ignoring untrusted `X-Forwarded-For` unless `TRUST_PROXY=true` is explicitly configured.
+6. Enforced strict production configuration invariants: rejects placeholder secrets, short session secrets (<32 chars), malformed scrypt hashes, and reuse of session secret as password hash.
+7. Created CLI utility `scripts/generate_password_hash.mjs` for safe local operator password hash generation without plaintext leaks.
+
+### 2. Task-by-Task Implementation Details
+
+#### AGY-05: Operator Authentication Decoupling & scrypt Hashing (DEF-14)
+- **Root Cause:** In `src/server/auth/operatorAuth.ts:36`, submitted passwords were compared against `SESSION_SECRET`. `config.ts` required `OPERATOR_PASSWORD_HASH` for production, creating a dangerous credential confusion flaw and preventing separate rotation of session keys and login passwords.
+- **Structural Correction:**
+  - Created `src/server/auth/passwordHasher.ts` providing `hashPassword` and `verifyPassword` using Node.js built-in `crypto.scrypt` with OWASP-standard parameters ($N=16384, r=8, p=1$, keyLen=32, saltLen=16). Format: `scrypt$v=1$N=16384$r=8$p=1$<salt-b64>$<key-b64>`. Verification uses `crypto.timingSafeEqual` after buffer length verification.
+  - Refactored `OperatorAuthService` in `src/server/auth/operatorAuth.ts`:
+    - `login()` verifies strictly against `OPERATOR_PASSWORD_HASH`.
+    - Session tokens are formatted as `<sessionId>.<hmacHex>` signed with `SESSION_SECRET`.
+    - Verification recomputes HMAC signature and checks constant-time equality before checking in-memory session registry.
+    - Added brute-force lockout: 5 failed attempts within 15 minutes blocks the IP and returns HTTP 429 with `Retry-After`.
+    - `logout()` invalidates the session and clears cookies.
+  - Cookie security: added `; Secure` flag when `NODE_ENV === 'production'`, alongside existing `HttpOnly` and `SameSite=Strict`.
+  - Created `scripts/generate_password_hash.mjs` CLI tool with masked input and `--test` demonstration flag.
+- **Verification:**
+  - Created `tests/operatorAuth.test.ts` (15/15 tests pass).
+  - Updated `tests/buySecurity.test.ts` to test that `SESSION_SECRET` as password fails with 401, while true password succeeds (4/4 tests pass).
+  - Added Route Scenario 11 in `scripts/verify_all_routes.mjs` confirming `POST /api/operator/login` rejects `SESSION_SECRET` with 401.
+
+#### AGY-06: Public Forensic Ingestion Rate Limiting
+- **Root Cause:** `POST /api/investigations` directly initiates upstream Chainstack Celo Mainnet RPC calls (`eth_getTransactionByHash`, `eth_getTransactionReceipt`, `debug_traceTransaction`), leaving the application vulnerable to abusive volume and quota exhaustion.
+- **Structural Correction:**
+  - Created `src/server/auth/rateLimiter.ts` providing `RateLimiter` class: sliding-window in-memory limiter with bounded memory (max 10,000 entries) and automated pruning of expired windows.
+  - Configurable via `RATE_LIMIT_INVESTIGATIONS_MAX` (default: 10) and `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS` (default: 60,000 ms).
+  - In `src/server/app.ts`, `POST /api/investigations` checks client IP before processing payload.
+  - Requests exceeding limit receive HTTP 429 `RATE_LIMITED` with `Retry-After` header and standard JSON API envelope.
+  - Health checks, static assets, report retrieval, history browsing, and operator endpoints remain strictly unblocked.
+  - Reverse proxy trust: `getClientIp` ignores spoofed `X-Forwarded-For` unless `TRUST_PROXY=true` is explicitly enabled.
+- **Verification:**
+  - Created `tests/rateLimiter.test.ts` (6/6 tests pass).
+
+### 3. Verification Evidence & Quality Gates
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **18/18 test files, 166/166 tests passing** (up from 141 tests in 16 files).
+- **Production Build:** `npm run build` passed with zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop and Mobile viewports.
+
+### 4. Files Created / Modified
+- `src/server/auth/passwordHasher.ts` (created: scrypt hashing, parsing, format validation, constant-time verification)
+- `src/server/auth/rateLimiter.ts` (created: sliding window RateLimiter, getClientIp with proxy trust)
+- `src/server/auth/operatorAuth.ts` (refactored: scrypt password verification, HMAC session tokens, brute-force lockout)
+- `src/server/config.ts` (updated: scrypt validation in production, rate limit config, TRUST_PROXY, test credentials)
+- `src/server/app.ts` (updated: rate limiter on POST /api/investigations, cookie extraction, secure flag in production)
+- `.env.example` (updated: REPLACE_WITH_SCRYPT_HASH, rate limit parameters, TRUST_PROXY)
+- `scripts/generate_password_hash.mjs` (created: safe local password hash generator CLI)
+- `scripts/verify_all_routes.mjs` (updated: separate password/secret, route test 11 validating DEF-14 fix)
+- `tests/operatorAuth.test.ts` (created: 15 comprehensive password, session, and lockout tests)
+- `tests/rateLimiter.test.ts` (created: 6 rate limiter unit and integration tests)
+- `tests/config.test.ts` (expanded: 22 tests validating production security invariants)
+- `tests/buySecurity.test.ts` (updated: explicit test confirming rejection of session secret as password)
+- `SECURITY.md` (updated: documented scrypt hashing, session tokens, login lockout, public rate limiting)
+- `USER_ACTION_CHECKLIST.md` (updated: USR-03 notes on scrypt hash generation)
+- `MASTER_DEFECT_REGISTER.md` (DEF-14 marked RESOLVED; open defects reduced to 2 operational)
+- `ANTIGRAVITY_TASK_REGISTER.md` (AGY-05 and AGY-06 marked COMPLETED)
+- `MASTER_EXECUTION_ROADMAP.md` (MOD-02 marked COMPLETED)
+- `MASTER_PROJECT_AUDIT.md` (reconciled security & test counts)
+- `DECISIONS.md` (recorded AD-013)
+- `TEST_RESULTS.md` (updated: 166 tests, 28 routes)
+- `MASTER_CHANGELOG.md` (appended Phase 14 entry)

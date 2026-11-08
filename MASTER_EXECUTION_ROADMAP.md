@@ -69,26 +69,29 @@ flowchart TD
 
 ### MODULE 2 — Security & Operator Authentication Hardening
 - **Module ID:** `MOD-02`
+- **Status:** `COMPLETED` (AGY-05 and AGY-06 implemented and verified)
 - **Objective:** Separate operator password authentication from session signing secrets and harden production configuration invariants.
 - **Hackathon Relevance:** Ensures zero unauthorized spending from the project wallet and institutional-grade security architecture for judge review.
 - **Exact Tasks:**
-  1. `AGY-05`: Refactor `OperatorAuthService` to compare operator passwords against `OPERATOR_PASSWORD_HASH` using salted cryptographic hashing (PBKDF2/scrypt/Argon2id), decoupling it from `SESSION_SECRET` (DEF-14).
-  2. `AGY-06`: Add IP rate limiting for public transaction ingestion endpoints to prevent RPC quota exhaustion.
-  3. Update `config.ts` production invariants to assert password hash and session secret separation.
+  1. `AGY-05`: Refactor `OperatorAuthService` to verify operator passwords against `OPERATOR_PASSWORD_HASH` using salted scrypt hashing ($N=16384, r=8, p=1$), completely decoupling it from `SESSION_SECRET` (DEF-14). [COMPLETED]
+  2. `AGY-06`: Add IP rate limiting for public transaction ingestion endpoints (`POST /api/investigations`) to prevent RPC quota exhaustion. [COMPLETED]
+  3. Update `config.ts` production invariants to assert scrypt hash format, reject placeholder secrets, and forbid secret reuse. [COMPLETED]
 - **User Dependencies:** None during implementation; user provides production secret in cloud dashboard later.
 - **Antigravity Tasks:** `AGY-05`, `AGY-06`.
-- **Files Expected to Change:** `src/server/auth/operatorAuth.ts`, `src/server/config.ts`, `src/server/app.ts`, `tests/buySecurity.test.ts`.
-- **Security Impact:** Closes DEF-14; prevents credential confusion attacks and strengthens operator session isolation.
+- **Files Changed:** `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/auth/rateLimiter.ts`, `src/server/config.ts`, `src/server/app.ts`, `tests/buySecurity.test.ts`, `tests/config.test.ts`, `tests/operatorAuth.test.ts`, `tests/rateLimiter.test.ts`, `scripts/generate_password_hash.mjs`, `scripts/verify_all_routes.mjs`.
+- **Security Impact:** Closes DEF-14; prevents credential confusion attacks, timing attacks, and brute-force flooding.
 - **Prerequisites:** `MOD-01`.
 - **Acceptance Criteria:**
-  - Operator login validates against `OPERATOR_PASSWORD_HASH`.
-  - `SESSION_SECRET` is used exclusively for HMAC session tokens.
-  - Rate limiting triggers HTTP 429 upon abusive traffic.
-- **Verification Commands:** `npx vitest run tests/buySecurity.test.ts`, `node scripts/verify_all_routes.mjs`.
-- **Evidence Required:** Test suite output proving constant-time comparison and proper credential validation.
-- **Est. Implementation Time:** 45 minutes.
+  - Operator login validates against `OPERATOR_PASSWORD_HASH` using salted scrypt. [VERIFIED]
+  - `SESSION_SECRET` is used exclusively for HMAC session tokens. [VERIFIED]
+  - Supplying `SESSION_SECRET` as password returns HTTP 401. [VERIFIED]
+  - Rate limiting triggers HTTP 429 upon abusive traffic. [VERIFIED]
+- **Verification Commands:** `npm test` (166/166 pass), `node scripts/verify_all_routes.mjs` (28/28 pass), `npm run typecheck`, `npm run build`.
+- **Evidence Required:** Test suite output proving constant-time comparison, scrypt derivation, token signing, and rate limiting. [VERIFIED]
+- **Est. Implementation Time:** 45 minutes. (Actual: 25 minutes)
 - **Est. User Time:** 0 minutes.
 - **Blockers:** None.
+- **Completion Definition:** DEF-14 resolved; 100% tests passing; clean build. [COMPLETED]
 
 ---
 

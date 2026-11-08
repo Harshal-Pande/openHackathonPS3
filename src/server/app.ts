@@ -14,7 +14,8 @@ import {
 } from './services/celoAttributionService.js';
 import { BuyQuoteService } from './services/buyQuoteService.js';
 import { AiExplanationService } from './services/aiExplanationService.js';
-import { OperatorAuthService } from './auth/operatorAuth.js';
+import { OperatorAuthService, OperatorAuthError } from './auth/operatorAuth.js';
+import { RateLimiter, getClientIp } from './auth/rateLimiter.js';
 import { InvestigationService } from './services/investigationService.js';
 
 export interface AppDependencies {
@@ -24,6 +25,7 @@ export interface AppDependencies {
   buyQuoteService?: BuyQuoteService;
   aiExplanationService?: AiExplanationService;
   authService?: OperatorAuthService;
+  rateLimiter?: RateLimiter;
 }
 
 const InvestigateBodySchema = z.object({
@@ -68,6 +70,12 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
     new AiExplanationService(cencoriProvider, buyQuoteService, appConfig);
 
   const authService = deps.authService || new OperatorAuthService(appConfig);
+  const investigationRateLimiter =
+    deps.rateLimiter ||
+    new RateLimiter({
+      max: appConfig.RATE_LIMIT_INVESTIGATIONS_MAX,
+      windowMs: appConfig.RATE_LIMIT_INVESTIGATIONS_WINDOW_MS
+    });
   const investigationService = new InvestigationService(provider, db, aiExplanationService);
   const celoAttributionService = new CeloAttributionService(appConfig.CELO_ATTRIBUTION_TAG);
 
@@ -152,8 +160,20 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
     };
   });
 
-  // POST /api/investigations - Execute or retrieve investigation
-  server.post('/api/investigations', async (request) => {
+  // POST /api/investigations - Execute or retrieve investigation with IP-based rate limiting
+  server.post('/api/investigations', async (request, reply) => {
+    const clientIp = getClientIp(request, appConfig.TRUST_PROXY);
+    const rateCheck = investigationRateLimiter.check(clientIp);
+    if (!rateCheck.allowed) {
+      reply.header('Retry-After', rateCheck.retryAfterSeconds.toString());
+      const err: any = new Error(
+        `Too many investigation requests from this IP. Please wait ${rateCheck.retryAfterSeconds} seconds before trying again.`
+      );
+      err.statusCode = 429;
+      err.code = 'RATE_LIMITED';
+      throw err;
+    }
+
     const parseResult = InvestigateBodySchema.safeParse(request.body);
     if (!parseResult.success) {
       const err: any = new Error(`Invalid request body: ${parseResult.error.errors.map((e) => e.message).join(', ')}`);
@@ -294,33 +314,66 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       throw err;
     }
 
-    const clientIp = request.ip || '127.0.0.1';
+    const clientIp = getClientIp(request, appConfig.TRUST_PROXY);
     try {
       const { token, session } = await authService.login(clientIp, parseResult.data.password);
-      reply.header('Set-Cookie', `operator_token=${token}; HttpOnly; SameSite=Strict; Path=/`);
+      const secureSuffix = appConfig.NODE_ENV === 'production' ? '; Secure' : '';
+      reply.header('Set-Cookie', `operator_token=${token}; HttpOnly; SameSite=Strict; Path=/${secureSuffix}`);
       return { token, session };
     } catch (err: unknown) {
-      const error: any = new Error((err as Error).message);
+      if (err instanceof OperatorAuthError && err.statusCode === 429) {
+        if (err.retryAfter) {
+          reply.header('Retry-After', err.retryAfter.toString());
+        }
+        reply.status(429);
+        const rateErr: any = new Error(err.message);
+        rateErr.statusCode = 429;
+        rateErr.code = 'RATE_LIMITED';
+        throw rateErr;
+      }
+
+      const message = err instanceof Error ? err.message : 'Invalid operator credentials.';
+      const error: any = new Error(message);
       error.statusCode = 401;
       error.code = 'UNAUTHORIZED';
       throw error;
     }
   });
 
+  // Helper to extract operator token from Bearer header, custom header or cookie
+  function extractOperatorToken(req: any): string | undefined {
+    const authHeader = req.headers['authorization'];
+    if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      return authHeader.slice(7).trim();
+    }
+    const customHeader = req.headers['x-operator-token'];
+    if (typeof customHeader === 'string' && customHeader.trim() !== '') {
+      return customHeader.trim();
+    }
+    const cookieHeader = req.headers['cookie'];
+    if (typeof cookieHeader === 'string') {
+      const match = cookieHeader.match(/(?:^|;\s*)operator_token=([^;]+)/);
+      if (match?.[1]) {
+        return decodeURIComponent(match[1].trim());
+      }
+    }
+    return undefined;
+  }
+
   // POST /api/operator/logout
-  server.post('/api/operator/logout', async (request) => {
-    const authHeader = request.headers['authorization'];
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (request.headers['x-operator-token'] as string);
+  server.post('/api/operator/logout', async (request, reply) => {
+    const token = extractOperatorToken(request);
     if (token) {
       authService.logout(token);
     }
+    const secureSuffix = appConfig.NODE_ENV === 'production' ? '; Secure' : '';
+    reply.header('Set-Cookie', `operator_token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureSuffix}`);
     return { success: true };
   });
 
   // Helper to extract and verify operator session
   function requireOperatorSession(req: any) {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (req.headers['x-operator-token'] as string);
+    const token = extractOperatorToken(req);
     const session = authService.verifySession(token);
     if (!session) {
       const err: any = new Error('Public callers cannot access operator endpoints. Valid operator session required.');

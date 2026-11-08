@@ -15,6 +15,8 @@ for (const f of [TEMP_DB, `${TEMP_DB}-journal`, `${TEMP_DB}-wal`, `${TEMP_DB}-sh
 const env = dotenv.parse(fs.readFileSync('.env'));
 const rpcUrl = env.CHAINSTACK_CELO_MAINNET_RPC_URL;
 const sessionSecret = 'test_operator_secret_session_key_32_bytes_long';
+const operatorPassword = 'test-operator-password';
+const operatorPasswordHash = 'scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=';
 
 console.log('=================================================================');
 console.log(' REVERTLENS MASTER API SURFACE AUDIT & ROUTE INJECTION');
@@ -34,7 +36,9 @@ async function testAllRoutes() {
     BUY_DAILY_BUDGET_ATOMIC: '100000',
     BUY_PER_CALL_CAP_ATOMIC: '20000',
     SESSION_SECRET: sessionSecret,
-    OPERATOR_PASSWORD_HASH: sessionSecret
+    OPERATOR_PASSWORD_HASH: operatorPasswordHash,
+    RATE_LIMIT_INVESTIGATIONS_MAX: 10,
+    RATE_LIMIT_INVESTIGATIONS_WINDOW_MS: 60000
   };
 
   const db = new Database(TEMP_DB);
@@ -162,11 +166,18 @@ async function testAllRoutes() {
     payload: { password: 'wrong-password' }
   }, '/api/operator/login', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
 
-  // 11. POST /api/operator/login (Valid password -> 200)
-  await testRoute('Operator Login Success', {
+  // 11. POST /api/operator/login (DEF-14: SESSION_SECRET as password -> 401)
+  await testRoute('Operator Login Session Secret Rejected (DEF-14)', {
     method: 'POST',
     url: '/api/operator/login',
     payload: { password: sessionSecret }
+  }, '/api/operator/login', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+
+  // 12. POST /api/operator/login (Valid password -> 200)
+  await testRoute('Operator Login Success', {
+    method: 'POST',
+    url: '/api/operator/login',
+    payload: { password: operatorPassword }
   }, '/api/operator/login', [200], (res, body) => {
     operatorToken = body.data?.token;
     return Boolean(operatorToken);

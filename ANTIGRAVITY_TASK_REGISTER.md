@@ -31,8 +31,8 @@ This register contains all technical and operational tasks owned and executed di
 | **AGY-02** | Mod 1 | **P2** | `COMPLETED` | Add Fastify SPA Fallback Route Handler (DEF-16) | `src/server/app.ts` | None |
 | **AGY-03** | Mod 1 | **P2** | `COMPLETED` | Add Revert Decoder String Length Bounds Check (DEF-17) | `src/server/forensics/revertDecoder.ts` | None |
 | **AGY-04** | Mod 1 | **P3** | `COMPLETED` | Configure Vite Vendor Code-Splitting Chunking (DEF-18) | `vite.config.ts` | None |
-| **AGY-05** | Mod 2 | **P1** | `READY_FOR_IMPLEMENTATION` | Separate Operator Auth Password from Session Secret (DEF-14) | `src/server/auth/operatorAuth.ts`, `src/server/config.ts` | AGY-01 |
-| **AGY-06** | Mod 2 | **P2** | `READY_FOR_IMPLEMENTATION` | Add Rate Limiting Middleware for Public Forensic Ingestion | `src/server/app.ts`, `package.json` | AGY-05 |
+| **AGY-05** | Mod 2 | **P1** | `COMPLETED` | Separate Operator Auth Password from Session Secret (DEF-14) | `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/config.ts` | AGY-01 |
+| **AGY-06** | Mod 2 | **P2** | `COMPLETED` | Add Rate Limiting Middleware for Public Forensic Ingestion | `src/server/auth/rateLimiter.ts`, `src/server/app.ts`, `src/server/config.ts` | AGY-05 |
 | **AGY-07** | Mod 3 | **P1** | `USER_INPUT_REQUIRED` | Wire Buy CLI Execution Adapter with Security Invariants | `src/server/services/buyQuoteService.ts`, `src/server/app.ts` | USR-06, USR-08 |
 | **AGY-08** | Mod 3 | **P1** | `USER_INPUT_REQUIRED` | Settle Live Cencori AI Quote via Buy CLI & Verify Receipt | `PROOF.md`, `GATE0_RESULTS.md` | AGY-07, USR-08 |
 | **AGY-09** | Mod 4 | **P1** | `READY_FOR_IMPLEMENTATION` | Audit & Re-verify ERC-8021 Attribution Suffix Construction | `src/server/services/celoAttributionService.ts` | None |
@@ -94,10 +94,19 @@ This register contains all technical and operational tasks owned and executed di
 - **Evidence:** Build terminal output showing chunks < 350 kB.
 
 ### TASK AGY-05: Separate Operator Auth Password from Session Secret (DEF-14)
-- **Objective:** Resolve DEF-14 by ensuring `OperatorAuthService` compares passwords against `OPERATOR_PASSWORD_HASH` using a secure password-hashing algorithm, rather than comparing against `SESSION_SECRET`.
-- **Files Involved:** `src/server/auth/operatorAuth.ts`, `src/server/config.ts`
-- **Implementation Requirement:** Use Node.js built-in `crypto.scryptSync` or `crypto.pbkdf2Sync` with random salt for password verification, or verify Argon2id hash. Disentangle session token signing from operator authentication.
-- **Security Considerations:** Protect against brute-force attacks with IP rate limiting and constant-time comparison.
-- **Required Tests:** Update `tests/buySecurity.test.ts` and `scripts/verify_all_routes.mjs`.
-- **Acceptance Criteria:** Session secret is used only for session signing; operator login verifies against dedicated password hash.
-- **Evidence:** Passing `buySecurity.test.ts` and route verification tests.
+- **Objective:** Resolve DEF-14 by ensuring `OperatorAuthService` verifies passwords against `OPERATOR_PASSWORD_HASH` using asynchronous salted scrypt, completely separating password verification from HMAC session signing with `SESSION_SECRET`.
+- **Files Involved:** `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/config.ts`, `scripts/generate_password_hash.mjs`
+- **Implementation:** Implemented `hashPassword` and `verifyPassword` using Node.js built-in `crypto.scrypt` with OWASP-standard parameters ($N=16384, r=8, p=1$, random 16-byte salt, constant-time `timingSafeEqual`). Implemented HMAC-SHA256 signed session tokens (`<sessionId>.<hmacHex>`) with 2-hour hard lifetime. Implemented IP brute-force limiter (max 5 failed attempts per 15 min returning HTTP 429 with `Retry-After`). Provided CLI generator `scripts/generate_password_hash.mjs`.
+- **Security Considerations:** Protects against side-channel timing attacks, brute force, secret reuse, and token tampering.
+- **Required Tests:** `tests/operatorAuth.test.ts` (15/15 passed), `tests/config.test.ts` (22/22 passed), `tests/buySecurity.test.ts` (4/4 passed).
+- **Acceptance Criteria:** Supplying `SESSION_SECRET` as password returns HTTP 401. Supplying valid password returns signed session token. Token tampering is rejected.
+- **Evidence:** 15 passing tests in `tests/operatorAuth.test.ts` and route test 11 in `scripts/verify_all_routes.mjs`.
+
+### TASK AGY-06: Public Forensic Ingestion Rate Limiting
+- **Objective:** Protect `POST /api/investigations` against abusive automated volume and upstream Chainstack RPC quota exhaustion without external infrastructure dependencies.
+- **Files Involved:** `src/server/auth/rateLimiter.ts`, `src/server/app.ts`, `src/server/config.ts`
+- **Implementation:** Built sliding window in-memory rate limiter `RateLimiter` configured with defaults `RATE_LIMIT_INVESTIGATIONS_MAX=10` and `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS=60000`. Returns HTTP 429 `RATE_LIMITED` with `Retry-After` header and standard JSON API envelope. Extracts socket IP safely while ignoring spoofed `X-Forwarded-For` unless `TRUST_PROXY=true` is set.
+- **Security Considerations:** Memory is strictly bounded (max 10,000 entries) with automated pruning of expired windows. Excludes health checks, static assets, and operator controls.
+- **Required Tests:** `tests/rateLimiter.test.ts` (6/6 passed).
+- **Acceptance Criteria:** Requests 1-10 succeed; request 11 receives HTTP 429 with `Retry-After` and standard envelope. Independent limits per IP.
+- **Evidence:** 6 passing tests in `tests/rateLimiter.test.ts`.

@@ -1,11 +1,18 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import { validateScryptHashFormat } from './auth/passwordHasher.js';
 
 dotenv.config();
 
 // Placeholder sentinel values that must never appear in production
-const PLACEHOLDER_SESSION_SECRET = 'REPLACE_WITH_RANDOM_32_BYTE_OR_LONGER_SECRET';
-const PLACEHOLDER_OPERATOR_HASH = 'REPLACE_WITH_ARGON2ID_HASH';
+export const PLACEHOLDER_SESSION_SECRET = 'REPLACE_WITH_RANDOM_32_BYTE_OR_LONGER_SECRET';
+export const PLACEHOLDER_OPERATOR_HASH = 'REPLACE_WITH_SCRYPT_HASH';
+
+// Guaranteed valid scrypt test credentials for unit tests and local mock verification
+// Password: 'test-operator-password'
+export const TEST_OPERATOR_PASSWORD = 'test-operator-password';
+export const TEST_OPERATOR_HASH =
+  'scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=';
 
 const booleanField = z
   .union([
@@ -44,6 +51,13 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().min(1).default(PLACEHOLDER_SESSION_SECRET),
   OPERATOR_PASSWORD_HASH: z.string().min(1).default(PLACEHOLDER_OPERATOR_HASH),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+
+  // Rate Limiting Policy (Public Forensic Ingestion)
+  RATE_LIMIT_INVESTIGATIONS_MAX: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_INVESTIGATIONS_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+
+  // Reverse Proxy header trust configuration (false by default for safety against spoofing)
+  TRUST_PROXY: booleanField,
 
   // Direct Chainstack Celo Mainnet RPC Endpoint (Growth plan)
   // Kept server-side only; never leaked to frontend or logs
@@ -90,9 +104,26 @@ function enforceProductionInvariants(config: AppConfig): void {
   if (config.SESSION_SECRET.length < 32) {
     errors.push('SESSION_SECRET must be at least 32 characters in production.');
   }
-  if (config.OPERATOR_PASSWORD_HASH === PLACEHOLDER_OPERATOR_HASH) {
-    errors.push('OPERATOR_PASSWORD_HASH must be set to a real Argon2id hash in production.');
+  if (config.OPERATOR_PASSWORD_HASH === PLACEHOLDER_OPERATOR_HASH || config.OPERATOR_PASSWORD_HASH.trim() === '') {
+    errors.push('OPERATOR_PASSWORD_HASH must be set to a real scrypt hash in production.');
   }
+  if (config.OPERATOR_PASSWORD_HASH === config.SESSION_SECRET) {
+    errors.push('OPERATOR_PASSWORD_HASH must not match SESSION_SECRET.');
+  }
+
+  // Validate scrypt hash format in production
+  const hashValidation = validateScryptHashFormat(config.OPERATOR_PASSWORD_HASH);
+  if (!hashValidation.valid) {
+    errors.push(`OPERATOR_PASSWORD_HASH is invalid: ${hashValidation.reason}`);
+  }
+
+  if (config.RATE_LIMIT_INVESTIGATIONS_MAX <= 0) {
+    errors.push('RATE_LIMIT_INVESTIGATIONS_MAX must be a positive integer.');
+  }
+  if (config.RATE_LIMIT_INVESTIGATIONS_WINDOW_MS <= 0) {
+    errors.push('RATE_LIMIT_INVESTIGATIONS_WINDOW_MS must be a positive integer.');
+  }
+
   if (!config.DATABASE_PATH || config.DATABASE_PATH === ':memory:' || config.DATABASE_PATH.trim() === '') {
     errors.push('DATABASE_PATH must be set to a persistent file path in production (cannot be :memory: or empty).');
   }
@@ -147,7 +178,10 @@ export function createTestConfig(overrides: Record<string, unknown> = {}): AppCo
     DATABASE_PATH: ':memory:',
     PUBLIC_BASE_URL: 'http://localhost:3000',
     SESSION_SECRET: 'test_session_secret_32_characters_minimum_length',
-    OPERATOR_PASSWORD_HASH: 'test_operator_hash_for_unit_tests',
+    OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH,
+    RATE_LIMIT_INVESTIGATIONS_MAX: 10,
+    RATE_LIMIT_INVESTIGATIONS_WINDOW_MS: 60000,
+    TRUST_PROXY: false,
     CORS_ORIGIN: 'http://localhost:5173',
     BUY_ENABLED: false,
     CENCORI_ENABLED: false,

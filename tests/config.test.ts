@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { loadConfig, createTestConfig, ensureAppConfig } from '../src/server/config.js';
+import {
+  loadConfig,
+  createTestConfig,
+  ensureAppConfig,
+  TEST_OPERATOR_HASH
+} from '../src/server/config.js';
+
+const VALID_SCRYPT_HASH = TEST_OPERATOR_HASH;
 
 describe('Environment Config Validation', () => {
   it('loads valid default configurations safely', () => {
@@ -94,7 +101,7 @@ describe('Production Security Invariants', () => {
       loadConfig({
         NODE_ENV: 'production',
         SESSION_SECRET: 'REPLACE_WITH_RANDOM_32_BYTE_OR_LONGER_SECRET',
-        OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue'
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH
       });
     }).toThrowError(/SESSION_SECRET must be replaced/);
   });
@@ -104,7 +111,7 @@ describe('Production Security Invariants', () => {
       loadConfig({
         NODE_ENV: 'production',
         SESSION_SECRET: 'short',
-        OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue'
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH
       });
     }).toThrowError(/SESSION_SECRET must be at least 32 characters/);
   });
@@ -114,16 +121,58 @@ describe('Production Security Invariants', () => {
       loadConfig({
         NODE_ENV: 'production',
         SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-        OPERATOR_PASSWORD_HASH: 'REPLACE_WITH_ARGON2ID_HASH'
+        OPERATOR_PASSWORD_HASH: 'REPLACE_WITH_SCRYPT_HASH'
       });
     }).toThrowError(/OPERATOR_PASSWORD_HASH must be set/);
+  });
+
+  it('rejects reuse of SESSION_SECRET as OPERATOR_PASSWORD_HASH in production', () => {
+    const reused = 'scrypt$v=1$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw=';
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: reused,
+        OPERATOR_PASSWORD_HASH: reused
+      });
+    }).toThrowError(/OPERATOR_PASSWORD_HASH must not match SESSION_SECRET/);
+  });
+
+  it('rejects malformed scrypt hash in production', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
+        OPERATOR_PASSWORD_HASH: 'not-a-valid-scrypt-hash'
+      });
+    }).toThrowError(/OPERATOR_PASSWORD_HASH is invalid/);
+  });
+
+  it('rejects unsupported hash version in production', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
+        OPERATOR_PASSWORD_HASH: 'scrypt$v=99$N=16384$r=8$p=1$MTIzNDU2Nzg5MDEyMzQ1Ng==$lz+/lmHQGUWcL7lg4806U5pUvi6ksAUVulQc8tB+0Mw='
+      });
+    }).toThrowError(/Unsupported scrypt hash version/);
+  });
+
+  it('rejects invalid rate limit configuration in production', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
+        RATE_LIMIT_INVESTIGATIONS_MAX: 0
+      });
+    }).toThrowError(/Environment validation failed|RATE_LIMIT_INVESTIGATIONS_MAX/);
   });
 
   it('allows valid production config with all required fields set', () => {
     const config = loadConfig({
       NODE_ENV: 'production',
       SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-      OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue',
+      OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
       BUY_ENABLED: 'false',
       CENCORI_ENABLED: 'false'
     });
@@ -138,7 +187,7 @@ describe('Production Security Invariants', () => {
       loadConfig({
         NODE_ENV: 'production',
         SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-        OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue',
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
         BUY_ENABLED: 'true',
         BUY_DAILY_BUDGET_ATOMIC: '0',
         BUY_PER_CALL_CAP_ATOMIC: '10000'
@@ -151,7 +200,7 @@ describe('Production Security Invariants', () => {
       loadConfig({
         NODE_ENV: 'production',
         SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-        OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue',
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
         BUY_ENABLED: 'true',
         BUY_DAILY_BUDGET_ATOMIC: '100000',
         BUY_PER_CALL_CAP_ATOMIC: '0'
@@ -164,7 +213,7 @@ describe('Production Security Invariants', () => {
       loadConfig({
         NODE_ENV: 'production',
         SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-        OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue',
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
         DATABASE_PATH: ':memory:'
       });
     }).toThrowError(/DATABASE_PATH must be set to a persistent file path in production/);
@@ -175,7 +224,7 @@ describe('Production Security Invariants', () => {
       loadConfig({
         NODE_ENV: 'production',
         SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-        OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue',
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
         CORS_ORIGIN: '*'
       });
     }).toThrowError(/CORS_ORIGIN must be set to an explicit origin allowlist in production/);
@@ -187,7 +236,7 @@ describe('Production Security Invariants', () => {
         ? loadConfig({
             NODE_ENV: env,
             SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-            OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue'
+            OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH
           })
         : loadConfig({ NODE_ENV: env });
       expect(cfg.BUY_ENABLED).toBe(false);
@@ -200,7 +249,7 @@ describe('Production Security Invariants', () => {
         ? loadConfig({
             NODE_ENV: env,
             SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
-            OPERATOR_PASSWORD_HASH: '$argon2id$v=19$m=65536,t=3,p=4$validhashvalue'
+            OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH
           })
         : loadConfig({ NODE_ENV: env });
       expect(cfg.CENCORI_ENABLED).toBe(false);

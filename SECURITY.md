@@ -39,9 +39,64 @@ Implemented via formal approval records (e.g. `GATE0_APPROVAL_REQUEST.md`):
 
 Implemented in `src/server/config.ts` via `enforceProductionInvariants()`:
 - `SESSION_SECRET` must not match the placeholder sentinel and must be >= 32 characters.
-- `OPERATOR_PASSWORD_HASH` must not match the placeholder sentinel and must be an Argon2id hash.
+- `OPERATOR_PASSWORD_HASH` must not match the placeholder sentinel and must be a valid, versioned scrypt hash (`scrypt$v=1$N=16384$r=8$p=1$...`).
+- `OPERATOR_PASSWORD_HASH` must not match or reuse `SESSION_SECRET` (enforcing strict separation of concerns).
+- `RATE_LIMIT_INVESTIGATIONS_MAX` and `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS` must be positive integers.
+- `DATABASE_PATH` must be a persistent file path (cannot be `:memory:` or empty).
+- `CORS_ORIGIN` must be an explicit origin allowlist (cannot be wildcard `*` or empty).
 - `BUY_ENABLED=true` requires positive non-zero values for `BUY_DAILY_BUDGET_ATOMIC` and `BUY_PER_CALL_CAP_ATOMIC`.
 - Startup immediately crashes if any production safeguard fails.
+
+---
+
+## 4.1 Operator Authentication Architecture & Password Hashing (AGY-05 / DEF-14)
+
+Operator access controls are strictly decoupled between authentication and session authorization:
+
+1. **Independent Secrets:**
+   - `OPERATOR_PASSWORD_HASH`: Stores the salted, computationally expensive scrypt password hash. Used exclusively for verifying operator passwords during login. Supplying `SESSION_SECRET` or the raw hash string as a password will fail authentication.
+   - `SESSION_SECRET`: Used exclusively for HMAC-SHA256 signing and verifying session tokens. Never used as a password or password hash substitute.
+2. **scrypt Hashing Specification:**
+   - Algorithm: Node.js built-in `crypto.scrypt` (asynchronous, non-blocking).
+   - Format: `scrypt$v=1$N=<cost>$r=<blockSize>$p=<parallelism>$<salt-base64>$<derived-key-base64>`
+   - Production parameters: $N=16384$ ($2^{14}$), $r=8$, $p=1$, derived key length = 32 bytes, cryptographically secure 16-byte random salt.
+   - Verification: Constant-time buffer comparison via `crypto.timingSafeEqual` after buffer length verification.
+   - Fault Tolerance: Malformed hashes, unsupported versions, or invalid parameter ranges return `false` gracefully without crashing the server process.
+3. **Session Management & Tokens:**
+   - Tokens are formatted as `<sessionId>.<hmacHex>`, where `sessionId` is a 32-byte cryptographically random hex string, and `hmacHex` is an HMAC-SHA256 signature generated with `SESSION_SECRET`.
+   - Token signatures are verified before checking internal state.
+   - Hard session lifetime is enforced at 2 hours.
+   - Sessions are revocable on logout (`POST /api/operator/logout`), which removes the session ID and clears cookies.
+   - Cookie protections: `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure` in production deployments.
+4. **Login Brute-Force Rate Limiting:**
+   - Enforces a maximum of 5 failed login attempts per client IP within a rolling 15-minute window.
+   - Subsequent attempts receive HTTP 429 (`RATE_LIMITED`) with a standard `Retry-After` header indicating remaining wait time in seconds.
+   - Successful authentication resets the failed-attempt counter for that IP.
+   - Tracking memory is bounded (max 5,000 tracked IPs) with automatic cleanup of expired entries.
+
+---
+
+## 4.2 Public Forensic Ingestion Rate Limiting (AGY-06)
+
+To protect the server and upstream Chainstack RPC quotas from abuse, public forensic ingestion is rate-limited:
+
+1. **Scope:** Applies strictly to `POST /api/investigations`. Health checks (`/api/health`, `/healthz`, `/readyz`), static assets, report retrieval (`GET /api/investigations/:id`), history list browsing (`GET /api/investigations`), and operator control endpoints are excluded.
+2. **Policy:** Configurable via `RATE_LIMIT_INVESTIGATIONS_MAX` (default: 10 requests) and `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS` (default: 60,000 ms / 1 minute).
+3. **Envelope & Response:** Requests exceeding the quota receive HTTP 429 with `Retry-After` header and standard JSON envelope:
+   ```json
+   {
+     "data": null,
+     "error": {
+       "code": "RATE_LIMITED",
+       "message": "Too many investigation requests from this IP. Please wait X seconds before trying again."
+     },
+     "requestId": "<uuid>"
+   }
+   ```
+4. **Client IP Resolution & Reverse Proxy Security:**
+   - Client IP is resolved from socket connection `request.ip`.
+   - `X-Forwarded-For` headers are strictly ignored unless `TRUST_PROXY=true` is explicitly configured behind a verified reverse proxy.
+5. **Operational Limitations:** Enforcement is process-local in memory. For multi-replica horizontally scaled deployments, shared external storage (e.g. Redis) is required for globally synchronized rate limits.
 
 ---
 
