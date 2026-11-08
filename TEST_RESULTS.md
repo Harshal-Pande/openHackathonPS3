@@ -14,7 +14,7 @@
 | Command | Exit Code | Result | Key Output & Notes |
 |:---|:---:|:---:|:---|
 | `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
-| `npm test` | **0** | **`PASS`** | **20 test files passed, 213/213 tests passed** (100% green). |
+| `npm test` | **0** | **`PASS`** | **20 test files passed, 240/240 tests passed** (100% green). |
 | `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430 kB), `vendor-icons` (15.7 kB), `index` (189.6 kB). **0 warnings**. |
 | `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **36/36 test scenarios passed** across 25 unique Fastify endpoints (including all new MOD-03 operator routes: execute, purchases, buy-health, audit-events). |
 | `node scripts/browser_e2e_cdp.mjs` | **0** | **`PASS`** | Real Chrome DevTools Protocol automated testing: Desktop (1280x800) and Mobile (375x812) viewports fully validated. |
@@ -22,7 +22,7 @@
 
 ---
 
-## 2. Test Breakdown by File (20 Suites, 213 Tests)
+## 2. Test Breakdown by File (20 Suites, 240 Tests)
 
 | # | Test File | Test Count | Classification | Result |
 |:---:|:---|:---:|:---|:---:|
@@ -41,12 +41,12 @@
 | 13 | `tests/attribution.test.ts` | **11** | `LOCAL` | **PASS** |
 | 14 | `tests/health.test.ts` | **4** | `LOCAL` | **PASS** |
 | 15 | `tests/regressionEdgeCases.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| 16 | `tests/buySecurity.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
+| 16 | `tests/buySecurity.test.ts` | **31** | `LOCAL_INTEGRATION` | **PASS** |
 | 17 | `tests/userJourneyE2E.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
 | 18 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
 | 19 | `tests/buyAdapter.test.ts` | **8** | `LOCAL_INTEGRATION` | **PASS** |
 | 20 | `tests/paymentLifecycle.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| **Total** | **20 Test Suites** | **213 Tests** | **100% Automated** | **213 PASS** |
+| **Total** | **20 Test Suites** | **240 Tests** | **100% Automated** | **240 PASS** |
 
 ---
 

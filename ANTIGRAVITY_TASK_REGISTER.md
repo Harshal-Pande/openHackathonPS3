@@ -34,6 +34,7 @@ This register contains all technical and operational tasks owned and executed di
 | **AGY-05** | Mod 2 | **P1** | `COMPLETED` | Separate Operator Auth Password from Session Secret (DEF-14) | `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/config.ts` | AGY-01 |
 | **AGY-06** | Mod 2 | **P2** | `COMPLETED` | Add Rate Limiting Middleware for Public Forensic Ingestion | `src/server/auth/rateLimiter.ts`, `src/server/app.ts`, `src/server/config.ts` | AGY-05 |
 | **AGY-07** | Mod 3 | **P1** | `COMPLETED` | Wire Buy CLI Execution Adapter with Security Invariants | `src/server/adapters/buyAdapter.ts`, `src/server/services/buyQuoteService.ts`, `src/server/app.ts` | None |
+| **AGY-07.1** | Mod 3.2 | **P0** | `COMPLETED` | Critical Payment Path Security Remediation (DEF-23 to DEF-30) | `src/server/adapters/buyAdapter.ts`, `src/server/services/buyQuoteService.ts`, `src/server/services/capabilityRegistry.ts`, `src/server/db/database.ts` | AGY-07 |
 | **AGY-08** | Mod 3 | **P1** | `BLOCKED_PENDING_OPERATOR_APPROVAL` | Settle Live Cencori AI Quote via Buy CLI & Verify Receipt | `PROOF.md`, `GATE0_RESULTS.md` | AGY-07, USR-08 (Wallet Funding) |
 | **AGY-09** | Mod 4 | **P1** | `READY_FOR_IMPLEMENTATION` | Audit & Re-verify ERC-8021 Attribution Suffix Construction | `src/server/services/celoAttributionService.ts` | None |
 | **AGY-10** | Mod 5 | **P1** | `USER_INPUT_REQUIRED` | Update Public Base URL in ERC-8004 Metadata Generation | `src/server/config.ts`, `src/server/services/celoAttributionService.ts` | USR-05 |

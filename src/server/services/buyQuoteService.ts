@@ -4,6 +4,11 @@ import { AppConfig } from '../config.js';
 import { Database, QuoteRow, PurchaseAttemptRow, PaymentAuditEventRow } from '../db/database.js';
 import { BuyQuoteSummary, QuoteStatus, BuyHealthStatus } from '../forensics/types.js';
 import { BuyAdapter, PurchaseExecutionResult, SettlementResolutionResult } from '../adapters/buyAdapter.js';
+import {
+  validateCapabilityRequest,
+  getRegisteredCapability,
+  normalizeAndVerifyAmount
+} from './capabilityRegistry.js';
 
 export interface OperatorApprovalPacket {
   approvalId: string;
@@ -37,12 +42,10 @@ export class BuyQuoteServiceError extends Error {
   }
 }
 
-export const DEFAULT_ALLOWED_CAPABILITIES = ['cencori.v1.chat.completions', 'chainstack.celo'];
+export const DEFAULT_ALLOWED_CAPABILITIES = ['cencori.v1.chat.completions'];
 export const DEFAULT_ALLOWED_RECIPIENTS = ['0x20faaca5f980e29639a0fcc6dca6988e18ed333b'];
 export const DEFAULT_ALLOWED_TOKENS = [
-  '0xceba9300f2b948710d2653dd7b07f33a8b32118c', // USDC
-  '0x48065fbbe25f71c9282ddf5e1cd6d6a887483d5e', // USDT
-  '0xd2ab3c9a02dbbab236bfec45d1d755df4267f771'  // USAT (Tether America USD)
+  '0xceba9300f2b948710d2653dd7b07f33a8b32118c' // USDC
 ];
 
 /**
@@ -117,45 +120,17 @@ export class BuyQuoteService {
       );
     }
 
-    // 3. Validate Token Contract Allowlist
-    const allowedTokens = resolveAllowlist(this.config.BUY_ALLOWED_TOKEN_CONTRACTS, DEFAULT_ALLOWED_TOKENS);
-    const cleanToken = params.tokenContract.toLowerCase();
-    if (!allowedTokens.includes(cleanToken)) {
+    // 3. Enforce Per-Call Spending Cap (checked on amountAtomic format)
+    if (!/^[1-9][0-9]*$/.test(params.amountAtomic)) {
       throw new BuyQuoteServiceError(
-        `Token contract "${params.tokenContract}" is not in the approved token allowlist.`,
-        403,
-        'TOKEN_NOT_ALLOWED'
-      );
-    }
-
-    // 4. Validate Recipient / Payee Allowlist
-    const allowedRecipients = resolveAllowlist(this.config.BUY_ALLOWED_RECIPIENTS, DEFAULT_ALLOWED_RECIPIENTS);
-    const cleanRecipient = params.recipient.toLowerCase();
-    if (!allowedRecipients.includes(cleanRecipient)) {
-      throw new BuyQuoteServiceError(
-        `Payee address "${params.recipient}" is not in the approved recipient allowlist.`,
-        403,
-        'RECIPIENT_NOT_ALLOWED'
-      );
-    }
-
-    // 5. Validate Chain ID
-    const chainId = params.chainId || 42220;
-    if (chainId !== 42220) {
-      throw new BuyQuoteServiceError(
-        `Invalid chain ID ${chainId}. RevertLens only supports Celo Mainnet (42220).`,
+        `Invalid atomic amount: "${params.amountAtomic}". Must be a positive base-10 integer string with no signs, decimals, or leading zeros.`,
         400,
-        'INVALID_CHAIN_ID'
+        'INVALID_AMOUNT'
       );
     }
-
-    // 6. Compute Cryptographic Body Hash
-    const bodySha256 = crypto.createHash('sha256').update(params.exactBody).digest('hex');
-
-    // 7. Enforce Per-Call Spending Cap
     const callCap = BigInt(this.config.BUY_PER_CALL_CAP_ATOMIC || '0');
-    const quoteAmount = BigInt(params.amountAtomic);
-    if (callCap > 0n && quoteAmount > callCap) {
+    const rawQuoteAmount = BigInt(params.amountAtomic);
+    if (callCap > 0n && rawQuoteAmount > callCap) {
       throw new BuyQuoteServiceError(
         `Quote amount ${params.amountAtomic} exceeds per-call spending cap of ${this.config.BUY_PER_CALL_CAP_ATOMIC}.`,
         403,
@@ -163,12 +138,12 @@ export class BuyQuoteService {
       );
     }
 
-    // 8. Enforce Daily Budget
+    // 4. Enforce Daily Budget
     const dailyCap = BigInt(this.config.BUY_DAILY_BUDGET_ATOMIC || '0');
     if (dailyCap > 0n) {
       const todayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const currentDailySpend = this.db.getGlobalDailySpendAtomic(todayIso);
-      if (currentDailySpend + quoteAmount > dailyCap) {
+      if (currentDailySpend + rawQuoteAmount > dailyCap) {
         throw new BuyQuoteServiceError(
           `Quote amount would exceed daily spending budget cap of ${this.config.BUY_DAILY_BUDGET_ATOMIC}.`,
           403,
@@ -177,7 +152,51 @@ export class BuyQuoteService {
       }
     }
 
-    // 9. Store Immutable Quote Record
+    // 5. Strict Authoritative Capability Registry & Payload Validation
+    let validation: ReturnType<typeof validateCapabilityRequest>;
+    try {
+      validation = validateCapabilityRequest({
+        capabilityId: params.capabilityId,
+        url: params.url,
+        method: params.method,
+        tokenSymbol: params.tokenSymbol,
+        tokenContract: params.tokenContract,
+        amountAtomic: params.amountAtomic,
+        amountDisplay: params.amountDisplay,
+        recipient: params.recipient,
+        exactBody: params.exactBody,
+        chainId: params.chainId
+      });
+    } catch (valErr: any) {
+      throw new BuyQuoteServiceError(valErr.message, 400, 'CAPABILITY_VALIDATION_FAILED');
+    }
+
+    // 6. Validate Token Contract Allowlist
+    const allowedTokens = resolveAllowlist(this.config.BUY_ALLOWED_TOKEN_CONTRACTS, DEFAULT_ALLOWED_TOKENS);
+    const cleanToken = validation.tokenConfig.contract.toLowerCase();
+    if (!allowedTokens.includes(cleanToken)) {
+      throw new BuyQuoteServiceError(
+        `Token contract "${params.tokenContract}" is not in the approved token allowlist.`,
+        403,
+        'TOKEN_NOT_ALLOWED'
+      );
+    }
+
+    // 7. Validate Recipient / Payee Allowlist
+    const allowedRecipients = resolveAllowlist(this.config.BUY_ALLOWED_RECIPIENTS, DEFAULT_ALLOWED_RECIPIENTS);
+    const cleanRecipient = validation.capability.payee.toLowerCase();
+    if (!allowedRecipients.includes(cleanRecipient)) {
+      throw new BuyQuoteServiceError(
+        `Payee address "${params.recipient}" is not in the approved recipient allowlist.`,
+        403,
+        'RECIPIENT_NOT_ALLOWED'
+      );
+    }
+
+    // 8. Compute Cryptographic Body Hash
+    const bodySha256 = crypto.createHash('sha256').update(params.exactBody).digest('hex');
+
+    // 9. Store Immutable Quote Record with verified canonical amounts
     const quoteId = randomUUID();
     const now = new Date();
     const ttlMs = (params.ttlSeconds || 900) * 1000;
@@ -186,17 +205,17 @@ export class BuyQuoteService {
     const quoteRow: QuoteRow = {
       id: quoteId,
       investigation_id: params.investigationId || null,
-      capability_id: params.capabilityId,
-      url: params.url,
-      method: params.method,
+      capability_id: validation.capability.capabilityId,
+      url: validation.capability.serviceUrl,
+      method: validation.capability.method,
       exact_body: params.exactBody,
       body_sha256: bodySha256,
-      token_symbol: params.tokenSymbol,
+      token_symbol: validation.tokenConfig.symbol,
       token_contract: cleanToken,
-      amount_atomic: params.amountAtomic,
-      amount_display: params.amountDisplay,
+      amount_atomic: validation.canonicalAtomic,
+      amount_display: params.amountDisplay || validation.canonicalDisplay,
       recipient: cleanRecipient,
-      chain_id: chainId,
+      chain_id: validation.capability.chainId,
       status: 'AWAITING_OPERATOR_APPROVAL',
       expiry,
       reason: params.reason || 'AI forensic explanation requested',
@@ -211,6 +230,7 @@ export class BuyQuoteService {
   /**
    * Binds an operator approval strictly to the exact quote ID and body SHA-256.
    * If any byte of the payload or quote parameters differ, approval fails.
+   * Atomically transitions the quote to APPROVED using an immediate SQLite transaction.
    * STOPS at the approval stage; no paid execution occurs.
    */
   public async approveQuote(params: {
@@ -237,65 +257,50 @@ export class BuyQuoteService {
       );
     }
 
-    // 3. Fetch Quote
-    const quote = this.db.getQuote(params.quoteId);
-    if (!quote) {
-      throw new BuyQuoteServiceError(`Quote "${params.quoteId}" not found.`, 404, 'QUOTE_NOT_FOUND');
+    // 3. Atomically Validate and Approve Quote
+    let approvedQuote: QuoteRow;
+    try {
+      approvedQuote = this.db.approveQuoteAtomic({
+        quoteId: params.quoteId,
+        expectedBodySha256: params.expectedBodySha256,
+        operatorUsername: params.operatorUsername
+      });
+    } catch (err: any) {
+      const msg = err.message || '';
+      if (msg.includes('not found')) {
+        throw new BuyQuoteServiceError(msg, 404, 'QUOTE_NOT_FOUND');
+      }
+      if (msg.includes('already approved')) {
+        throw new BuyQuoteServiceError(msg, 409, 'ALREADY_APPROVED');
+      }
+      if (msg.includes('expired')) {
+        throw new BuyQuoteServiceError(msg, 410, 'QUOTE_EXPIRED');
+      }
+      if (msg.includes('mismatch')) {
+        throw new BuyQuoteServiceError(msg, 400, 'HASH_MISMATCH');
+      }
+      throw new BuyQuoteServiceError(msg, 400, 'APPROVAL_FAILED');
     }
-
-    // 4. Status Check
-    if (quote.status === 'APPROVED') {
-      throw new BuyQuoteServiceError(`Quote "${params.quoteId}" is already approved. Duplicate approval prohibited.`, 409, 'ALREADY_APPROVED');
-    }
-    if (quote.status !== 'AWAITING_OPERATOR_APPROVAL') {
-      throw new BuyQuoteServiceError(`Quote "${params.quoteId}" has status "${quote.status}" and cannot be approved.`, 400, 'INVALID_QUOTE_STATUS');
-    }
-
-    // 5. Expiry Check
-    if (quote.expiry && new Date(quote.expiry).getTime() < Date.now()) {
-      this.db.updateQuoteStatus(quote.id, 'EXPIRED');
-      throw new BuyQuoteServiceError(`Quote "${params.quoteId}" has expired. Please request a fresh quote.`, 410, 'QUOTE_EXPIRED');
-    }
-
-    // 6. Strict SHA-256 Body Hash Binding Check
-    if (params.expectedBodySha256 !== quote.body_sha256) {
-      this.db.updateQuoteStatus(quote.id, 'QUOTE_INVALID');
-      throw new BuyQuoteServiceError(
-        `Cryptographic body hash mismatch. Approved hash (${params.expectedBodySha256}) does not match quoted body hash (${quote.body_sha256}). Quote invalidated.`,
-        400,
-        'HASH_MISMATCH'
-      );
-    }
-
-    // 7. Transition to APPROVED state
-    const approvalId = randomUUID();
-    const approvedAt = new Date().toISOString();
-
-    this.db.updateQuoteStatus(quote.id, 'APPROVED', {
-      approval_id: approvalId,
-      approved_at: approvedAt,
-      approved_by: params.operatorUsername
-    });
 
     return {
-      approvalId,
-      quoteId: quote.id,
-      investigationId: quote.investigation_id || null,
-      capabilityId: quote.capability_id,
-      url: quote.url,
-      method: quote.method,
-      bodySha256: quote.body_sha256,
-      tokenContract: quote.token_contract,
-      tokenSymbol: quote.token_symbol,
-      amountAtomic: quote.amount_atomic,
-      amountDisplay: quote.amount_display,
-      recipient: quote.recipient,
-      chainId: quote.chain_id,
-      approvedBy: params.operatorUsername,
-      approvedAt,
+      approvalId: approvedQuote.approval_id!,
+      quoteId: approvedQuote.id,
+      investigationId: approvedQuote.investigation_id || null,
+      capabilityId: approvedQuote.capability_id,
+      url: approvedQuote.url,
+      method: approvedQuote.method,
+      bodySha256: approvedQuote.body_sha256,
+      tokenContract: approvedQuote.token_contract,
+      tokenSymbol: approvedQuote.token_symbol,
+      amountAtomic: approvedQuote.amount_atomic,
+      amountDisplay: approvedQuote.amount_display,
+      recipient: approvedQuote.recipient,
+      chainId: approvedQuote.chain_id,
+      approvedBy: approvedQuote.approved_by || params.operatorUsername,
+      approvedAt: approvedQuote.approved_at || new Date().toISOString(),
       status: 'APPROVED',
       paidExecutionTriggered: false,
-      reason: quote.reason || 'Operator authorized quote packet'
+      reason: approvedQuote.reason || 'Operator authorized quote packet'
     };
   }
 

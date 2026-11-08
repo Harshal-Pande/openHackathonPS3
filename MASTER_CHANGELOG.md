@@ -7,7 +7,7 @@
 **Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`  
 **Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`  
 **Status:** RELEASE CANDIDATE (LOCAL VERIFIED, PREPARED FOR HUMAN SUBMISSION)  
-**Last Updated:** 2026-11-07 (Phase 11.5)
+**Last Updated:** 2026-11-08 (Phase 16 - MOD-03.2)
 
 ---
 
@@ -310,7 +310,7 @@ Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Veri
 
 # PHASE 13 — MASTER PROJECT AUDIT, DOCUMENTATION CLEANUP & ROADMAP GENERATION
 
-**Date:** 2026-11-08  
+**Date:** 2026-11-08
 **Status:** COMPLETED & AUDITED  
 **Auditors & Authors:** Lead Principal Engineer, Security Architect, Blockchain Integration Engineer, Product Architect, QA Lead  
 
@@ -358,7 +358,7 @@ Phase 11.5: Final Pre-Submission Engineering, ERC-8004 Preparation & Master Veri
 
 # PHASE 13.1 — MODULE 1 (MOD-01): CORE RELIABILITY & INFRASTRUCTURE FOUNDATIONS
 
-**Date:** 2026-11-08  
+**Date:** 2026-11-08
 **Status:** IMPLEMENTED_AND_VERIFIED  
 **Auditors & Authors:** Lead Principal Engineer, Security Architect, QA Lead  
 
@@ -702,4 +702,65 @@ An independent security review of the MOD-02.3 implementation identified a subtl
 - **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports.
 - **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` has 0 CELO and 0 USDC balances; live mainnet spend blocked pending operator funding. $0.00 personal funds spent.
+
+---
+
+## Phase 16 — Module 3.2: Critical Payment Path Security Remediation (MOD-03.2 / DEF-23 through DEF-30)
+**Date:** 2026-11-08
+**Scope:** Complete payment path security remediation, strict ERC-20 on-chain settlement log parsing, authoritative server-side capability registry, BigInt mathematical amount normalization, atomic approval consumption with `BEGIN IMMEDIATE`, quote expiry pre-dispatch recheck, direct Node subprocess spawning with `@celo/buy@0.8.5` and `shell: false`, dynamic unexpired capability discovery, and budget reservation release protection.
+
+### 1. Summary of Changes
+Following an independent security audit of the MOD-03 implementation snapshot, 8 critical security defects were identified and systematically resolved:
+
+1. **DEF-23: On-Chain Settlement Verification & Log Parsing (SEC-01):**
+   - Implemented rigorous EVM receipt validation in `BuyAdapter` (`src/server/adapters/buyAdapter.ts`):
+     - Validates receipt existence and execution status (`status === '0x1' || status === 1`).
+     - Parses on-chain `logs` matching ERC-20 `Transfer(address,address,uint256)` event signature (`0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef`).
+     - Decodes `from` (topic 1), `to` (topic 2), and `amount` (data) via viem.
+     - Strictly asserts that the log matches: `token_contract === expectedToken`, `to === expectedRecipient`, `amount >= expectedAmountAtomic`, and `from === payingAddress`.
+     - Completely eliminated ambiguous recipient-only candidate matching in `resolveSettlement()`; matching is now restricted to exact `quoteId`, `purchaseAttemptId`, or recorded transaction hashes.
+
+2. **DEF-24: Authoritative Server-Side Capability Registry (SEC-02):**
+   - Created `src/server/services/capabilityRegistry.ts` as the sole authority for paid capabilities.
+   - Strictly binds capability ID (`cencori.v1.chat.completions`), upstream URL (`https://cencori-buy-node.cencori.workers.dev/api/v1/chat/completions`), HTTP method (`POST`), supported token address (`0x765DE816845861e75A25fCA122bb6898B8B1282a`), token decimals (`6`), display symbol (`USDC`), atomic price (`10000`), display amount (`0.01`), payee address (`0x2117973F04192Eb5971a81F0571060e2B7F49e6F`), request payload schema, and expiry timestamps.
+   - Removed legacy `chainstack.celo` capability from Buy integration (Chainstack operates directly via OP Geth RPC under AD-008).
+   - Validates incoming quote creation and execution against the immutable registry.
+
+3. **DEF-25: BigInt Mathematical Amount Normalization (SEC-03):**
+   - Implemented `normalizeAndVerifyAmount()` using BigInt decimal scaling arithmetic without floating-point math.
+   - Converts display amount string to integer and fractional parts, scales by `10^decimals`, and compares directly to `BigInt(amountAtomic)`.
+   - Rejects leading zeros, negative signs, plus signs, extra decimal points, whitespace, and precision exceeding token decimals.
+   - Guarantees exact mathematical equivalence between on-chain atomic units and operator-visible display amounts.
+
+4. **DEF-26: Pre-Dispatch Quote Expiry Recheck (SEC-04):**
+   - Added immediate quote expiry verification in `executeApprovedRequest()` directly before subprocess spawning.
+   - If quote has lapsed (`now >= quote.expiresAt`), the quote is atomically transitioned to `EXPIRED`, the attempt to `FAILED`, the reservation is released, and execution aborts with HTTP 400.
+
+5. **DEF-27: Single-Use Atomic Approval Consumption (SEC-05):**
+   - Implemented `db.approveQuoteAtomic()` and `db.consumeApprovalAndCreateAttemptAtomic()` using SQLite `BEGIN IMMEDIATE` transactions.
+   - Uses conditional update `WHERE id = ? AND status = 'APPROVED'` to atomically transition quote to `EXECUTION_PENDING` and create the purchase attempt.
+   - Prevents concurrent double-execution of approved quotes; second attempt fails immediately with state mismatch error.
+
+6. **DEF-28: Windows CLI Direct Node Subprocess Execution (SEC-06):**
+   - Pinned `@celo/buy@0.8.5` in project `devDependencies` (`package.json`, `package-lock.json`).
+   - Replaced fragile Windows `npx.cmd` spawning with direct `process.execPath` running `node_modules/@celo/buy/dist/main.js` with `shell: false`.
+   - Verified real read-only CLI commands (`-V` and `whoami`) execute deterministically in < 4s with 0 network/child process errors.
+
+7. **DEF-29: Dynamic vs Static Capability Registration Transparency (SEC-07):**
+   - Updated `discoverCapabilities()` to dynamically query unexpired capabilities from `capabilityRegistry.ts`.
+   - Rejects expired capability records; guarantees that exposed capabilities are strictly validated and current.
+
+8. **DEF-30: Budget Reservation Concurrency & Release Safety (SEC-08):**
+   - Hardened `releaseBudgetReservation()`: throws error if reservation status is already `COMMITTED`, preventing accidental refund of executed purchases.
+   - Hardened `getGlobalDailySpendAtomic()` and `reserveBudgetAtomic()`: deduplicates quotes and reservations using `SELECT DISTINCT`, and strictly excludes `RELEASED` reservations from daily spend and limit calculations.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **20/20 test files, 240/240 tests passing** in 5.37s (100% green; 31/31 tests in `tests/buySecurity.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **36/36 scenarios** across 25 endpoints (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports.
+- **Whitespace / Git Diff Check:** `git diff --check` passed with zero errors.
+- **Real Windows CLI Execution:** Verified real `@celo/buy@0.8.5` binary via `node_modules/@celo/buy/dist/main.js` running without mocks, confirming version `0.8.5` and agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`.
 - **Zero-Spend Invariant Enforced:** Agent wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` has 0 CELO and 0 USDC balances; live mainnet spend blocked pending operator funding. $0.00 personal funds spent.

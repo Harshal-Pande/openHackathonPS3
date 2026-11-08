@@ -22,12 +22,13 @@
 | Initial RPC quote obtained | PASS | LIVE_MAINNET_READ_ONLY | `buy quote` output | Payee `0x20faAca5F980E29639A0FCC6dcA6988E18ed333B`, 10000 atomic USDC on Celo 42220. |
 | Candidate failed Celo tx verified | PASS | LIVE_MAINNET_READ_ONLY | Blockscout API / Chainstack OP Geth | `0xb90bcca5...` block 52460432; reverted `Error(string)`: `"Swap reverted"`. |
 | Direct Chainstack Growth Node Provisioned | PASS | LIVE_MAINNET_READ_ONLY | Operator dashboard (`ND-801-666-498`) | OP Geth, 250 RPS, debug/trace namespaces, Celo Mainnet 42220. Adopted under AD-008. |
-| Bounded Buy Adapter (`src/server/adapters/buyAdapter.ts`) | PASS | LOCAL_TESTED | `tests/buyAdapter.test.ts` (8/8 pass) | Fixed executable `npx.cmd`, `shell: false`, 512 KiB buffer, 60s timeout, credential redaction, independent settlement verification. |
+| Bounded Buy Adapter (`src/server/adapters/buyAdapter.ts`) | PASS | LOCAL_TESTED | `tests/buyAdapter.test.ts` (8/8 pass), `tests/buySecurity.test.ts` (31/31 pass) | Pinned `@celo/buy@0.8.5` local entrypoint via `process.execPath`, `shell: false`, 512 KiB buffer, 60s timeout, credential redaction, independent ERC-20 transfer log settlement verification. |
 | Payment Lifecycle & 11-State Transitions | PASS | LOCAL_TESTED | `tests/paymentLifecycle.test.ts` (10/10 pass) | Enforces 11-state matrix, atomic budget reservation, single-use approval, SHA-256 integrity, audit ledger. |
 | Cencori AI Procurement & Forensic Guardrails | PASS | LOCAL_TESTED | `tests/cencoriProvider.test.ts`, `tests/aiValidation.test.ts` | Strict anti-hallucination validation, address/revert bounding, deterministic fallback. |
-| Full Automated Test Suite | PASS | LOCAL_TESTED | Vitest (213/213 passing across 20 suites) | 100% pass across all unit, security, lifecycle, and E2E suites. |
+| Full Automated Test Suite | PASS | LOCAL_TESTED | Vitest (240/240 passing across 20 suites) | 100% pass across all unit, security, lifecycle, and E2E suites. |
 | Master API Surface Audit | PASS | LOCAL_TESTED | `node scripts/verify_all_routes.mjs` (36/36 pass) | 25 unique endpoints verified, including all operator payment and health routes. |
 | Browser CDP E2E Automation | PASS | LOCAL_TESTED | `node scripts/browser_e2e_cdp.mjs` (exit code 0) | Desktop (1280x800) and Mobile (375x812) viewports tested with hard assertions and verified screenshots. |
+| Real Windows Buy CLI Execution Check | PASS | WINDOWS_CLI_VERIFIED | Direct subprocess via `process.execPath` | Verified harmless `-V` (prints 0.8.5) and `whoami` (confirms wallet `0x3e1b...8e52`, zero spend, zero balances). |
 | Live Paid On-Chain Settlement | BLOCKED_PENDING_OPERATOR_APPROVAL | LIVE_MAINNET | Agent wallet balances = 0 | Wallet `0x3e1b...8e52` has 0 CELO and 0 USDC. Paid on-chain settlement blocked until funded by operator. Zero personal spend incurred. |
 
 ---

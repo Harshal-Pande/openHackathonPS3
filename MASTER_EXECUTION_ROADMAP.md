@@ -188,7 +188,7 @@ flowchart TD
 
 ### MODULE 3 — Build with Buy & Paid Cencori AI Inference Proof
 - **Module ID:** `MOD-03`
-- **Status:** `SOFTWARE IMPLEMENTED & VERIFIED` (AGY-07 complete; AGY-08 software verifications passing; on-chain spend pending operator wallet funding)
+- **Status:** `SOFTWARE IMPLEMENTED & HARDENED (MOD-03 & MOD-03.2)` (AGY-07, AGY-07.1 complete; 240/240 tests pass across 20 suites; on-chain spend pending operator wallet funding)
 - **Objective:** Secure Buy CLI integration, Cencori AI procurement, quote-bound execution lifecycle, and live settlement verification on Celo Mainnet (`eip155:42220`).
 - **Hackathon Relevance:** Core requirement for Track PS3 ("Build with Buy"): proves integration with the official Buy marketplace.
 - **Exact Tasks:**

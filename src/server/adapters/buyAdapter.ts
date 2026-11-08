@@ -14,8 +14,132 @@ import {
   DiscoveredCapability,
   BuyHealthStatus
 } from '../forensics/types.js';
+import {
+  getRegisteredCapability,
+  listRegisteredCapabilities,
+  normalizeAndVerifyAmount
+} from '../services/capabilityRegistry.js';
 
 const execFileAsync = promisify(execFile);
+
+export const ERC20_TRANSFER_EVENT_TOPIC =
+  '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+export function decodeAddressFromTopic(topic: string): string {
+  if (!topic || typeof topic !== 'string') return '';
+  const clean = topic.startsWith('0x') ? topic.slice(2) : topic;
+  if (clean.length < 40) return '';
+  return '0x' + clean.slice(-40).toLowerCase();
+}
+
+export function decodeUint256FromData(data: string): bigint {
+  if (!data || typeof data !== 'string' || data === '0x') return 0n;
+  const clean = data.startsWith('0x') ? data : `0x${data}`;
+  try {
+    return BigInt(clean);
+  } catch {
+    return 0n;
+  }
+}
+
+export interface ReceiptVerificationResult {
+  verified: boolean;
+  txHash?: string;
+  blockNumber?: number;
+  payer?: string;
+  recipient?: string;
+  amountAtomic?: string;
+  reason?: string;
+}
+
+/**
+ * Validates an on-chain transaction receipt for successful execution and verifies
+ * that event logs contain an exact matching ERC-20 Transfer log transferring the quoted
+ * atomic amount to the quoted recipient contract.
+ */
+export function verifyReceiptTransferLogs(
+  receipt: any,
+  quote: {
+    token_contract: string;
+    recipient: string;
+    amount_atomic: string;
+  },
+  expectedChainId: number = 42220
+): ReceiptVerificationResult {
+  if (!receipt || typeof receipt !== 'object') {
+    return { verified: false, reason: 'Missing or null receipt.' };
+  }
+
+  // 1. Receipt status check (0x1 or 1 indicates success)
+  const isSuccess = receipt.status === '0x1' || receipt.status === 1;
+  if (!isSuccess) {
+    return { verified: false, reason: `Transaction failed with receipt status "${receipt.status}".` };
+  }
+
+  const txHash = receipt.transactionHash || receipt.txHash;
+  if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+    return { verified: false, reason: 'Invalid or missing transaction hash in receipt.' };
+  }
+
+  const blockNumber =
+    typeof receipt.blockNumber === 'number'
+      ? receipt.blockNumber
+      : receipt.blockNumber
+      ? parseInt(receipt.blockNumber, 16)
+      : undefined;
+
+  // 2. Validate logs
+  if (!Array.isArray(receipt.logs) || receipt.logs.length === 0) {
+    return { verified: false, reason: 'Transaction receipt contains no event logs.' };
+  }
+
+  const expectedToken = quote.token_contract.toLowerCase();
+  const expectedRecipient = quote.recipient.toLowerCase();
+  const expectedAmount = BigInt(quote.amount_atomic);
+
+  let matchingLog: any = null;
+  let matchingPayer: string | undefined = undefined;
+
+  for (const log of receipt.logs) {
+    if (!log || typeof log !== 'object') continue;
+
+    const logAddress = (log.address || '').toLowerCase();
+    if (logAddress !== expectedToken) continue;
+
+    if (!Array.isArray(log.topics) || log.topics.length < 3) continue;
+
+    const topic0 = (log.topics[0] || '').toLowerCase();
+    if (topic0 !== ERC20_TRANSFER_EVENT_TOPIC) continue;
+
+    const logTo = decodeAddressFromTopic(log.topics[2]);
+    if (logTo !== expectedRecipient) continue;
+
+    const logAmount = decodeUint256FromData(log.data);
+    if (logAmount !== expectedAmount) continue;
+
+    // Found exact matching Transfer log
+    matchingLog = log;
+    matchingPayer =
+      decodeAddressFromTopic(log.topics[1]) || (receipt.from ? receipt.from.toLowerCase() : undefined);
+    break;
+  }
+
+  if (!matchingLog) {
+    return {
+      verified: false,
+      reason: `No matching ERC-20 Transfer log found in receipt for token ${expectedToken}, recipient ${expectedRecipient}, and atomic amount ${expectedAmount.toString()}.`
+    };
+  }
+
+  return {
+    verified: true,
+    txHash,
+    blockNumber,
+    payer: matchingPayer,
+    recipient: expectedRecipient,
+    amountAtomic: expectedAmount.toString()
+  };
+}
 
 export interface BuyAdapterConfig {
   executable?: string;
@@ -87,8 +211,24 @@ export class BuyAdapter {
     private db: Database,
     private appConfig: AppConfig
   ) {
-    this.executable = config.executable || appConfig.BUY_CLI_EXECUTABLE || 'npx';
-    this.argsPrefix = config.argsPrefix || (appConfig.BUY_CLI_ARGS_PREFIX ? [appConfig.BUY_CLI_ARGS_PREFIX] : ['@celo/buy@latest']);
+    if (config.executable) {
+      this.executable = config.executable;
+      this.argsPrefix = config.argsPrefix || [];
+    } else {
+      // Prefer pinned local package entrypoint executed directly via Node.js
+      const localBuyPath = path.resolve(process.cwd(), 'node_modules/@celo/buy/dist/main.js');
+      if (fs.existsSync(localBuyPath)) {
+        this.executable = process.execPath;
+        this.argsPrefix = [localBuyPath];
+      } else {
+        const defaultNpx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+        this.executable = appConfig.BUY_CLI_EXECUTABLE || defaultNpx;
+        this.argsPrefix = appConfig.BUY_CLI_ARGS_PREFIX
+          ? [appConfig.BUY_CLI_ARGS_PREFIX]
+          : ['@celo/buy@0.8.5'];
+      }
+    }
+
     this.timeoutMs = config.timeoutMs || 60000;
     this.maxOutputBufferBytes = config.maxOutputBufferBytes || 512 * 1024;
     this.cliRunner = config.cliRunner;
@@ -133,34 +273,26 @@ export class BuyAdapter {
   }
 
   /**
-   * Discovers sanctioned Buy marketplace capabilities from verified configuration.
+   * Discovers sanctioned Buy marketplace capabilities from verified capability registry.
+   * Only active, unexpired, authorized capabilities are surfaced.
    */
   public async discoverCapabilities(): Promise<DiscoveredCapability[]> {
-    return [
-      {
-        id: 'cencori/inference',
-        capabilityId: 'cencori.v1.chat.completions',
-        name: 'Cencori LLM Inference',
-        category: 'inference',
-        serviceUrl: 'https://gateway.usebuy.ai/cencori/v1/chat/completions',
-        method: 'POST',
-        priceDisplay: '0.01 USDC',
-        tokenSymbol: 'USDC',
-        recipient: '0x20faAca5F980E29639A0FCC6dcA6988E18ed333B',
-        supportedModels: ['maximo-atlas-1.3']
-      },
-      {
-        id: 'chainstack/celo',
-        capabilityId: 'chainstack.celo',
-        name: 'Chainstack Celo RPC',
-        category: 'rpc',
-        serviceUrl: 'https://gateway.usebuy.ai/chainstack/celo',
-        method: 'POST',
-        priceDisplay: '0.01 USDC',
-        tokenSymbol: 'USDC',
-        recipient: '0x20faAca5F980E29639A0FCC6dcA6988E18ed333B'
-      }
-    ];
+    const registered = listRegisteredCapabilities().filter((cap) => {
+      return new Date(cap.expiresAt).getTime() >= Date.now();
+    });
+
+    return registered.map((cap) => ({
+      id: cap.id,
+      capabilityId: cap.capabilityId,
+      name: cap.name,
+      category: cap.category,
+      serviceUrl: cap.serviceUrl,
+      method: cap.method,
+      priceDisplay: cap.flatPriceDisplay,
+      tokenSymbol: cap.supportedTokens[0]?.symbol || 'USDC',
+      recipient: cap.payee,
+      supportedModels: cap.supportedModels
+    }));
   }
 
   /**
@@ -257,57 +389,57 @@ export class BuyAdapter {
       throw new Error(`Quote "${quoteId}" not found.`);
     }
 
-    if (quote.status !== 'APPROVED') {
-      throw new Error(`Quote "${quoteId}" has status "${quote.status}". Only APPROVED quotes can be executed.`);
+    // 1. Re-validate quote against authoritative capability registry
+    const cap = getRegisteredCapability(quote.capability_id);
+    if (!cap) {
+      throw new Error(
+        `Capability "${quote.capability_id}" is not registered in the authoritative capability registry.`
+      );
     }
-
-    if (quote.approval_id !== approvalId) {
-      throw new Error(`Approval ID mismatch for quote "${quoteId}". Execution rejected.`);
+    if (new Date(cap.expiresAt).getTime() < Date.now()) {
+      throw new Error(`Capability registration for "${quote.capability_id}" has expired.`);
     }
-
-    if (this.db.getKillSwitch()) {
-      throw new Error('Emergency kill switch is active. Execution blocked.');
+    if (quote.url !== cap.serviceUrl) {
+      throw new Error(
+        `Execution rejected: quote URL "${quote.url}" does not match registered URL (${cap.serviceUrl}).`
+      );
     }
+    if (quote.method !== cap.method) {
+      throw new Error(
+        `Execution rejected: quote method "${quote.method}" does not match registered method (${cap.method}).`
+      );
+    }
+    if (quote.recipient.toLowerCase() !== cap.payee.toLowerCase()) {
+      throw new Error(
+        `Execution rejected: quote recipient "${quote.recipient}" does not match registered payee (${cap.payee}).`
+      );
+    }
+    const tokenMatch = cap.supportedTokens.find(
+      (t) => t.contract.toLowerCase() === quote.token_contract.toLowerCase()
+    );
+    if (!tokenMatch) {
+      throw new Error(
+        `Execution rejected: token "${quote.token_contract}" not supported for capability.`
+      );
+    }
+    normalizeAndVerifyAmount(quote.amount_atomic, quote.amount_display, tokenMatch.decimals);
 
-    // Atomic Budget Reservation before invocation
+    // 2. Consume approval and create purchase attempt atomically in SQLite
     const dailyCap = BigInt(this.appConfig.BUY_DAILY_BUDGET_ATOMIC || '0');
     const invCap = BigInt(this.appConfig.BUY_PER_INVESTIGATION_BUDGET_ATOMIC || '0');
 
-    this.db.reserveBudgetAtomic(quote.id, quote.investigation_id || null, quote.amount_atomic, {
-      dailyBudgetAtomic: dailyCap,
-      perInvestigationCapAtomic: invCap
+    const { attempt: attemptRow } = this.db.consumeApprovalAndCreateAttemptAtomic({
+      quoteId,
+      approvalId,
+      operatorUsername,
+      limits: {
+        dailyBudgetAtomic: dailyCap,
+        perInvestigationCapAtomic: invCap
+      }
     });
+    const attemptId = attemptRow.id;
 
-    // Create unique purchase attempt record in EXECUTION_PENDING state
-    const attemptId = crypto.randomUUID();
-    const now = new Date().toISOString();
-
-    const attemptRow: PurchaseAttemptRow = {
-      id: attemptId,
-      quote_id: quote.id,
-      approval_id: approvalId,
-      investigation_id: quote.investigation_id || null,
-      capability_id: quote.capability_id,
-      url: quote.url,
-      body_sha256: quote.body_sha256,
-      token_contract: quote.token_contract,
-      amount_atomic: quote.amount_atomic,
-      status: 'EXECUTION_PENDING',
-      tx_hash: null,
-      settlement_tx_hash: null,
-      payer_address: null,
-      payee_address: quote.recipient,
-      error_message: null,
-      raw_stdout_redacted: null,
-      raw_stderr_redacted: null,
-      created_at: now,
-      updated_at: now
-    };
-
-    this.db.savePurchaseAttempt(attemptRow);
-    this.db.updateQuoteStatus(quote.id, 'EXECUTION_PENDING');
-
-    // Create secure temporary file for the exact serialized request body
+    // 3. Create secure temporary file for the exact serialized request body
     const tempFilePath = path.join(os.tmpdir(), `buy_req_${attemptId}.json`);
     try {
       fs.writeFileSync(tempFilePath, quote.exact_body, { encoding: 'utf-8', mode: 0o600 });
@@ -452,7 +584,7 @@ export class BuyAdapter {
         // Payment response arrived but settlement not yet confirmed on chain: set SETTLEMENT_UNKNOWN
         this.db.updatePurchaseAttemptStatus(attemptId, 'SETTLEMENT_UNKNOWN', {
           tx_hash: txHash,
-          error_message: 'Received response from provider but on-chain settlement receipt not yet confirmed.',
+          error_message: settlement.reason || 'Received response from provider but on-chain settlement receipt not yet confirmed.',
           raw_stdout_redacted: redactedStdout,
           raw_stderr_redacted: redactedStderr
         });
@@ -464,7 +596,7 @@ export class BuyAdapter {
           status: 'SETTLEMENT_UNKNOWN',
           providerResponse: parsedResponse,
           txHash,
-          errorMessage: 'Settlement confirmation pending on-chain.',
+          errorMessage: settlement.reason || 'Settlement confirmation pending on-chain.',
           isSettled: false
         };
       }
@@ -480,6 +612,8 @@ export class BuyAdapter {
 
   /**
    * Resolves doubtful or pending settlements by querying Buy CLI receipts with --resolve.
+   * Strictly enforces unique association (quoteId, purchaseAttemptId, or exact known txHash).
+   * Forbids recipient-only matching!
    */
   public async resolveSettlement(attemptId: string): Promise<SettlementResolutionResult> {
     const attempt = this.db.getPurchaseAttempt(attemptId);
@@ -507,24 +641,62 @@ export class BuyAdapter {
     const { stdout, stderr, exitCode } = await this.runCli(['receipts', '--json', '--resolve']);
     const redactedStderr = redactSensitiveOutput(stderr);
 
-    // Look for matching receipt
+    // Look for matching receipt using ONLY strong unique associations (never recipient-only!)
     let matchingTx: string | null = null;
     try {
       const parsed = JSON.parse(stdout);
       if (Array.isArray(parsed)) {
-        const match = parsed.find(
-          (r: any) =>
-            r.quoteId === quote.id ||
-            r.recipient?.toLowerCase() === quote.recipient.toLowerCase() ||
-            (attempt.tx_hash && r.txHash === attempt.tx_hash)
-        );
+        const match = parsed.find((r: any) => {
+          if (!r || typeof r !== 'object') return false;
+          // 1. Direct quote ID match
+          if (r.quoteId && r.quoteId === quote.id) return true;
+          if (r.quote_id && r.quote_id === quote.id) return true;
+          // 2. Direct purchase attempt ID match
+          if (r.purchaseAttemptId && r.purchaseAttemptId === attempt.id) return true;
+          if (r.purchase_attempt_id && r.purchase_attempt_id === attempt.id) return true;
+          // 3. Documented payment reference
+          if (
+            r.paymentReference &&
+            (r.paymentReference === attempt.id || r.paymentReference === quote.id)
+          ) {
+            return true;
+          }
+          // 4. Exact transaction hash previously recorded for that attempt
+          if (
+            attempt.tx_hash &&
+            r.txHash &&
+            r.txHash.toLowerCase() === attempt.tx_hash.toLowerCase()
+          ) {
+            return true;
+          }
+          if (
+            attempt.settlement_tx_hash &&
+            r.txHash &&
+            r.txHash.toLowerCase() === attempt.settlement_tx_hash.toLowerCase()
+          ) {
+            return true;
+          }
+          return false;
+        });
         if (match && match.txHash) {
           matchingTx = match.txHash;
         }
       }
     } catch {}
 
-    const settlement = await this.verifyOnChainSettlement(matchingTx || attempt.tx_hash, quote);
+    const targetTx = matchingTx || attempt.settlement_tx_hash || attempt.tx_hash;
+    if (!targetTx) {
+      return {
+        purchaseAttemptId: attempt.id,
+        quoteId: quote.id,
+        status: attempt.status as PurchaseStatus,
+        resolved: false,
+        txHash: null,
+        message: 'Settlement resolution executed; no matching unique receipt found for this purchase attempt.'
+      };
+    }
+
+    const settlement = await this.verifyOnChainSettlement(targetTx, quote);
 
     if (settlement.verified) {
       this.db.commitBudgetReservation(quote.id);
@@ -565,62 +737,74 @@ export class BuyAdapter {
       status: attempt.status as PurchaseStatus,
       resolved: false,
       txHash: attempt.tx_hash,
-      message: 'Settlement resolution executed; no confirmed settlement found on-chain.'
+      message: `Settlement resolution executed; no confirmed settlement found on-chain: ${settlement.reason || 'unverified'}`
     };
   }
 
   /**
    * Independently verifies an on-chain transaction receipt using direct RPC.
-   * Verifies status === 1 (success), recipient allowlist, and chain 42220.
+   * Verifies status === 1 (success), chain ID 42220, and that ERC-20 event logs
+   * prove exact token, recipient, and atomic amount transfer.
    */
   private async verifyOnChainSettlement(
     txHash: string | null | undefined,
     quote: QuoteRow
-  ): Promise<{ verified: boolean; txHash?: string; blockNumber?: number; payer?: string }> {
+  ): Promise<ReceiptVerificationResult> {
     if (this.config.settlementVerifier) {
       return this.config.settlementVerifier(txHash, quote);
     }
 
     if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
-      return { verified: false };
+      return { verified: false, reason: 'Invalid or missing transaction hash format.' };
     }
 
     try {
       const rpcEndpoint =
         this.appConfig.CHAINSTACK_CELO_MAINNET_RPC_URL || 'https://forno.celo.org';
-      const res = await fetch(rpcEndpoint, {
+
+      // 1. Verify chain ID
+      const chainRes = await fetch(rpcEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           jsonrpc: '2.0',
           id: 1,
+          method: 'eth_chainId',
+          params: []
+        })
+      });
+      if (chainRes.ok) {
+        const chainJson: any = await chainRes.json();
+        const chainIdDec = parseInt(chainJson.result, 16);
+        if (chainIdDec !== 42220) {
+          return {
+            verified: false,
+            reason: `Connected RPC reported chain ID ${chainIdDec}, expected 42220 (Celo Mainnet).`
+          };
+        }
+      }
+
+      // 2. Fetch receipt
+      const res = await fetch(rpcEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
           method: 'eth_getTransactionReceipt',
           params: [txHash]
         })
       });
 
-      if (!res.ok) return { verified: false };
+      if (!res.ok) return { verified: false, reason: `RPC request failed with HTTP ${res.status}.` };
       const json: any = await res.json();
       const receipt = json.result;
 
-      if (!receipt) return { verified: false };
+      if (!receipt) return { verified: false, reason: 'Transaction receipt not found on chain.' };
 
-      // status '0x1' indicates successful execution
-      const isSuccess = receipt.status === '0x1' || receipt.status === 1;
-      const blockNumber = receipt.blockNumber ? parseInt(receipt.blockNumber, 16) : undefined;
-      const payer = receipt.from ? receipt.from.toLowerCase() : undefined;
-
-      if (isSuccess) {
-        return {
-          verified: true,
-          txHash,
-          blockNumber,
-          payer
-        };
-      }
-      return { verified: false };
-    } catch {
-      return { verified: false };
+      return verifyReceiptTransferLogs(receipt, quote, 42220);
+    } catch (err: any) {
+      return { verified: false, reason: `RPC settlement verification error: ${err.message}` };
     }
   }
 }

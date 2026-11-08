@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 export interface InvestigationRow {
   id: string;
@@ -160,6 +161,23 @@ export class Database {
       `);
     }
     this.migrate();
+  }
+
+  /**
+   * Executes a synchronous callback within a SQLite transaction (BEGIN IMMEDIATE / COMMIT / ROLLBACK).
+   */
+  public transaction<T>(fn: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE;');
+    try {
+      const result = fn();
+      this.db.exec('COMMIT;');
+      return result;
+    } catch (err) {
+      try {
+        this.db.exec('ROLLBACK;');
+      } catch {}
+      throw err;
+    }
   }
 
   private migrate(): void {
@@ -737,8 +755,16 @@ export class Database {
 
     if (investigationId && limits.perInvestigationCapAtomic > 0n) {
       const stmt = this.db.prepare(`
-        SELECT amount_atomic FROM budget_reservations
-        WHERE investigation_id = ? AND status IN ('RESERVED', 'COMMITTED')
+        SELECT DISTINCT q.id, q.amount_atomic
+        FROM quote_records q
+        LEFT JOIN budget_reservations b ON b.quote_id = q.id
+        WHERE q.investigation_id = ?
+          AND (
+            q.status = 'SETTLED'
+            OR q.status IN ('EXECUTION_PENDING', 'SETTLEMENT_UNKNOWN')
+            OR b.status IN ('RESERVED', 'COMMITTED')
+          )
+          AND (b.status IS NULL OR b.status != 'RELEASED')
       `);
       const rows = stmt.all(investigationId) as { amount_atomic: string }[];
       let totalInv = 0n;
@@ -793,6 +819,10 @@ export class Database {
     const now = new Date().toISOString();
     const existing = this.getBudgetReservation(quoteId);
     if (!existing) return;
+
+    if (existing.status === 'COMMITTED') {
+      throw new Error(`Cannot release budget reservation for quote ${quoteId}: reservation is already COMMITTED.`);
+    }
 
     const stmt = this.db.prepare(`
       UPDATE budget_reservations SET status = 'RELEASED', settled_at = ? WHERE quote_id = ?
@@ -875,9 +905,16 @@ export class Database {
 
   public getGlobalDailySpendAtomic(sinceIso: string): bigint {
     const stmt = this.db.prepare(`
-      SELECT amount_atomic FROM quote_records
-      WHERE status IN ('SETTLED', 'APPROVED', 'EXECUTION_PENDING', 'SETTLEMENT_UNKNOWN')
-        AND created_at >= ?
+      SELECT DISTINCT q.id, q.amount_atomic
+      FROM quote_records q
+      LEFT JOIN budget_reservations b ON b.quote_id = q.id
+      WHERE q.created_at >= ?
+        AND (
+          q.status = 'SETTLED'
+          OR q.status IN ('EXECUTION_PENDING', 'SETTLEMENT_UNKNOWN')
+          OR b.status IN ('RESERVED', 'COMMITTED')
+        )
+        AND (b.status IS NULL OR b.status != 'RELEASED')
     `);
     const rows = stmt.all(sinceIso) as { amount_atomic: string }[];
     let total = 0n;
@@ -888,20 +925,184 @@ export class Database {
         // Ignore unparseable
       }
     }
+    return total;
+  }
 
-    // Also include active uncommitted reservations
-    const resStmt = this.db.prepare(`
-      SELECT amount_atomic FROM budget_reservations
-      WHERE status = 'RESERVED' AND reserved_at >= ?
-    `);
-    const resRows = resStmt.all(sinceIso) as { amount_atomic: string }[];
-    for (const r of resRows) {
-      try {
-        total += BigInt(r.amount_atomic);
-      } catch {}
+  /**
+   * Atomically approves a quote: enforces unexpired, hash match, kill-switch,
+   * single-use conditional transition from AWAITING_OPERATOR_APPROVAL to APPROVED.
+   */
+  public approveQuoteAtomic(params: {
+    quoteId: string;
+    expectedBodySha256: string;
+    operatorUsername: string;
+  }): QuoteRow {
+    const quote = this.getQuote(params.quoteId);
+    if (!quote) {
+      throw new Error(`Quote "${params.quoteId}" not found.`);
+    }
+    if (quote.status === 'APPROVED') {
+      throw new Error(
+        `Quote "${params.quoteId}" is already approved. Duplicate approval prohibited.`
+      );
+    }
+    if (quote.status !== 'AWAITING_OPERATOR_APPROVAL') {
+      throw new Error(
+        `Quote "${params.quoteId}" has status "${quote.status}" and cannot be approved.`
+      );
+    }
+    if (quote.expiry && new Date(quote.expiry).getTime() < Date.now()) {
+      this.updateQuoteStatus(quote.id, 'EXPIRED', { reason: 'Quote expired before approval' });
+      throw new Error(`Quote "${params.quoteId}" has expired. Please request a fresh quote.`);
+    }
+    if (params.expectedBodySha256 !== quote.body_sha256) {
+      this.updateQuoteStatus(quote.id, 'QUOTE_INVALID', {
+        reason: 'Cryptographic body hash mismatch'
+      });
+      throw new Error(
+        `Cryptographic body hash mismatch. Approved hash (${params.expectedBodySha256}) does not match quoted body hash (${quote.body_sha256}). Quote invalidated.`
+      );
+    }
+    if (this.getKillSwitch()) {
+      throw new Error('Emergency kill switch is active. Quote approvals are blocked.');
     }
 
-    return total;
+    return this.transaction(() => {
+      const freshQuote = this.getQuote(params.quoteId);
+      if (!freshQuote || freshQuote.status !== 'AWAITING_OPERATOR_APPROVAL') {
+        throw new Error(`Concurrent approval conflict: quote status changed.`);
+      }
+
+      const approvalId = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      const stmt = this.db.prepare(`
+        UPDATE quote_records SET
+          status = 'APPROVED',
+          approval_id = ?,
+          approved_at = ?,
+          approved_by = ?,
+          updated_at = ?
+        WHERE id = ? AND status = 'AWAITING_OPERATOR_APPROVAL'
+      `);
+      const res = stmt.run(approvalId, now, params.operatorUsername, now, quote.id);
+      if (res.changes === 0) {
+        throw new Error(`Concurrent approval conflict: quote "${quote.id}" status changed.`);
+      }
+
+      this.recordPaymentAuditEvent({
+        entity_type: 'QUOTE',
+        entity_id: quote.id,
+        from_status: 'AWAITING_OPERATOR_APPROVAL',
+        to_status: 'APPROVED',
+        operator_username: params.operatorUsername,
+        details: 'Operator authorized quote packet',
+        created_at: now
+      });
+
+      return this.getQuote(quote.id)!;
+    });
+  }
+
+  /**
+   * Atomically consumes an approved quote and creates a durable purchase attempt:
+   * verifies approval ID, unexpired status, rechecks budget limits, reserves budget,
+   * transitions quote to EXECUTION_PENDING, and persists purchase attempt record.
+   * All state is durably committed inside an immediate SQLite transaction before invocation.
+   */
+  public consumeApprovalAndCreateAttemptAtomic(params: {
+    quoteId: string;
+    approvalId: string;
+    operatorUsername: string;
+    limits: { dailyBudgetAtomic: bigint; perInvestigationCapAtomic: bigint };
+  }): { quote: QuoteRow; attempt: PurchaseAttemptRow } {
+    const quote = this.getQuote(params.quoteId);
+    if (!quote) {
+      throw new Error(`Quote "${params.quoteId}" not found.`);
+    }
+    if (quote.status !== 'APPROVED') {
+      throw new Error(
+        `Quote "${params.quoteId}" has status "${quote.status}". Only APPROVED quotes can be executed.`
+      );
+    }
+    if (quote.approval_id !== params.approvalId) {
+      throw new Error(`Approval ID mismatch for quote "${params.quoteId}". Execution rejected.`);
+    }
+    if (quote.expiry && new Date(quote.expiry).getTime() < Date.now()) {
+      this.updateQuoteStatus(quote.id, 'EXPIRED', { reason: 'Quote expired prior to execution' });
+      throw new Error(`Quote "${params.quoteId}" has expired prior to execution.`);
+    }
+    if (this.getKillSwitch()) {
+      throw new Error('Emergency kill switch is active. Execution blocked.');
+    }
+
+    return this.transaction(() => {
+      const freshQuote = this.getQuote(params.quoteId);
+      if (!freshQuote || freshQuote.status !== 'APPROVED') {
+        throw new Error(`Concurrent execution conflict: quote status changed.`);
+      }
+
+      // Check limits and reserve budget atomically
+      this.reserveBudgetAtomic(
+        freshQuote.id,
+        freshQuote.investigation_id || null,
+        freshQuote.amount_atomic,
+        params.limits
+      );
+
+      // Single-use atomic conditional state transition from APPROVED to EXECUTION_PENDING
+      const now = new Date().toISOString();
+      const updateQuoteStmt = this.db.prepare(`
+        UPDATE quote_records SET
+          status = 'EXECUTION_PENDING',
+          updated_at = ?
+        WHERE id = ? AND status = 'APPROVED'
+      `);
+      const updateRes = updateQuoteStmt.run(now, freshQuote.id);
+      if (updateRes.changes === 0) {
+        throw new Error(`Concurrent execution conflict: quote "${freshQuote.id}" status changed.`);
+      }
+
+      const attemptId = crypto.randomUUID();
+      const attemptRow: PurchaseAttemptRow = {
+        id: attemptId,
+        quote_id: freshQuote.id,
+        approval_id: params.approvalId,
+        investigation_id: freshQuote.investigation_id || null,
+        capability_id: freshQuote.capability_id,
+        url: freshQuote.url,
+        body_sha256: freshQuote.body_sha256,
+        token_contract: freshQuote.token_contract,
+        amount_atomic: freshQuote.amount_atomic,
+        status: 'EXECUTION_PENDING',
+        tx_hash: null,
+        settlement_tx_hash: null,
+        payer_address: null,
+        payee_address: freshQuote.recipient,
+        error_message: null,
+        raw_stdout_redacted: null,
+        raw_stderr_redacted: null,
+        created_at: now,
+        updated_at: now
+      };
+
+      this.savePurchaseAttempt(attemptRow);
+
+      this.recordPaymentAuditEvent({
+        entity_type: 'QUOTE',
+        entity_id: freshQuote.id,
+        from_status: 'APPROVED',
+        to_status: 'EXECUTION_PENDING',
+        operator_username: params.operatorUsername,
+        details: 'Approval consumed atomically, purchase attempt created',
+        created_at: now
+      });
+
+      return {
+        quote: this.getQuote(freshQuote.id)!,
+        attempt: attemptRow
+      };
+    });
   }
 
   public getJournalMode(): string {

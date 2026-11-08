@@ -20,9 +20,10 @@ This document specifies the mandatory security model, threat mitigations, and ar
 2. **Operator-Only Spend Authorization:** Public users cannot initiate or authorize spending from the project wallet. Every purchase requires an authenticated operator session bound to an immutable quote record and exact request body SHA-256.
 3. **Safe CLI Execution:** Spawning the Buy CLI must always use fixed executable paths and argument arrays (`shell: false`), strict timeouts, and bounded stdout/stderr with credential redaction. Shell string interpolation is strictly prohibited.
 4. **No Blind Retries:** Ambiguous payment outcomes (`SETTLEMENT_UNKNOWN`, timeouts, HTTP 500s) never trigger automatic retries. The system must verify settlement on-chain via `buy receipts --resolve` before any state transition.
-5. **Strict Allowlisting:** Only approved capability IDs (`chainstack.celo`, `cencori.v1.chat.completions`), approved payee addresses (`0x20faAca5F980E29639A0FCC6dcA6988E18ed333B`), and approved token contracts on Celo Mainnet (`42220`) can receive payments.
-6. **Atomic Budget Reservation:** Budget checks and reservations occur atomically in database transactions prior to invoking the payment CLI to prevent race-condition overages.
-7. **LLM Truthfulness Guardrails:** Cencori receives structured facts only. An independent deterministic validator verifies that every causal claim and address cited in the model response matches an existing, verified `EvidenceItem`.
+5. **Strict Capability Registry & Parameter Binding:** Only approved capability IDs (`cencori.v1.chat.completions`), approved payee addresses (`0x20faAca5F980E29639A0FCC6dcA6988E18ed333B`), and approved token contracts on Celo Mainnet (`42220`) can receive payments. Legacy Chainstack Buy capabilities are removed under AD-008.
+6. **Atomic Budget Reservation & Concurrency Safety:** Budget checks and reservations occur atomically in SQLite immediate database transactions prior to invoking the payment CLI to prevent race-condition overages. Duplicate executions are rejected via conditional state updates.
+7. **Evidence-Backed On-Chain Settlement Verification:** Proof of settlement requires parsing on-chain transaction receipt logs for ERC-20 Transfer events matching quoted token, recipient, and exact atomic amount. Candidate matching by recipient address alone is strictly forbidden.
+8. **LLM Truthfulness Guardrails:** Cencori receives structured facts only. An independent deterministic validator verifies that every causal claim and address cited in the model response matches an existing, verified `EvidenceItem`.
 
 ---
 

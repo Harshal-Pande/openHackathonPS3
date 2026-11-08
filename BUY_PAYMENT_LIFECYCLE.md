@@ -167,3 +167,38 @@ As discovered during Phase A of MOD-03:
 
 **Mandatory Safety Invariant Enforced:**
 Because the wallet has zero balances, live on-chain purchases cannot settle. The system explicitly blocks on-chain disbursement and flags wallet status honestly in the Operator Console. All automated unit and integration tests execute with 100% mocked deterministic CLI runners and settlement verifiers, guaranteeing zero personal funds spent.
+
+---
+
+## 6. MOD-03.2 Critical Payment Path Security Remediations
+
+An independent security remediation pass resolved critical payment path defects:
+
+1. **Evidence-Backed On-Chain Settlement Verification (DEF-MOD03-SEC-01):**
+   - Transactions are independently verified on Celo Mainnet RPC (`42220`).
+   - Receipt logs are parsed for the ERC-20 `Transfer(address,address,uint256)` event signature (`0xddf252ad...`).
+   - Verification strictly proves: contract address equals `quote.token_contract`, recipient equals `quote.recipient`, atomic value equals `quote.amount_atomic`, and receipt status equals success (`0x1`).
+   - `resolveSettlement()` strictly forbids candidate matching by recipient address alone; requires unique quote ID, purchase attempt ID, or exact known transaction hash.
+
+2. **Authoritative Capability Registry & Parameter Binding (DEF-MOD03-SEC-02 & SEC-07):**
+   - Created server-side `CAPABILITY_REGISTRY` binding capability ID (`cencori.v1.chat.completions`), provider, exact URL, HTTP method, supported tokens, decimals, payee, and body size.
+   - Legacy Chainstack Buy capability removed from active runtime discovery (direct RPC retained under AD-008).
+   - Revalidates stored quote against registry at execution time.
+
+3. **Mathematical Amount Normalization (DEF-MOD03-SEC-03):**
+   - Implemented exact BigInt decimal conversion between `amount_atomic` and `amount_display`.
+   - Rejects leading zeros, negative values, zero values, precision overflow, and floating-point math.
+
+4. **Quote Expiration Recheck at Execution (DEF-MOD03-SEC-04):**
+   - Reloads quote immediately prior to execution and re-evaluates `quote.expiry`.
+   - Lapsed approved quotes transition to `EXPIRED` and execution is rejected without CLI dispatch.
+
+5. **Single-Use Atomic Approval & Concurrency Protection (DEF-MOD03-SEC-05 & SEC-08):**
+   - Uses SQLite `BEGIN IMMEDIATE` transactions and conditional state updates (`UPDATE ... WHERE id = ? AND status = ?`).
+   - Prevents duplicate executions, duplicate budget reservations, and concurrent race conditions.
+   - Prevents casual release of `COMMITTED` budget reservations.
+
+6. **Pinned Direct Node CLI Subprocess Execution (DEF-MOD03-SEC-06):**
+   - Pinned `@celo/buy@0.8.5` in project dependencies.
+   - Spawns local entrypoint `node_modules/@celo/buy/dist/main.js` directly with `process.execPath` and `shell: false`.
+   - Verified via harmless read-only CLI tests (`-V` and `whoami`) with zero personal funds spent.
