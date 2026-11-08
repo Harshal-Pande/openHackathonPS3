@@ -213,6 +213,7 @@ The frontend was redesigned in Phase 12 into "The Evidence Bench", an institutio
 | **DEF-19** | **HIGH** | Security / Auth | Declared `MAX_TRACKED_SESSIONS = 5000` was not enforced as hard upper bound. | Expired sessions pruned but new sessions inserted even if all 5,000 active. | **RESOLVED in MOD-02.2:** Enforced hard capacity check rejecting new sessions with HTTP 503 `SESSION_CAPACITY_EXCEEDED` without evicting active sessions. Tested in `tests/operatorAuth.test.ts`. |
 | **DEF-20** | **HIGH** | Security / Rate Limiting | Failed-login IP tracker silently evicted active records upon reaching capacity. | Tracker arbitrarily deleted 20% of entries, unblocking attackers. | **RESOLVED in MOD-02.2:** Enforced fail-closed rate-limiting tracker rejecting new identities with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED` without deleting active records or resetting lockouts. Tested in `tests/operatorAuth.test.ts`. |
 | **DEF-21** | **HIGH** | Security / Cryptography | Permitted scrypt parameter combinations exceeded 64 MiB memory budget. | Memory requirement $128 \times N \times r$ could reach 128 MiB, causing OpenSSL memory limit RangeErrors under maxmem. | **RESOLVED in MOD-02.2:** Enforced combined-parameter validation ($128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$) before invoking scrypt; safely caught sync errors. Tested in `tests/operatorAuth.test.ts`. |
+| **DEF-22** | **CRITICAL / P0** | Security / Concurrency | Operator login rate-limiter capacity check and failed-counter increment not atomic across asynchronous scrypt verification. | DEF-22A: Concurrent distinct IPs checked capacity before async password verification finished, overflowing `maxTrackedIps = 5000`. DEF-22B: Concurrent failed logins from the same IP captured stale counts, overwriting each other and allowing attackers to bypass the 5-attempt lockout. | **RESOLVED in MOD-02.3:** Implemented atomic in-flight reservation tracking (`pendingReservations`) in `src/server/auth/operatorAuth.ts`. `acquireReservation()` reserves capacity synchronously before scrypt, rejecting excess concurrent requests with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`. Total tracked identities strictly bounded by `maxTrackedIps`. `recordFailure()` atomically fetches fresh counter and deletes reservation synchronously with `failedAttempts` insertion. Tested in `tests/operatorAuth.test.ts` via deterministic concurrency barriers. |
 | **OP-01** | **INFORMATIONAL** | Operations | Live Buy payment settlement not executed. | 0 CELO wallet balance; awaiting operator funding. | Fund wallet with $0.10 USDC, approve quote, execute `buy curl`. Scheduled for Module 3. |
 | **OP-02** | **INFORMATIONAL** | Operations | ERC-8004 registration not broadcast on Celo. | Requires public deployment URL & 0.05 CELO gas. | Deploy to cloud, fund wallet, broadcast tagged registration tx. Scheduled for Module 5. |
 
@@ -226,13 +227,12 @@ Antigravity re-executed all verification commands in the workspace:
    - Result: **0 errors** across server and client codebases.
 2. **Vitest Automated Suites (`npm test`):**
    - Command: `vitest run`
-   - Result: **18 test files passed, 185/185 tests passed** (100% green).
-   - Result: **15 test files passed (15/15), 130 tests passed (130/130)** in 4.25s.
+   - Result: **18 test files passed, 189/189 tests passed** (100% green).
 3. **Production Build (`npm run build`):**
    - Command: `npm run build:server && npm run build:client`
    - Result: **Clean build**. Compiled server to `dist/server/`, client to `dist/client/`.
 4. **Master Route Surface Verification (`node scripts/verify_all_routes.mjs`):**
-   - Result: **21/21 test scenarios passed (100%)** across 14 unique Fastify endpoints.
+   - Result: **28/28 test scenarios passed (100%)** across 15 unique Fastify endpoints.
 5. **Live Mainnet Investigation & OS Isolation (`node scripts/verify_live_investigation.mjs`):**
    - Result: **14/14 live checks passed (100%)** against candidate tx `0xb90bcca5...` on Celo Mainnet OP Geth node. Verified 5 SHA-256 evidence hashes across OS-isolated child process boundary.
 6. **Real Browser CDP Automation (`node scripts/browser_e2e_cdp.mjs`):**

@@ -91,18 +91,23 @@ Operator access controls are strictly decoupled between authentication and sessi
    - Dual Token Delivery:
      - Login responses set an `HttpOnly`, `SameSite=Strict`, `Path=/`, and `Secure` (in production) cookie for browser session handling.
      - Login responses also return the token in the JSON envelope (`token` field). In the React client, this token is held strictly in transient React component state (`useState`) without persisting to `localStorage` or `sessionStorage`. This provides automated script and CLI compatibility without exposing persistent storage to cross-site script extraction.
-4. **Login Brute-Force Rate Limiting & Fail-Closed Capacity (MOD-02.1 & MOD-02.2 / DEF-20):**
+4. **Login Brute-Force Rate Limiting & Fail-Closed Capacity (MOD-02.1, MOD-02.2 & MOD-02.3 / DEF-20 & DEF-22):**
    - Enforces a maximum of 5 failed login attempts per client IP within a rolling 15-minute sliding window.
    - Subsequent attempts receive HTTP 429 (`RATE_LIMITED`) with a standard `Retry-After` header indicating remaining wait time in seconds.
    - Successful authentication resets the failed-attempt counter for that IP.
-   - Fail-Closed Tracker Capacity (DEF-20):
+   - Fail-Closed Tracker Capacity & Concurrency Protection (DEF-20 & DEF-22A):
      - Maximum tracked identities is capped at 5,000 (`maxTrackedIps = 5000`).
-     - Expired entries older than 15 minutes are pruned.
-     - If all 5,000 tracked entries are active and capacity is exhausted, login attempts from new, untracked identities fail closed with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`.
-     - Active failed-attempt records and lockouts are never evicted or deleted to make room for new callers.
-     - Locked-out identities remain locked out for their full window even when capacity is full.
+     - In-flight capacity reservations (`pendingReservations: Map<string, number>`) ensure that new identities arriving concurrently cannot exceed the 5,000 threshold while asynchronous scrypt verification is in progress.
+     - `acquireReservation()` executes synchronously before awaiting scrypt. If the sum of active records and pending reservations reaches capacity, expired entries are pruned; if still full, excess concurrent requests immediately fail closed with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`.
+     - In-flight reservations are released via `finally` blocks on all paths (success, failure, or unexpected exception).
+   - Atomic Failed-Attempt Accounting (DEF-22B):
+     - Counter increments upon verification failure are atomic. `recordFailure()` fetches the freshest counter from `failedAttempts` at the moment of recording, preventing concurrent failures from the same IP from overwriting increments.
+     - 5 concurrent failed requests from the same IP will strictly increment the counter to 5, immediately placing the IP into the 15-minute lockout without race conditions.
+     - Transition of an identity from `pendingReservations` to `failedAttempts` is atomic and synchronous, guaranteeing the total tracked identity sum never double-counts.
+   - Active failed-attempt records and lockouts are never evicted or deleted to make room for new callers.
+   - Locked-out identities remain locked out for their full window even when capacity is full.
    - Process-Local Operational Limitation:
-     - Session and lockout registries are process-local in memory. In multi-replica cloud deployments, a shared store (such as Redis) is required for cluster-wide synchronization.
+     - Session, reservation, and lockout registries are process-local in memory. In multi-replica cloud deployments, a shared store (such as Redis) is required for cluster-wide synchronization.
 
 ---
 

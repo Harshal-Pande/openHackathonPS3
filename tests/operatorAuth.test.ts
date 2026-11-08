@@ -585,3 +585,204 @@ describe('DEF-21: Combined scrypt Memory Budget Validation', () => {
     expect(isScryptMemoryWithinBudget(SCRYPT_POLICY.DEFAULT_COST, SCRYPT_POLICY.DEFAULT_BLOCK_SIZE, SCRYPT_POLICY.DEFAULT_PARALLELISM)).toBe(true);
   });
 });
+
+describe('DEF-22A: Concurrent Tracker Capacity Invariants', () => {
+  const sessionSecret = 'test_session_secret_32_characters_minimum_length';
+
+  it('atomically enforces tracker capacity under concurrent distinct IP requests', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    let barrierRelease: () => void;
+    const barrierPromise = new Promise<void>((resolve) => {
+      barrierRelease = resolve;
+    });
+
+    let reachedBarrier = 0;
+    const controlledVerifier = async (_pw: string, _hash: string): Promise<boolean> => {
+      reachedBarrier++;
+      await barrierPromise;
+      return false; // invalid password
+    };
+
+    // Hard tracker capacity is strictly 3
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 3,
+      passwordVerifier: controlledVerifier
+    });
+    const now = Date.now();
+
+    // Start 6 simultaneous requests from 6 distinct untracked IPs
+    const ips = ['192.168.1.1', '192.168.1.2', '192.168.1.3', '192.168.1.4', '192.168.1.5', '192.168.1.6'];
+    const loginPromises = ips.map((ip) => service.login(ip, 'invalid-pass', now));
+    // Attach allSettled immediately to prevent unhandled rejection warnings in test runner
+    const settledPromise = Promise.allSettled(loginPromises);
+
+    // Yield to event loop so synchronous admissions and verifier barrier entries occur
+    await new Promise((r) => setImmediate(r));
+
+    // Exactly 3 reached barrier and hold reservations; 4th, 5th, 6th immediately failed closed
+    expect(reachedBarrier).toBe(3);
+    expect(service.getPendingReservationCount()).toBe(3);
+    expect(service.getTrackedIpCount()).toBe(0);
+    expect(service.getTotalTrackedCount()).toBe(3);
+
+    // Release the barrier so the 3 in-flight requests finish password verification
+    barrierRelease!();
+
+    const results = await settledPromise;
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    // All 6 were invalid passwords, so 0 fulfilled
+    expect(fulfilled.length).toBe(0);
+    expect(rejected.length).toBe(6);
+
+    // Exactly 3 were rejected with 503 LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED
+    const capacityErrors = rejected.filter(
+      (r) =>
+        (r as PromiseRejectedResult).reason instanceof OperatorAuthError &&
+        (r as PromiseRejectedResult).reason.statusCode === 503 &&
+        (r as PromiseRejectedResult).reason.code === 'LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED'
+    );
+    expect(capacityErrors.length).toBe(3);
+
+    // Exactly 3 were admitted, reached verifier, and failed with 401 UNAUTHORIZED
+    const authErrors = rejected.filter(
+      (r) =>
+        (r as PromiseRejectedResult).reason instanceof OperatorAuthError &&
+        (r as PromiseRejectedResult).reason.statusCode === 401 &&
+        (r as PromiseRejectedResult).reason.code === 'UNAUTHORIZED'
+    );
+    expect(authErrors.length).toBe(3);
+
+    // Tracker size is strictly 3 (never exceeded capacity of 3)
+    expect(service.getTrackedIpCount()).toBe(3);
+    expect(service.getPendingReservationCount()).toBe(0);
+    expect(service.getTotalTrackedCount()).toBe(3);
+  });
+
+  it('releases capacity reservation when verifier throws an unexpected error', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    const throwingVerifier = async (): Promise<boolean> => {
+      throw new Error('Unexpected cryptographic module crash');
+    };
+
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 1,
+      passwordVerifier: throwingVerifier
+    });
+
+    // Attempt login which throws unexpected error
+    await expect(service.login('10.20.30.40', 'pass')).rejects.toThrow('Unexpected cryptographic module crash');
+
+    // Reservation must be fully released
+    expect(service.getPendingReservationCount()).toBe(0);
+    expect(service.getTrackedIpCount()).toBe(0);
+    expect(service.getTotalTrackedCount()).toBe(0);
+  });
+});
+
+describe('DEF-22B: Concurrent Same-IP Failed Attempts Invariants', () => {
+  const sessionSecret = 'test_session_secret_32_characters_minimum_length';
+
+  it('atomically increments failed attempt counter under concurrent requests from the same IP', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    let barrierRelease: () => void;
+    const barrierPromise = new Promise<void>((resolve) => {
+      barrierRelease = resolve;
+    });
+
+    let reachedVerifier = 0;
+    const controlledVerifier = async (_pw: string, _hash: string): Promise<boolean> => {
+      reachedVerifier++;
+      await barrierPromise;
+      return false; // invalid password
+    };
+
+    const service = new OperatorAuthService(config, {
+      maxFailedAttempts: 5,
+      passwordVerifier: controlledVerifier
+    });
+    const clientIp = '192.168.100.50';
+    const now = Date.now();
+
+    // Start 5 concurrent failed requests from the same IP
+    const promises = [
+      service.login(clientIp, 'wrong-1', now),
+      service.login(clientIp, 'wrong-2', now),
+      service.login(clientIp, 'wrong-3', now),
+      service.login(clientIp, 'wrong-4', now),
+      service.login(clientIp, 'wrong-5', now)
+    ];
+
+    await new Promise((r) => setImmediate(r));
+    expect(reachedVerifier).toBe(5);
+
+    // Release barrier so all 5 finish verification and record failures
+    barrierRelease!();
+
+    const results = await Promise.allSettled(promises);
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+
+    for (const r of results) {
+      const err = (r as PromiseRejectedResult).reason;
+      expect(err).toBeInstanceOf(OperatorAuthError);
+      expect(err.statusCode).toBe(401);
+      expect(err.code).toBe('UNAUTHORIZED');
+    }
+
+    // Every single failure must be counted: counter must be exactly 5, NOT overwritten to 1!
+    expect(service.getTrackedIpCount()).toBe(1);
+    expect(service.getPendingReservationCount()).toBe(0);
+
+    // Now, subsequent attempt #6 from this IP must immediately trigger 429 lockout!
+    try {
+      await service.login(clientIp, 'wrong-6', now);
+      expect.unreachable('Should have thrown 429 RATE_LIMITED');
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(OperatorAuthError);
+      expect(err.statusCode).toBe(429);
+      expect(err.code).toBe('RATE_LIMITED');
+      expect(err.retryAfter).toBeGreaterThan(0);
+    }
+
+    // Verify no unexpected session was created
+    expect(service.getSessionCount()).toBe(0);
+  });
+
+  it('allows already tracked identity to authenticate successfully when capacity is full', async () => {
+    const config = createTestConfig({
+      SESSION_SECRET: sessionSecret,
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH
+    });
+
+    const service = new OperatorAuthService(config, {
+      maxTrackedIps: 2
+    });
+    const now = Date.now();
+
+    // Fill capacity: IP1 and IP2 record failed attempts
+    await expect(service.login('10.0.0.1', 'bad', now)).rejects.toThrow('Invalid operator credentials.');
+    await expect(service.login('10.0.0.2', 'bad', now)).rejects.toThrow('Invalid operator credentials.');
+    expect(service.getTrackedIpCount()).toBe(2);
+
+    // IP1 now logs in with valid credentials: since it is already tracked, it must not be blocked by 503
+    const { token } = await service.login('10.0.0.1', TEST_OPERATOR_PASSWORD, now);
+    expect(token).toBeDefined();
+
+    // After success, IP1 record is cleared, opening up 1 slot in the tracker
+    expect(service.getTrackedIpCount()).toBe(1);
+    expect(service.getPendingReservationCount()).toBe(0);
+  });
+});

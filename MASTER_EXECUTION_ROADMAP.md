@@ -68,18 +68,24 @@ flowchart TD
 ---
 
 ### MODULE 2 — Security & Operator Authentication Hardening
-- **Module ID:** `MOD-02` (including `MOD-02.1` and `MOD-02.2` Resource-Boundary Hardening)
-- **Status:** `COMPLETED` (AGY-05 and AGY-06 implemented, audited, hardened, and verified)
-- **Objective:** Separate operator password authentication from session signing secrets, harden production configuration invariants, enforce hard session capacity bounds (DEF-19), implement fail-closed login attempt capacity (DEF-20), and validate combined scrypt memory requirements (DEF-21).
+- **Module ID:** `MOD-02` (including `MOD-02.1`, `MOD-02.2` Resource-Boundary Hardening, and `MOD-02.3` Concurrency Hardening)
+- **Status:** `COMPLETED` (AGY-05 and AGY-06 implemented, audited, hardened, and verified across all sub-modules)
+- **Objective:** Separate operator password authentication from session signing secrets, harden production configuration invariants, enforce hard session capacity bounds (DEF-19), implement fail-closed login attempt capacity (DEF-20), validate combined scrypt memory requirements (DEF-21), and guarantee atomic rate-limiter capacity and lockout counters under asynchronous concurrency (DEF-22).
 - **Hackathon Relevance:** Ensures zero unauthorized spending from the project wallet and institutional-grade security architecture for judge review.
 - **Exact Tasks:**
-  1. `AGY-05`: Refactor `OperatorAuthService` to verify operator passwords against `OPERATOR_PASSWORD_HASH` using salted scrypt hashing ($N=16384, r=8, p=1$), completely decoupling it from `SESSION_SECRET` (DEF-14). Hardened in MOD-02.1 and MOD-02.2 with hard session capacity (5,000 max without active eviction, HTTP 503 `SESSION_CAPACITY_EXCEEDED`), fail-closed login attempt tracking (5,000 max without active eviction or lockout resets, HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`), combined scrypt memory validation ($128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$), strict decimal parsing, canonical Base64 verification, exact 16-byte salt and 32-byte key lengths. [COMPLETED]
+  1. `AGY-05`: Refactor `OperatorAuthService` to verify operator passwords against `OPERATOR_PASSWORD_HASH` using salted scrypt hashing ($N=16384, r=8, p=1$), completely decoupling it from `SESSION_SECRET` (DEF-14). Hardened in MOD-02.1, MOD-02.2, and MOD-02.3:
+     - Atomic capacity reservation (`pendingReservations`) strictly capping tracked identities under concurrent login arrivals (DEF-22A).
+     - Atomic failed-attempt counter increments preventing race-condition lockout bypasses (DEF-22B).
+     - Hard session capacity (5,000 max without active eviction, HTTP 503 `SESSION_CAPACITY_EXCEEDED`) (DEF-19).
+     - Fail-closed login attempt tracking (5,000 max without active eviction or lockout resets, HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`) (DEF-20).
+     - Combined scrypt memory validation ($128 \times N \times r + 128 \times r \times p + \text{safetyOverhead} \le 64 \text{ MiB}$) (DEF-21).
+     - Strict decimal parsing, canonical Base64 verification, exact 16-byte salt and 32-byte key lengths. [COMPLETED]
   2. `AGY-06`: Add IP rate limiting for public transaction ingestion endpoints (`POST /api/investigations`) to prevent RPC quota exhaustion. Hardened with genuine sliding-window timestamp tracking, clock injection, fail-closed capacity limits, and Fastify native `trustProxy` integration. [COMPLETED]
   3. Update `config.ts` production invariants to assert scrypt hash format, reject placeholder secrets, and forbid secret reuse. [COMPLETED]
 - **User Dependencies:** None during implementation; user provides production secret in cloud dashboard later.
 - **Antigravity Tasks:** `AGY-05`, `AGY-06`.
-- **Files Changed:** `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/auth/rateLimiter.ts`, `src/server/config.ts`, `src/server/app.ts`, `tests/buySecurity.test.ts`, `tests/config.test.ts`, `tests/operatorAuth.test.ts`, `tests/rateLimiter.test.ts`, `scripts/generate_password_hash.mjs`, `scripts/verify_all_routes.mjs`.
-- **Security Impact:** Closes DEF-14, DEF-19, DEF-20, and DEF-21; prevents credential confusion attacks, timing attacks, memory exhaustion DoS, active session/lockout eviction, parameter DoS, and brute-force flooding.
+- **Files Changed:** `src/server/auth/operatorAuth.ts`, `src/server/auth/passwordHasher.ts`, `src/server/auth/rateLimiter.ts`, `src/server/config.ts`, `src/server/app.ts`, `tests/buySecurity.test.ts`, `tests/config.test.ts`, `tests/operatorAuth.test.ts`, `tests/rateLimiter.test.ts`, `tests/cencoriProvider.test.ts`, `scripts/generate_password_hash.mjs`, `scripts/verify_all_routes.mjs`.
+- **Security Impact:** Closes DEF-14, DEF-19, DEF-20, DEF-21, and DEF-22; prevents credential confusion attacks, timing attacks, memory exhaustion DoS, active session/lockout eviction, parameter DoS, concurrent rate-limiter bypasses, and brute-force flooding.
 - **Prerequisites:** `MOD-01`.
 - **Acceptance Criteria:**
   - Operator login validates against `OPERATOR_PASSWORD_HASH` using salted scrypt. [VERIFIED]
@@ -87,14 +93,16 @@ flowchart TD
   - Hard session limit prevents exceeding 5,000 entries; returns 503 without evicting active sessions. [VERIFIED]
   - Failed login tracker fails closed for new identities when full; never evicts active records or resets lockouts. [VERIFIED]
   - Combined scrypt memory validated against 64 MiB ceiling before invoking crypto.scrypt. [VERIFIED]
+  - Rate-limiter capacity reservation strictly enforced under concurrent arrivals. [VERIFIED]
+  - Same-IP concurrent failures atomically increment counter to 5-attempt lockout. [VERIFIED]
   - Supplying `SESSION_SECRET` as password returns HTTP 401. [VERIFIED]
   - Rate limiting triggers HTTP 429 upon abusive traffic. [VERIFIED]
-- **Verification Commands:** `npm test` (185/185 pass), `node scripts/verify_all_routes.mjs` (28/28 pass), `npm run typecheck`, `npm run build`, `node scripts/browser_e2e_cdp.mjs`.
-- **Evidence Required:** Test suite output proving constant-time comparison, scrypt derivation, token signing, hard capacity bounds, fail-closed behavior, combined memory validation, sliding window rate limiting, and CDP E2E verification. [VERIFIED]
-- **Est. Implementation Time:** 45 minutes. (Actual: 45 minutes across MOD-02, MOD-02.1, and MOD-02.2)
+- **Verification Commands:** `npm test` (189/189 pass across 18 files), `node scripts/verify_all_routes.mjs` (28/28 pass), `npm run typecheck`, `npm run build`, `node scripts/browser_e2e_cdp.mjs`.
+- **Evidence Required:** Test suite output proving constant-time comparison, scrypt derivation, token signing, hard capacity bounds, fail-closed behavior, combined memory validation, concurrency safety barriers, sliding window rate limiting, and CDP E2E verification. [VERIFIED]
+- **Est. Implementation Time:** 45 minutes. (Actual: 50 minutes across MOD-02, MOD-02.1, MOD-02.2, and MOD-02.3)
 - **Est. User Time:** 0 minutes.
 - **Blockers:** None.
-- **Completion Definition:** DEF-14, DEF-19, DEF-20, and DEF-21 resolved; 100% tests passing; clean build. [COMPLETED]
+- **Completion Definition:** DEF-14, DEF-19, DEF-20, DEF-21, and DEF-22 resolved; 100% tests passing; clean build. [COMPLETED]
 
 ---
 

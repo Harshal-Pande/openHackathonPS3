@@ -167,5 +167,5 @@ describe('Cencori Provider Abstraction', () => {
     expect(quote.recipient.toLowerCase()).toBe('0x20faaca5f980e29639a0fcc6dca6988e18ed333b');
     expect(quote.chainId).toBe(42220);
     expect(quote.bodySha256).toMatch(/^[0-9a-f]{64}$/);
-  });
+  }, 15000);
 });

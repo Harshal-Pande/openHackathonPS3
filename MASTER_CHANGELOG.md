@@ -563,3 +563,44 @@ Following an independent review of the MOD-02.1 snapshot, three resource-boundar
 - **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
 - **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
 - **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop and Mobile viewports.
+
+---
+
+## Phase 14.3 — Module 2.3: Concurrent Login Rate-Limiter Hardening (MOD-02.3 / DEF-22)
+**Date:** 2026-11-08
+**Scope:** Concurrency safety of operator login rate-limiter capacity reservation (DEF-22A) and atomic failed-attempt counter increments (DEF-22B).
+
+### 1. Summary of Changes
+An independent security review of the MOD-02.2 Gitingest snapshot identified that while synchronous operations were bounded, asynchronous password verification using scrypt introduced race conditions under concurrent requests:
+
+1. **DEF-22A: In-Flight Tracker Capacity Reservation:**
+   - Problem: When tracker capacity was near full (e.g. 4,999 identities), multiple concurrent login requests from distinct untracked IPs checked capacity before any of them completed scrypt verification, resulting in tracker overflow beyond `maxTrackedIps = 5000`.
+   - Correction: Implemented atomic capacity reservation tracking (`pendingReservations: Map<string, number>`) in `OperatorAuthService` (`src/server/auth/operatorAuth.ts`).
+   - `acquireReservation(cleanIp, now)` executes synchronously before starting asynchronous scrypt verification:
+     - If the identity is already in `failedAttempts`, no new slot reservation is needed.
+     - If the identity already has an in-flight reservation, a reference counter is incremented.
+     - If it is a new identity, capacity is checked against `this.failedAttempts.size + this.pendingReservations.size`. If full, expired entries are pruned; if still full, the request fails closed immediately with HTTP 503 `LOGIN_RATE_LIMITER_CAPACITY_EXCEEDED`.
+   - In-flight reservations are released via a `finally` block in `login()`, guaranteeing reservations are decremented/deleted on all success, failure, or unexpected error paths.
+   - Guarantees that total tracked identities (`failedAttempts.size + pendingReservations.size`) never exceeds `maxTrackedIps`.
+
+2. **DEF-22B: Atomic Failed-Attempt Updates:**
+   - Problem: Concurrent failed login requests from the same IP captured stale count values prior to scrypt completion, overwriting each other's updates upon failure and allowing attackers to bypass the 5-attempt lockout threshold.
+   - Correction: Implemented `recordFailure(cleanIp, now)` in `OperatorAuthService` (`src/server/auth/operatorAuth.ts`).
+   - When a password fails, `recordFailure()` fetches the freshest counter from `failedAttempts` at the moment of recording and increments it atomically.
+   - Synchronously deletes the IP from `pendingReservations` as it inserts into `failedAttempts`, guaranteeing zero double-counting and seamless slot transfer.
+   - 5 concurrent invalid login attempts from the same IP increment the counter strictly to 5, immediately placing the identity into the 15-minute lockout.
+
+3. **Deterministic Concurrency Testing Harness:**
+   - Added optional `passwordVerifier` injection in `OperatorAuthServiceOptions` for deterministic concurrency testing with controlled Promise barriers.
+   - Added 4 deterministic regression tests in `tests/operatorAuth.test.ts`:
+     - DEF-22A capacity enforcement: 6 concurrent distinct IPs against `maxTrackedIps = 3`; exactly 3 admitted to verification and 3 rejected with HTTP 503; tracker size never exceeds 3; reservations zeroed out.
+     - Reservation cleanup on unexpected verifier exceptions.
+     - DEF-22B atomic increment: 5 concurrent failed requests from the same IP; counter strictly increments to 5; subsequent request receives HTTP 429 `RATE_LIMITED` with `Retry-After`.
+     - Already tracked identity authentication while tracker is at full capacity.
+
+### 2. Verification Evidence
+- **TypeScript Strict Typecheck:** `npm run typecheck` passed with **0 errors**.
+- **Vitest Automated Suites:** `npm test` passed with **18/18 test files, 189/189 tests passing** in 4.96s (100% green; 34/34 tests in `operatorAuth.test.ts`).
+- **Production Build:** `npm run build` passed with zero errors and zero chunk warnings.
+- **Route Surface Verification:** `node scripts/verify_all_routes.mjs` passed **28/28 scenarios** (100% passed).
+- **Browser CDP Automation:** `node scripts/browser_e2e_cdp.mjs` passed 100% on Desktop (1280x800) and Mobile (375x812) viewports.
