@@ -1561,3 +1561,64 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Route Injection Matrix:** 36/36 scenarios passed across 25 Fastify endpoints.
 - **Browser CDP Automation:** 100% passed on Desktop (1280x800) and Mobile (375x812) viewports.
 - **Zero-Spend Invariant Enforced:** Spend remains strictly **$0.00**.
+
+---
+
+## Phase 27.2 — MOD-06.2-ENV-PREP-01: Production Environment Template Preparation & Invariant Verification
+**Date:** 2026-11-09<br/>
+**Execution ID:** MOD-06.2-ENV-PREP-01 (Priority: P0)<br/>
+**Scope:** Preparation of production cloud deployment environment template (`.env.production.example`), reconciliation of development template (`.env.example`), configuration parser robustness for blank optional values, and automated template validation.
+
+### 1. Environment Files Created and Updated
+- **Created:** `.env.production.example` as the dedicated canonical production template for Render, Railway, or standalone container deployment.
+- **Updated:** `.env.example` to remove obsolete `npx` and unpinned `@celo/buy@latest` placeholders (defaulting to empty string to prefer local pinned package entrypoint).
+- **Preserved:** Local `.env` preserved untouched with local development and test configurations intact. No secrets were generated, logged, displayed, or committed.
+- **Git Configuration:** Added `!.env.production.example` to `.gitignore` and updated `scripts/generate_gitingest.mjs` to track the production template while excluding real credential files.
+
+### 2. Variable Categories Reviewed & Invariants Enforced
+- **Application Runtime:**
+  - `NODE_ENV`: Set to `production` (enforces strict production security invariants).
+  - `HOST`: Set to `0.0.0.0` (required for container ingress binding).
+  - `PORT`: Left blank for dynamic assignment by cloud hosting platforms (Render/Railway), safely defaulting to `3000` via preprocessed schema.
+  - `DATABASE_PATH`: Set to `/app/data/revertlens.sqlite` (persistent volume path).
+  - `PUBLIC_BASE_URL`: Left blank (`BLANK - USER INPUT REQUIRED`) for manual completion with the assigned HTTPS domain.
+  - `CORS_ORIGIN`: Left blank (`BLANK - USER INPUT REQUIRED`) for manual completion with the exact allowed frontend origin.
+- **Authentication & Security:**
+  - `SESSION_SECRET`: Left blank (`BLANK - USER INPUT REQUIRED`). Requires >= 32-character random string.
+  - `OPERATOR_PASSWORD_HASH`: Left blank (`BLANK - USER INPUT REQUIRED`). Requires valid unique scrypt hash generated via `scripts/generate_operator_hash.mjs`.
+  - `RATE_LIMIT_INVESTIGATIONS_MAX`: Set to `10` (requests/min).
+  - `RATE_LIMIT_INVESTIGATIONS_WINDOW_MS`: Set to `60000` (1 min window).
+  - `TRUST_PROXY`: Set to `true` for reverse-proxy cloud topologies (Render/Cloudflare/Railway).
+- **Chainstack / Celo Mainnet RPC:**
+  - `CHAINSTACK_CELO_MAINNET_RPC_URL`: Left blank (`BLANK - USER INPUT REQUIRED`) in public templates to prevent credential leakage.
+- **Official Hackathon Attribution & Identity:**
+  - `CELO_ATTRIBUTION_TAG`: Strictly preserved as `celo_235f6ef56f5b`.
+  - `AGENT_WALLET_ADDRESS`: Strictly preserved as `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`.
+- **Build with Buy & Cencori Integration:**
+  - `BUY_ENABLED`: Set to `false` ($0.00 zero-spend invariant).
+  - `BUY_CLI_EXECUTABLE`: Empty string (prefers local pinned binary).
+  - `BUY_CLI_ARGS_PREFIX`: Empty string.
+  - `BUY_DAILY_BUDGET_ATOMIC`: `0`.
+  - `BUY_PER_INVESTIGATION_BUDGET_ATOMIC`: `0`.
+  - `BUY_PER_CALL_CAP_ATOMIC`: `0`.
+  - `BUY_ALLOWED_TOKEN_CONTRACTS`: Empty allowlist.
+  - `BUY_ALLOWED_RECIPIENTS`: Empty allowlist.
+  - `BUY_ALLOWED_CAPABILITY_IDS`: Empty allowlist.
+  - `CENCORI_ENABLED`: Set to `false` ($0.00 zero-spend invariant).
+- **Forensic Report Policies:**
+  - `REPORT_TTL_DAYS`: `14`.
+  - `REPORTS_PUBLIC_BY_DEFAULT`: `false`.
+
+### 3. Configuration Parser Robustness & Regression Testing
+- Updated `src/server/config.ts` with `emptyStringToUndefined` preprocessing helper, preventing blank optional variables (e.g. `PORT=`, `RATE_LIMIT_INVESTIGATIONS_MAX=`) from coercing to `0` or failing regex validation when left blank in environment files.
+- Added regression tests in `tests/config.test.ts`:
+  - `handles blank optional values and falls back safely to defaults`
+  - `parses explicit PORT values and rejects invalid or out-of-range ports`
+  - `intentionally fails production validation with clear diagnostics when required fields are blank`
+- Created automated test harness `scripts/verify_env_templates.mjs` verifying zero duplicate keys, zero embedded credentials, strict blank checking, and intentional production validation failure on missing required inputs.
+
+### 4. Verification Outcomes
+- **Automated Vitest Suites:** 23 test files passed, **523/523 tests passed (100% green)** in 12.64s.
+- **Static Typing & Compilation:** `npm run typecheck` returned 0 errors; `npm run build` compiled clean server and client bundles.
+- **Environment Template Verification (`node scripts/verify_env_templates.mjs`):** All checks passed cleanly.
+- **Zero-Spend Guarantee:** Exactly **$0.00** expended. No cloud deployments, paid API calls, Buy payments, wallet signings, or on-chain transactions executed.

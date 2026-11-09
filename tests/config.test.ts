@@ -33,6 +33,50 @@ describe('Environment Config Validation', () => {
     expect(config.BUY_CLI_ARGS_PREFIX).toBe('');
   });
 
+  it('MOD-06.2: handles blank optional values and falls back safely to defaults', () => {
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      PORT: '',
+      HOST: '',
+      DATABASE_PATH: '',
+      RATE_LIMIT_INVESTIGATIONS_MAX: '',
+      RATE_LIMIT_INVESTIGATIONS_WINDOW_MS: '',
+      BUY_DAILY_BUDGET_ATOMIC: '',
+      BUY_PER_INVESTIGATION_BUDGET_ATOMIC: '',
+      BUY_PER_CALL_CAP_ATOMIC: '',
+      BUY_ALLOWED_TOKEN_CONTRACTS: '',
+      BUY_ALLOWED_RECIPIENTS: '',
+      BUY_ALLOWED_CAPABILITY_IDS: '',
+      CELO_ATTRIBUTION_TAG: '',
+      AGENT_WALLET_ADDRESS: '',
+      REPORT_TTL_DAYS: ''
+    });
+
+    expect(config.PORT).toBe(3000);
+    expect(config.HOST).toBe('127.0.0.1');
+    expect(config.DATABASE_PATH).toBe('./data/revertlens.sqlite');
+    expect(config.RATE_LIMIT_INVESTIGATIONS_MAX).toBe(10);
+    expect(config.RATE_LIMIT_INVESTIGATIONS_WINDOW_MS).toBe(60000);
+    expect(config.BUY_DAILY_BUDGET_ATOMIC).toBe('0');
+    expect(config.BUY_PER_INVESTIGATION_BUDGET_ATOMIC).toBe('0');
+    expect(config.BUY_PER_CALL_CAP_ATOMIC).toBe('0');
+    expect(config.BUY_ALLOWED_TOKEN_CONTRACTS).toEqual([]);
+    expect(config.BUY_ALLOWED_RECIPIENTS).toEqual([]);
+    expect(config.BUY_ALLOWED_CAPABILITY_IDS).toEqual([]);
+    expect(config.CELO_ATTRIBUTION_TAG).toBe('celo_235f6ef56f5b');
+    expect(config.AGENT_WALLET_ADDRESS).toBe('0x3e1bef07824cd0E076F4907641F0A0EF27898e52');
+    expect(config.REPORT_TTL_DAYS).toBe(14);
+  });
+
+  it('MOD-06.2: parses explicit PORT values and rejects invalid or out-of-range ports', () => {
+    const cfg = loadConfig({ NODE_ENV: 'test', PORT: '8080' });
+    expect(cfg.PORT).toBe(8080);
+
+    expect(() => loadConfig({ NODE_ENV: 'test', PORT: '0' })).toThrowError(/Number must be greater than 0/);
+    expect(() => loadConfig({ NODE_ENV: 'test', PORT: '70000' })).toThrowError(/Number must be less than or equal to 65535/);
+    expect(() => loadConfig({ NODE_ENV: 'test', PORT: '-5' })).toThrowError(/Number must be greater than 0/);
+  });
+
   it('correctly parses boolean flag transforms', () => {
     const config = loadConfig({
       NODE_ENV: 'development',
@@ -193,6 +237,23 @@ describe('Production Security Invariants', () => {
     expect(config.NODE_ENV).toBe('production');
     expect(config.BUY_ENABLED).toBe(false);
     expect(config.CENCORI_ENABLED).toBe(false);
+  });
+
+  it('MOD-06.2: intentionally fails production validation with clear diagnostics when required fields are blank', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        HOST: '0.0.0.0',
+        PORT: '',
+        DATABASE_PATH: '/app/data/revertlens.sqlite',
+        PUBLIC_BASE_URL: '',
+        CORS_ORIGIN: '',
+        SESSION_SECRET: '',
+        OPERATOR_PASSWORD_HASH: '',
+        BUY_ENABLED: 'false',
+        CENCORI_ENABLED: 'false'
+      });
+    }).toThrowError(/Environment validation failed.*PUBLIC_BASE_URL.*SESSION_SECRET.*OPERATOR_PASSWORD_HASH/);
   });
 
   it('rejects production with BUY_ENABLED=true but zero daily budget', () => {

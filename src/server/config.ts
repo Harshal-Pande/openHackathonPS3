@@ -254,19 +254,22 @@ const capabilityIdsField = z
   ])
   .default([]);
 
+const emptyStringToUndefined = (val: unknown) =>
+  typeof val === 'string' && val.trim() === '' ? undefined : val;
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(3000),
-  HOST: z.string().default('127.0.0.1'),
-  DATABASE_PATH: z.string().default('./data/revertlens.sqlite'),
+  PORT: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().max(65535).default(3000)),
+  HOST: z.preprocess(emptyStringToUndefined, z.string().default('127.0.0.1')),
+  DATABASE_PATH: z.preprocess(emptyStringToUndefined, z.string().default('./data/revertlens.sqlite')),
   PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
   SESSION_SECRET: z.string().min(1).default(PLACEHOLDER_SESSION_SECRET),
   OPERATOR_PASSWORD_HASH: z.string().min(1).default(PLACEHOLDER_OPERATOR_HASH),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
   // Rate Limiting Policy (Public Forensic Ingestion)
-  RATE_LIMIT_INVESTIGATIONS_MAX: z.coerce.number().int().positive().default(10),
-  RATE_LIMIT_INVESTIGATIONS_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  RATE_LIMIT_INVESTIGATIONS_MAX: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().default(10)),
+  RATE_LIMIT_INVESTIGATIONS_WINDOW_MS: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().default(60000)),
 
   // Reverse Proxy header trust configuration (false by default for safety against spoofing)
   TRUST_PROXY: trustProxyField,
@@ -281,9 +284,9 @@ const envSchema = z.object({
   BUY_CLI_EXECUTABLE: z.string().default(''),
   BUY_CLI_ARGS_PREFIX: z.string().default(''),
   BUY_ENABLED: booleanField,
-  BUY_DAILY_BUDGET_ATOMIC: z.string().regex(/^\d+$/).default('0'),
-  BUY_PER_INVESTIGATION_BUDGET_ATOMIC: z.string().regex(/^\d+$/).default('0'),
-  BUY_PER_CALL_CAP_ATOMIC: z.string().regex(/^\d+$/).default('0'),
+  BUY_DAILY_BUDGET_ATOMIC: z.preprocess(emptyStringToUndefined, z.string().regex(/^\d+$/).default('0')),
+  BUY_PER_INVESTIGATION_BUDGET_ATOMIC: z.preprocess(emptyStringToUndefined, z.string().regex(/^\d+$/).default('0')),
+  BUY_PER_CALL_CAP_ATOMIC: z.preprocess(emptyStringToUndefined, z.string().regex(/^\d+$/).default('0')),
   BUY_ALLOWED_TOKEN_CONTRACTS: tokenContractsField,
   BUY_ALLOWED_RECIPIENTS: recipientsField,
   BUY_ALLOWED_CAPABILITY_IDS: capabilityIdsField,
@@ -291,10 +294,10 @@ const envSchema = z.object({
   CENCORI_ENABLED: booleanField,
 
   // Official Hackathon Attribution & Agent Wallet Configuration
-  CELO_ATTRIBUTION_TAG: z.string().default(OFFICIAL_CELO_ATTRIBUTION_TAG),
-  AGENT_WALLET_ADDRESS: z.string().regex(/^0x[a-fA-F0-9]{40}$/).default(OFFICIAL_AGENT_WALLET_ADDRESS),
+  CELO_ATTRIBUTION_TAG: z.preprocess(emptyStringToUndefined, z.string().default(OFFICIAL_CELO_ATTRIBUTION_TAG)),
+  AGENT_WALLET_ADDRESS: z.preprocess(emptyStringToUndefined, z.string().regex(/^0x[a-fA-F0-9]{40}$/).default(OFFICIAL_AGENT_WALLET_ADDRESS)),
 
-  REPORT_TTL_DAYS: z.coerce.number().int().positive().default(14),
+  REPORT_TTL_DAYS: z.preprocess(emptyStringToUndefined, z.coerce.number().int().positive().default(14)),
   REPORTS_PUBLIC_BY_DEFAULT: booleanField
 });
 

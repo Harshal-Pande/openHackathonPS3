@@ -76,7 +76,7 @@ function shouldIncludeFile(filePath) {
   // Exclude explicit files and extensions
   if (EXCLUDE_FILES.has(baseName)) return false;
   if (EXCLUDE_EXTENSIONS.has(ext)) return false;
-  if (baseName.startsWith('.env') && baseName !== '.env.example') return false;
+  if (baseName.startsWith('.env') && baseName !== '.env.example' && baseName !== '.env.production.example') return false;
 
   // Exclude all current and historical Gitingest text artifacts and manifests
   if (baseName.endsWith('_gitingest.txt') || (baseName.includes('gitingest') && ext === '.txt')) return false;
