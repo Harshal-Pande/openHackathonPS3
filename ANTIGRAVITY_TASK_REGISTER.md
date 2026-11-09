@@ -266,6 +266,6 @@ This register contains all technical and operational tasks owned and executed di
   - Hardened `.dockerignore` to exclude SQLite artifacts (`*.sqlite*`), sensitive environments, test coverage, and documentation generation.
   - Implemented Fastify `onClose` hook executing `db.close()` to ensure clean SQLite WAL flush on `SIGTERM`/`SIGINT`.
   - Added native Node.js 22 health check probe via `fetch` to `/api/health`.
-  - Built image `revertlens:mod-06-1` (Image ID `7cc29bf61c0c`).
-  - Executed container with named volume `revertlens-mod061-data`, verified published HTTP endpoints (200 OK on `/api/health` and `/`), confirmed health check state `healthy`, verified non-root UID 1000 execution, verified SQLite named-volume persistence across container recreation via proof marker, verified graceful shutdown with exit code 0, and passed all 516 automated tests.
+  - Built image `revertlens:mod-06-1` (Manifest `sha256:b190ea4d15eb...`, Config `sha256:571b7d94131c...`).
+  - Executed container `revertlens-mod061` with named volume `revertlens-mod061-data`, verified published HTTP endpoints (200 OK on `/api/health` and `/`), confirmed health check state `healthy`, verified non-root UID 1000 execution, verified SQLite named-volume persistence across container recreation via proof marker `MOD061-PROOF-6bf38f18-8280-478f-ac4d-595c10909423`, verified graceful shutdown with exit code 0, and passed all 516 automated tests.
 - **Status:** `COMPLETED`.

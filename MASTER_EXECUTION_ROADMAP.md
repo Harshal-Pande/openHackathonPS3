@@ -274,7 +274,7 @@ flowchart TD
   1. Audit Dockerfile and multi-stage Node.js 22 LTS Alpine builder/runner architecture. [COMPLETED]
   2. Implement Fastify `onClose` hook for SQLite database flush and `SIGTERM`/`SIGINT` graceful shutdown handling. [COMPLETED]
   3. Implement native Node.js 22 Docker `HEALTHCHECK` probe against `/api/health`. [COMPLETED]
-  4. Build production Docker image `revertlens:mod-06-1` (Image ID `7cc29bf61c0c`, 717 MB uncompressed). [COMPLETED]
+  4. Build production Docker image `revertlens:mod-06-1` (Manifest `sha256:b190ea4d15eb...`, Config `sha256:571b7d94131c...`). [COMPLETED]
   5. Run container with persistent volume `revertlens-mod061-data`, verify health check transition to `healthy`, verify non-root UID 1000 execution, and verify endpoints (`GET /api/health` 200 OK, `GET /` 200 OK). [COMPLETED]
   6. Verify SQLite named-volume persistence across container destruction and recreation with marker file proof. [COMPLETED]
   7. Verify clean shutdown (`docker stop --timeout 15`) with exit code 0. [COMPLETED]

@@ -1419,41 +1419,43 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 
 ## Phase 26.3 — MOD-06.1 Docker Runtime Verification and Closure
 **Date:** 2026-11-09<br/>
-**Baseline Commit:** `198e410fd1531d4cc578e923d309d172526fc923`<br/>
+**Baseline Commit:** `afb71cedf4d67e7b96db089dc90c8e79fb23ed95`<br/>
 **Scope:** Real Docker multi-stage image build, container execution under Docker Desktop WSL2 Linux engine, published endpoint verification, health check probe transition, non-root user audit, SQLite named-volume data persistence across container lifecycle recreation, graceful shutdown signal handling, and release closure.
 
 ### 1. Docker Multi-Stage Image Build
 - **Engine Context:** Docker Desktop 4.98.0, Docker Engine 29.9.2 (`desktop-linux`, `linux/amd64`).
 - **Build Command:** `docker build --pull -t revertlens:mod-06-1 .`
 - **Builder Stage:** Verified Node.js 22 LTS Alpine (`node:22-alpine`) multi-stage compilation. Ran full `npm ci`, compiled Fastify TypeScript backend (`tsc -p tsconfig.server.json`), and bundled Vite client (`vite build`).
-- **Runner Stage:** Clean `node:22-alpine` container with `npm ci --omit=dev`, compiled `dist/` copied, non-root `node:node` permissions set on `/app/data`.
-- **Image ID:** `7cc29bf61c0c539e9518659d064fbe37c69649689e61f1a3fe8bc907f95ececc` (`revertlens:mod-06-1`, 717 MB uncompressed, 123 MB content size).
+- **Runner Stage:** Clean `node:22-alpine` container with `npm ci --omit=dev`, compiled `dist/` copied, non-root `node:node` permissions set on `/app/data` (`chown -R node:node /app`).
+- **Image Digest & Tag:** `revertlens:mod-06-1` (Manifest `sha256:b190ea4d15eb31b4304532d6d9ab96c1beecb48962942204ba249497da77484c`, Config `sha256:571b7d94131cc6c2c9d3c6a64b1f9bd17e2eb38024704394cfb6e2c1ad7b3ed9`).
 - **Image Inspection:**
   - `User`: `node` (UID 1000).
+  - `Privileged`: `false`.
   - `Cmd`: `["node", "dist/server/index.js"]`.
-  - `Healthcheck`: `node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(...)"`.
+  - `Healthcheck`: `node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(...)"` (Interval: 30s, Timeout: 5s, StartPeriod: 10s, Retries: 3).
 
 ### 2. Live Container Execution & Published Endpoints
-- **Container Execution:** Started container `revertlens-mod061` mapped to port `3000:3000` with named volume `revertlens-mod061-data` mounted at `/app/data` using ephemeral secure test configuration.
+- **Container Execution:** Started container `revertlens-mod061` (`4229f56678fa90d6ee2c0fb7b615b20660fca46773713bacc9200736d2c02b78`) mapped to port `3000:3000` with named volume `revertlens-mod061-data` mounted at `/app/data` using ephemeral secure test configuration.
 - **Published Endpoints Verified:**
-  - `GET http://localhost:3000/api/health` -> HTTP 200, valid JSON response (`status: "ok"`, `chainId: 42220`, `buyReady: false`).
-  - `GET http://localhost:3000/` -> HTTP 200, React frontend SPA HTML shell with split vendor script preloads.
-- **Docker Health Check:** Container status transitioned to `Up 6 seconds (healthy)`.
-- **Non-Root Execution:** Confirmed `docker exec revertlens-mod061 whoami` returns `node` (`uid=1000(node) gid=1000(node)`).
+  - `GET http://localhost:3000/api/health` -> HTTP 200, valid JSON response (`status: "ok"`, `version: "0.1.0"`, `chainId: 42220`, `buyEnabled: false`, `cencoriEnabled: false`, `buyReady: false`, `requestId: "32fcf549-1d66-4d01-99d9-59c8009314c8"`).
+  - `GET http://localhost:3000/` -> HTTP 200, 1109 bytes, React frontend SPA HTML shell with split vendor script preloads.
+- **Docker Health Check:** Container status transitioned from `health: starting` to `healthy`.
+- **Non-Root Execution:** Confirmed `docker exec revertlens-mod061 id` returns `uid=1000(node) gid=1000(node) groups=1000(node)` with `Privileged=false`.
+- **Data Directory:** `/app/data` owned by `node:node`, initializing `revertlens.sqlite`, `revertlens.sqlite-shm`, and `revertlens.sqlite-wal`.
 
 ### 3. Named-Volume Data Persistence Across Container Recreation
-- **Persistence Marker Creation:** Created marker `/app/data/mod061-persistence-proof.txt` with content `mod061-persistence-proof-verified` under unprivileged user `node`.
-- **Graceful Container Teardown:** Executed `docker stop --timeout 15 revertlens-mod061`, cleanly exiting with code 0 and triggering Fastify `onClose` database flush. Destroyed container with `docker rm revertlens-mod061`.
-- **Container Recreation:** Spun up a new container instance (`cfe479ff3e3f...`) mounting the same named volume `revertlens-mod061-data:/app/data`.
+- **Persistence Marker Creation:** Created marker `/app/data/mod061-persistence-proof.txt` with unique value `MOD061-PROOF-6bf38f18-8280-478f-ac4d-595c10909423` under unprivileged container user `node`.
+- **Graceful Container Teardown:** Executed `docker stop --time 15 revertlens-mod061`, cleanly exiting with code 0 in 378ms and triggering Fastify `onClose` database flush (`RevertLens server and database closed cleanly.`). Destroyed container with `docker rm revertlens-mod061`.
+- **Container Recreation:** Spun up a new container instance (`fd9a1c9120c051c09c06359ad858bfb44f87be19af5f7764e343033b9d44e79a`) mounting the same named volume `revertlens-mod061-data:/app/data`.
 - **Persistence Verification:**
-  - Verified marker file survived: `mod061-persistence-proof-verified`.
-  - Verified `revertlens.sqlite` (98,304 bytes) persisted intact and was cleanly reopened by the new container.
-  - Recreated container reached `healthy` status and answered `/api/health` with HTTP 200.
+  - Verified marker file survived: `MOD061-PROOF-6bf38f18-8280-478f-ac4d-595c10909423` (exact match).
+  - Verified `revertlens.sqlite` (98,304 bytes) persisted intact and was cleanly reopened with WAL checkpointed by the new container.
+  - Recreated container reached `healthy` status and answered `/api/health` with HTTP 200 (`requestId: "aa763598-ffb9-4bb3-9497-b1421d3097f4"`).
 
 ### 4. Teardown & Quality Gates
-- Stopped and removed container, deleted test volume, and deleted ephemeral configuration file with zero leaked credentials.
-- **Automated Test Suite:** `npm test` passed with **23/23 test suites, 516/516 tests passing (100% green)** in 14.6s.
-- **Static Typing & Build:** `npm run typecheck` returned 0 errors; `npm run build` compiled production bundles in 4.23s with zero warnings.
-- **Gitingest Integrity:** Passed all 17 independent snapshot and manifest verification checks.
+- Stopped and removed test container, preserved named volume `revertlens-mod061-data`, and deleted ephemeral configuration file `$env:TEMP\revertlens-mod061.env` with zero leaked credentials.
+- **Automated Test Suite:** `npm test` passed with **23/23 test suites, 516/516 tests passing (100% green)** in 13.46s.
+- **Static Typing & Build:** `npm run typecheck` returned 0 errors; `npm run build` compiled production bundles in 4.69s with zero warnings.
+- **Whitespace & Git Cleanliness:** `git diff --check` returned 0 errors.
 - **Zero-Spend Invariant Enforced:** Spend across all operations remains strictly **$0.00**. No cloud services provisioned; no on-chain transactions broadcast.
 - **Milestone State:** `MOD-06.1 — COMPLETED`. Ready for `MOD-06.2` public deployment authorization.

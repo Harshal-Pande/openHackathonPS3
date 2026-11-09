@@ -274,23 +274,25 @@ Once deployed, provide the assigned domain to Antigravity to run the live verifi
 
 ---
 
-## 9. Real Docker Runtime Verification Evidence (MOD-06.1 Execution)
+## 9. Real Docker Runtime Verification Evidence (MOD-06.1 Final Execution)
 
 **Execution Date:** 2026-11-09<br/>
-**Execution Environment:** Windows PowerShell, Docker Desktop 4.98.0, Docker Engine 29.9.2 (`desktop-linux`, `linux/amd64`), Node.js 22 LTS<br/>
+**Execution Environment:** Windows PowerShell, Docker Desktop 4.98.0, Docker Engine 29.9.2 (`desktop-linux`, `linux/amd64`), Node.js 22 LTS Alpine (`node:22-alpine`)<br/>
 **Verification Level:** `LOCAL` (Real container runtime & volume lifecycle execution; $0.00 spent)
 
 ### 9.1 Docker Image Build
 - **Build Command:** `docker build --pull -t revertlens:mod-06-1 .`
 - **Builder Stage:** `node:22-alpine` multi-stage build, full `npm ci`, TypeScript backend compilation (`tsc -p tsconfig.server.json`), Vite client bundle (`vite build`).
-- **Runner Stage:** Clean `node:22-alpine` image with `npm ci --omit=dev`, compiled `dist/` copied, non-root user permissions initialized.
-- **Image ID:** `7cc29bf61c0c539e9518659d064fbe37c69649689e61f1a3fe8bc907f95ececc`
+- **Runner Stage:** Clean `node:22-alpine` image with `npm ci --omit=dev`, compiled `dist/` copied, non-root user permissions initialized (`chown -R node:node /app`).
 - **Image Tag:** `revertlens:mod-06-1`
-- **Image Size:** 717 MB uncompressed (content size: 123 MB)
+- **Manifest Digest:** `sha256:b190ea4d15eb31b4304532d6d9ab96c1beecb48962942204ba249497da77484c`
+- **Config Digest:** `sha256:571b7d94131cc6c2c9d3c6a64b1f9bd17e2eb38024704394cfb6e2c1ad7b3ed9`
 - **Container Configuration Inspection (`docker image inspect`):**
   - **User:** `node` (UID 1000)
+  - **Privileged:** `false`
+  - **Exposed Ports:** `3000/tcp`
   - **Cmd:** `["node", "dist/server/index.js"]`
-  - **Healthcheck:** `fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health')` (Interval: 30s, Timeout: 5s, StartPeriod: 10s, Retries: 3)
+  - **Healthcheck:** `node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"` (Interval: 30s, Timeout: 5s, StartPeriod: 10s, Retries: 3)
 
 ### 9.2 Container Runtime Execution
 - **Persistent Volume:** Created Docker named volume `revertlens-mod061-data`.
@@ -300,17 +302,17 @@ Once deployed, provide the assigned domain to Antigravity to run the live verifi
     --name revertlens-mod061 \
     -p 3000:3000 \
     -v revertlens-mod061-data:/app/data \
-    --env-file <SECURE_TEMP_CONFIG> \
+    --env-file "$env:TEMP\revertlens-mod061.env" \
     revertlens:mod-06-1
   ```
-- **Container ID:** `4fb0a5176be8240f34c56cf4193abcfa114f4c275c5b9794f1e4508197550b7d`
-- **Container Health State:** Transitioned to `Up 6 seconds (healthy)`
+- **Container ID:** `4229f56678fa90d6ee2c0fb7b615b20660fca46773713bacc9200736d2c02b78`
+- **Container Health State:** Transitioned to `healthy` (`Up 4 seconds (health: starting)` -> `healthy`).
 - **Non-Root Execution Verified:**
-  - `docker exec revertlens-mod061 whoami` -> `node`
   - `docker exec revertlens-mod061 id` -> `uid=1000(node) gid=1000(node) groups=1000(node)`
+  - `docker inspect --format '{{.HostConfig.Privileged}}'` -> `false`
 - **Data Directory Permissions:**
   - `/app/data` owned by `node:node` (`drwxr-xr-x 2 node node`)
-  - SQLite files created: `revertlens.sqlite`, `revertlens.sqlite-shm`, `revertlens.sqlite-wal`
+  - SQLite files initialized by user `node`: `revertlens.sqlite`, `revertlens.sqlite-shm`, `revertlens.sqlite-wal`
 
 ### 9.3 Published Endpoints Verification
 - **Health Check (`GET http://localhost:3000/api/health`):**
@@ -330,47 +332,60 @@ Once deployed, provide the assigned domain to Antigravity to run the live verifi
         "buyReady": false
       },
       "error": null,
-      "requestId": "574da02c-0b1f-47c8-8b42-dbc91ee1cfe8"
+      "requestId": "32fcf549-1d66-4d01-99d9-59c8009314c8"
     }
     ```
 - **Frontend SPA Shell (`GET http://localhost:3000/`):**
   - **HTTP Status:** `200 OK`
-  - **Content-Type:** `text/html; charset=utf-8`
+  - **Content-Length:** `1109` bytes
   - **HTML Title:** `<title>RevertLens - Celo transaction failure investigation</title>`
-  - **Script Preloads:** Assets cleanly loaded from `/assets/index-Bn8c6ORW.js` and split vendor chunks.
+  - **Script Preloads:** Assets cleanly loaded from `/assets/index-Bn8c6ORW.js` and split vendor chunks (`vendor-react-Dw1SOEuV.js`, `vendor-icons-qAxGjrsC.js`).
 
-### 9.4 SQLite Named-Volume Persistence Across Container Lifecycle
-1. **Proof Marker Written as Non-Root:**
+### 9.4 Real SQLite Named-Volume Persistence Across Container Lifecycle
+1. **Proof Marker Written as Container Non-Root User (`node`):**
    ```bash
-   docker exec -u node revertlens-mod061 sh -c 'echo "mod061-persistence-proof-verified" > /app/data/mod061-persistence-proof.txt'
+   docker exec -u node revertlens-mod061 sh -c "echo 'MOD061-PROOF-6bf38f18-8280-478f-ac4d-595c10909423' > /app/data/mod061-persistence-proof.txt"
    ```
+   - Marker file created: `/app/data/mod061-persistence-proof.txt` (owner: `node:node`).
 2. **Graceful Container Shutdown:**
    ```bash
-   docker stop --timeout 15 revertlens-mod061
+   docker stop --time 15 revertlens-mod061
    ```
-   - Exit Code: `0` (clean shutdown and Fastify `onClose` database flush).
-3. **Container Destruction:**
+   - Exit Code: `0` (clean shutdown in 378ms; Fastify `onClose` database flush executed).
+   - Container logs:
+     ```
+     Received SIGTERM, initiating graceful shutdown...
+     RevertLens server and database closed cleanly.
+     ```
+3. **Container Destruction (Volume Untouched):**
    ```bash
    docker rm revertlens-mod061
    ```
-4. **Recreation with Same Named Volume:**
+   - Verified named volume `revertlens-mod061-data` remained intact on host driver.
+4. **Container Recreation with Same Named Volume:**
    ```bash
    docker run -d \
      --name revertlens-mod061 \
      -p 3000:3000 \
      -v revertlens-mod061-data:/app/data \
-     --env-file <SECURE_TEMP_CONFIG> \
+     --env-file "$env:TEMP\revertlens-mod061.env" \
      revertlens:mod-06-1
    ```
-   - New Container ID: `cfe479ff3e3f08d7445a86a9463475bbba14049e8e1726e675e6325f0eb0944f`
+   - New Container ID: `fd9a1c9120c051c09c06359ad858bfb44f87be19af5f7764e343033b9d44e79a`
 5. **Persistence Proof Verified:**
-   - `docker exec revertlens-mod061 cat /app/data/mod061-persistence-proof.txt` -> `mod061-persistence-proof-verified`
-   - `revertlens.sqlite` (98,304 bytes) persisted intact and was successfully reopened.
-   - Endpoint `GET http://localhost:3000/api/health` returned HTTP 200.
-   - Container health status transitioned to `healthy`.
+   - `docker exec revertlens-mod061 cat /app/data/mod061-persistence-proof.txt` -> `MOD061-PROOF-6bf38f18-8280-478f-ac4d-595c10909423` (Exact match).
+   - `revertlens.sqlite` (98,304 bytes) persisted intact and was successfully reopened with WAL checkpointed.
+   - Endpoint `GET http://localhost:3000/api/health` returned HTTP 200 (`requestId: aa763598-ffb9-4bb3-9497-b1421d3097f4`).
+   - Recreated container health state reached `healthy`.
 
 ### 9.5 Environment Teardown & Security Cleanup
-- Container stopped gracefully and removed.
-- Volume `revertlens-mod061-data` removed.
-- Temporary verification configuration file deleted with zero credentials committed or logged.
+- Container `revertlens-mod061` stopped gracefully and removed.
+- Named volume `revertlens-mod061-data` preserved.
+- Ephemeral configuration file `$env:TEMP\revertlens-mod061.env` deleted with zero credentials committed or logged.
 - All 516 automated unit/integration tests verified passing (`npm test`).
+- Typecheck (`npm run typecheck`) and production build (`npm run build`) passed with 0 errors.
+
+### 9.6 Remaining Deployment Requirements & Render Free Limitations
+- **Cloud Service Creation (MOD-06.2):** Connect GitHub repository to Render (or Railway).
+- **Environment Variables:** Provide production environment variables in the cloud dashboard (`CHAINSTACK_CELO_MAINNET_RPC_URL`, `SESSION_SECRET`, `OPERATOR_PASSWORD_HASH`, `PUBLIC_BASE_URL`, `CORS_ORIGIN`, `TRUST_PROXY=true`).
+- **Render Free Limitations:** As established in MOD-06.2.1 audit, Render Free instances operate on an ephemeral filesystem that resets on idle sleep (after 15 minutes) or redeploys. Recent investigation history will reset, but real-time on-demand transaction forensics query Chainstack OP Geth RPC live and function 100% truthfully at $0.00 cost. Permanent persistence is available via Railway 30-day free volume trial ($0) or Render Paid Starter disk ($7/mo).
