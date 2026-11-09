@@ -5,6 +5,8 @@ coverage/
 .env.*
 !.env.example
 !.env.production.example
+!.env.r1.production.example
+!.env.r2.production.example
 data/
 *.sqlite
 *.sqlite3

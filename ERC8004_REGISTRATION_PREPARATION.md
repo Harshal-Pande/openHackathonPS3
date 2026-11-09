@@ -19,10 +19,12 @@ ERC-8004 establishes trustless on-chain identity, discovery, and capability veri
 RevertLens has completed **MOD-05A: ERC-8004 Registration Preparation, Implementation Audit & Readiness**. Every smart contract interface, ABI definition, event signature, calldata encoding, attribution suffix, metadata schema, endpoint, and post-mint receipt verifier has been fully audited, implemented, and verified with automated tests.
 
 **Current Lifecycle Status:**
-- Preparation Status: `MOD-05A PREPARATION COMPLETE — PENDING INDEPENDENT REVIEW`
-- On-Chain Status: `PREPARED_NOT_REGISTERED`
+- Preparation Status: `MOD-05A & MOD-05B IMPLEMENTATION COMPLETE — LIVE CLOUD DEPLOYED`
+- On-Chain Status: `WALLET_READY_PENDING_OPERATOR_SIGNATURE`
+- Live Production Endpoint: `https://revertlens-production.onrender.com/api/agent/erc8004-registration-tx` (Returns `READY_FOR_OPERATOR_SIGNATURE`)
+- Browser Wallet Signing Console: Fully operational at `/operator` with live preflight, gas shortfall estimation, text confirmation gate (`REGISTER REVERTLENS ON CELO MAINNET`), transaction broadcasting, and receipt verification polling.
 - Total Project Spend: `$0.00` (Zero spend invariant strictly maintained).
-- Readiness Status: `BLOCKED_PENDING_PUBLIC_DEPLOYMENT` while hosted on local/loopback environment; transitions to `READY_FOR_OPERATOR_SIGNATURE` upon public HTTPS deployment (MOD-06).
+- Target Spend on Registration: `~0.0362 CELO` (~$0.015 USD for gas). No server-side keys used; signed by human operator via browser wallet.
 
 ---
 

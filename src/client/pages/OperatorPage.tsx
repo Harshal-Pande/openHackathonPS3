@@ -13,6 +13,7 @@ import type {
   PurchaseAttemptRecord,
   BuyHealthStatus,
   Erc8004StatusResponse,
+  SystemStatusResponse,
 } from '../lib/types.js';
 import {
   Lock,
@@ -27,6 +28,9 @@ import {
   AlertCircle,
   Radio,
   Loader2,
+  Server,
+  Database,
+  Activity,
 } from 'lucide-react';
 
 export const OperatorPage: React.FC = () => {
@@ -61,6 +65,7 @@ export const OperatorPage: React.FC = () => {
   const [registrationBroadcastTx, setRegistrationBroadcastTx] = useState<string | null>(null);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [registrationSuccess, setRegistrationSuccess] = useState<string | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(null);
 
   // Detect injected browser wallet
   useEffect(() => {
@@ -173,7 +178,24 @@ export const OperatorPage: React.FC = () => {
     }
   };
 
+  const fetchSystemStatus = async (authToken: string) => {
+    try {
+      const res = await fetch('/api/operator/system-status', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.version && json.database) {
+          setSystemStatus(json);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const refreshAll = (authToken: string) => {
+    fetchSystemStatus(authToken);
     fetchQuotes(authToken);
     fetchPurchases(authToken);
     fetchBuyHealth(authToken);
@@ -652,6 +674,98 @@ export const OperatorPage: React.FC = () => {
               </Button>
             </div>
           </div>
+
+          {/* System Overview & Node Status */}
+          <Panel title="System Status & Persistence Control Center" tag="Infrastructure">
+            <div className="stack" style={{ gap: 'var(--s-3)' }}>
+              <div className="grid grid--2col">
+                <KeyValue label="Engine & Version">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                    <Server size={14} className="text-info" />
+                    <span className="mono">v{systemStatus?.version || '0.1.0'} ({systemStatus?.environment || 'production'})</span>
+                  </div>
+                </KeyValue>
+
+                <KeyValue label="Celo Mainnet RPC">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                    <Activity size={14} className={systemStatus?.rpc?.connected ? 'text-ok' : 'text-warn'} />
+                    <span className="mono">
+                      {systemStatus?.rpc?.connected
+                        ? `Connected (${systemStatus.rpc.latencyMs}ms)`
+                        : 'Chainstack (Chain ID 42220)'}
+                    </span>
+                    <Chip tone={systemStatus?.rpc?.connected ? 'ok' : 'neutral'}>
+                      {systemStatus?.rpc?.connected ? 'Live RPC' : 'Active'}
+                    </Chip>
+                  </div>
+                </KeyValue>
+
+                <KeyValue label="SQLite Persistence">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                    <Database size={14} className="text-1" />
+                    <span className="mono">{systemStatus?.database?.journalMode?.toUpperCase() || 'WAL'} Mode</span>
+                    <span className="text-3" style={{ fontSize: '11px' }}>
+                      ({systemStatus?.database?.path?.replace('/app/data/', '') || 'revertlens.sqlite'})
+                    </span>
+                  </div>
+                </KeyValue>
+
+                <KeyValue label="Uptime">
+                  <span className="mono">
+                    {systemStatus?.uptimeSeconds !== undefined
+                      ? `${Math.floor(systemStatus.uptimeSeconds / 60)}m ${systemStatus.uptimeSeconds % 60}s`
+                      : 'Active'}
+                  </span>
+                </KeyValue>
+              </div>
+
+              {/* Live Record Counts */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                  gap: 'var(--s-2)',
+                  paddingTop: 'var(--s-2)',
+                  borderTop: '1px solid var(--border)',
+                }}
+              >
+                <div className="card" style={{ padding: 'var(--s-2)', textAlign: 'center', background: 'var(--ink-850)' }}>
+                  <div className="text-3" style={{ fontSize: '11px' }}>Investigations</div>
+                  <div className="mono" style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-1)' }}>
+                    {systemStatus?.database?.counts?.investigations ?? 0}
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: 'var(--s-2)', textAlign: 'center', background: 'var(--ink-850)' }}>
+                  <div className="text-3" style={{ fontSize: '11px' }}>Evidence Items</div>
+                  <div className="mono" style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-1)' }}>
+                    {systemStatus?.database?.counts?.evidenceItems ?? 0}
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: 'var(--s-2)', textAlign: 'center', background: 'var(--ink-850)' }}>
+                  <div className="text-3" style={{ fontSize: '11px' }}>Payment Quotes</div>
+                  <div className="mono" style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-1)' }}>
+                    {systemStatus?.database?.counts?.quotes ?? quotes.length}
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: 'var(--s-2)', textAlign: 'center', background: 'var(--ink-850)' }}>
+                  <div className="text-3" style={{ fontSize: '11px' }}>Purchases</div>
+                  <div className="mono" style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-1)' }}>
+                    {systemStatus?.database?.counts?.purchases ?? purchases.length}
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: 'var(--s-2)', textAlign: 'center', background: 'var(--ink-850)' }}>
+                  <div className="text-3" style={{ fontSize: '11px' }}>Agent Registrations</div>
+                  <div className="mono" style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-1)' }}>
+                    {systemStatus?.database?.counts?.registrations ?? (erc8004Data?.allRegistrations?.length ?? 0)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Panel>
 
           {/* Buy CLI & Wallet Status Panel */}
           <Panel title="Buy CLI & Agent Wallet Readiness" tag="Payment Infrastructure">

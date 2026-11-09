@@ -347,3 +347,43 @@ export interface Erc8004StatusResponse {
   latestRegistration: Erc8004RegistrationRecord | null;
   allRegistrations: Erc8004RegistrationRecord[];
 }
+
+export interface SystemStatusResponse {
+  version: string;
+  uptimeSeconds: number;
+  environment: string;
+  nodeVersion: string;
+  publicBaseUrl: string;
+  isPublicProductionUrl: boolean;
+  trustProxy: boolean;
+  database: {
+    status: string;
+    path: string;
+    journalMode: string;
+    busyTimeoutMs: number;
+    counts: {
+      investigations: number;
+      evidenceItems: number;
+      quotes: number;
+      purchases: number;
+      registrations: number;
+    };
+  };
+  rpc: {
+    provider: string;
+    chainId: number;
+    chainHex: string;
+    configured: boolean;
+    connected: boolean;
+    latencyMs: number;
+  };
+  modules: {
+    forensicsEngine: string;
+    evidenceLedger: string;
+    erc8004Engine: string;
+    buyPayments: string;
+    cencoriAi: string;
+    rateLimiter: string;
+    killSwitch: string;
+  };
+}

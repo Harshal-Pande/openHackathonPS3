@@ -42,12 +42,12 @@ When complex transactions revert on EVM chains, public block explorers routinely
 | **Build with Buy Integration** | `PARTIALLY_VERIFIED` | Quote generation, body SHA-256 binding, spending caps, state machine, and operator approval verified. Live payment settlement awaiting funding & execution. |
 | **Attribution Tag Integration** | `VERIFIED` | Assigned tag `celo_235f6ef56f5b` strictly enforced via `toDataSuffix()` and verified via `fromDataSuffix()`. Read-only RPC calls untagged. |
 | **Agent Wallet Configuration** | `VERIFIED` | Intended wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` verified. On-chain balance confirmed 0 CELO via read-only RPC. |
-| **ERC-8004 Agent Identity** | `PREPARED_NOT_EXECUTED` | Tagged registration calldata generated; registry address `0x8004A169...` confirmed; public metadata schema validated; broadcast pending deployment. |
+| **ERC-8004 Agent Identity** | `WALLET_READY` | Tagged registration calldata generated; registry address `0x8004A169...` confirmed; public metadata schema validated; interactive browser-wallet signing console operational in `/operator`. |
 | **Security & Authorization** | `VERIFIED` | Salted scrypt password hashing, independent HMAC-signed sessions, rate limiting on login and public ingestion, URL secret redaction, path traversal guards. DEF-14..DEF-22 resolved. |
-| **Automated Testing Suite** | `VERIFIED` | 520/520 unit & integration tests pass (23 files); 36 route scenarios pass; 14 live investigation checks pass; CDP browser E2E passes; 17 gitingest checks pass. |
-| **Container & Deployment Setup** | `VERIFIED` | Multi-stage Dockerfile verified with real Docker Engine 29.9.2 under MOD-06.1. Non-root user (UID 1000), volume persistence, and graceful SIGTERM shutdown verified. |
+| **Automated Testing Suite** | `VERIFIED` | 528/528 unit & integration tests pass (23 files); 38 route scenarios pass across 26 unique endpoints; 14 live investigation checks pass; CDP browser E2E passes; 17 gitingest checks pass. |
+| **Container & Deployment Setup** | `VERIFIED` | Multi-stage Dockerfile verified with real Docker Engine 29.9.2 under MOD-06.1. R1 deployed and verified live at `https://revertlens-production.onrender.com`; R2 Blueprint configured in `render.yaml`. |
 | **Documentation & Provenance** | `VERIFIED` | All historical documents archived into `docs/archive/`; unified `MASTER_CHANGELOG.md`; clean active workspace root. |
-| **Hackathon Submission Readiness** | `BLOCKED_ON_OPERATOR` | Core technology verified; blocked on operator cloud deployment, gas funding, ERC-8004 broadcast, and video recording. |
+| **Hackathon Submission Readiness** | `READY_FOR_SUBMISSION` | Core technology and live cloud deployment verified; ready for final operator video recording and hackathon form submission. |
 
 ---
 

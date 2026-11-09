@@ -1353,6 +1353,27 @@ export class Database {
     return (stmt.all() as unknown) as Erc8004RegistrationRow[];
   }
 
+  public getSystemCounts(): {
+    investigations: number;
+    evidenceItems: number;
+    quotes: number;
+    purchases: number;
+    registrations: number;
+  } {
+    const invCount = (this.db.prepare('SELECT COUNT(*) as count FROM investigations').get() as any)?.count ?? 0;
+    const evCount = (this.db.prepare('SELECT COUNT(*) as count FROM evidence_items').get() as any)?.count ?? 0;
+    const qCount = (this.db.prepare('SELECT COUNT(*) as count FROM quote_records').get() as any)?.count ?? 0;
+    const pCount = (this.db.prepare('SELECT COUNT(*) as count FROM purchase_attempts').get() as any)?.count ?? 0;
+    const regCount = (this.db.prepare('SELECT COUNT(*) as count FROM erc8004_registrations').get() as any)?.count ?? 0;
+    return {
+      investigations: Number(invCount),
+      evidenceItems: Number(evCount),
+      quotes: Number(qCount),
+      purchases: Number(pCount),
+      registrations: Number(regCount),
+    };
+  }
+
   public getJournalMode(): string {
     const stmt = this.db.prepare(`PRAGMA journal_mode;`);
     const row = stmt.get() as { journal_mode?: string } | undefined;

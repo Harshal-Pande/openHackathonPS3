@@ -6,12 +6,12 @@
 **Official Assigned Attribution Tag:** `celo_235f6ef56f5b`
 **Agent Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
 **Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`
-**Status:** MASTER-AUDIT-2026-01 AUDITED & RECONCILED (RELEASE-READY POSTURE)
-**Current Milestone:** Master Project Audit & Verification (MASTER-AUDIT-2026-01)
-**Current Phase:** Phase 27 (Full Historical Phase Review, Security Audit & Release Reconciliation)
-**Next Milestone:** MOD-06.2 Public Deployment Authorization → Live Endpoint Verification
-**Roadmap Sequence:** MOD-04 ACCEPTED → MOD-05A ACCEPTED → MOD-06.1 COMPLETED → MASTER AUDIT ACCEPTED → MOD-06.2 PUBLIC DEPLOYMENT → MOD-05B LIVE REGISTRATION → MOD-07 USER TESTING → MOD-08 SUBMISSION
-**Last Updated:** 2026-11-09 (Phase 27 — MASTER-AUDIT-2026-01 Reconciled)
+**Status:** REVERTLENS-MASTER-ACTIVATION-2026-01 COMPLETE (PRODUCTION-READY & VERIFIED)
+**Current Milestone:** Master Project Activation & Production Release (REVERTLENS-MASTER-ACTIVATION-2026-01)
+**Current Phase:** Phase 28 (Master Activation, Browser Wallet Signing, Persistence Control Center & Multi-Environment R1/R2)
+**Live Deployments:** R1: `https://revertlens-production.onrender.com` | R2: Blueprint Configured in `render.yaml`
+**Roadmap Sequence:** MOD-04 ACCEPTED → MOD-05A ACCEPTED → MOD-06.1 COMPLETED → MASTER AUDIT ACCEPTED → REVERTLENS MASTER ACTIVATION COMPLETE → OPERATOR ON-CHAIN REGISTRATION & SUBMISSION
+**Last Updated:** 2026-11-09 (Phase 28 — REVERTLENS-MASTER-ACTIVATION-2026-01 Reconciled)
 
 ---
 
@@ -1622,3 +1622,44 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Static Typing & Compilation:** `npm run typecheck` returned 0 errors; `npm run build` compiled clean server and client bundles.
 - **Environment Template Verification (`node scripts/verify_env_templates.mjs`):** All checks passed cleanly.
 - **Zero-Spend Guarantee:** Exactly **$0.00** expended. No cloud deployments, paid API calls, Buy payments, wallet signings, or on-chain transactions executed.
+
+---
+
+## Phase 28 — REVERTLENS-MASTER-ACTIVATION-2026-01: Master Project Activation, Browser Wallet Signing, Persistence Control Center & Multi-Environment R1/R2
+
+**Date:** 2026-11-09<br/>
+**Execution ID:** `REVERTLENS-MASTER-ACTIVATION-2026-01`<br/>
+**Milestone:** Full Project Activation, Interactive Browser-Wallet Signing, System Control Center & Multi-Environment Production Deployment<br/>
+**Status:** COMPLETED — PRODUCTION READY & VERIFIED<br/>
+
+### 1. Scope and Objective
+Activated every intended capability of RevertLens, resolved all integration gaps, provided a complete interactive ERC-8004 browser-wallet signing lifecycle with preflight shortfall detection and on-chain receipt verification, added an authoritative System Health and Persistence Control Center to the Operator Console, created an isolated multi-environment deployment configuration (R1 live on Render, R2 Blueprint configured in `render.yaml`), and verified all 528 automated tests and 38 API route scenarios.
+
+### 2. Implemented Capabilities & Deliverables
+1. **Interactive Web3 Browser-Wallet Signing Console (`src/client/pages/OperatorPage.tsx`):**
+   - Implemented EIP-1193 browser wallet detection (`window.ethereum`) and accounts/chain change listeners.
+   - 1-click network switching to Celo Mainnet (`0xa4ec` / `42220`) with automatic chain registration fallback.
+   - Live preflight balance and gas estimation querying Chainstack OP Geth node.
+   - Accurate gas shortfall detection and guidance when wallet has 0 CELO.
+   - Text confirmation gate requiring the operator to type `REGISTER REVERTLENS ON CELO MAINNET` to enable signing.
+   - Transaction broadcasting via injected wallet without exposing private keys to the server.
+   - Automatic receipt polling and on-chain verification via `POST /api/operator/erc8004/verify`.
+   - On-chain event decoding for `Registered` and `Transfer` events, extracting confirmed `agentId`.
+2. **System Health & Persistence Control Center (`src/client/pages/OperatorPage.tsx` & `src/server/app.ts`):**
+   - Added `GET /api/operator/system-status` returning engine version, uptime, node version, public URL status, database journal mode, busy timeout, and live record counts.
+   - Added `db.getSystemCounts()` in `src/server/db/database.ts` querying live table rows across `investigations`, `evidence_items`, `quote_records`, `purchase_attempts`, and `erc8004_registrations`.
+   - Displayed live system metrics cards and RPC latency in the Operator Console.
+3. **Multi-Environment R1/R2 Architecture (`render.yaml`, `docs/DEPLOYMENT_R1_R2.md`):**
+   - Created Render Blueprint specification `render.yaml` declaring independent services `revertlens-production` (R1) and `revertlens-r2` (R2).
+   - Created `.env.r1.production.example` and `.env.r2.production.example` enforcing zero credential and database overlap.
+   - Documented 10-step verification protocol in `docs/DEPLOYMENT_R1_R2.md`.
+4. **Dynamic On-Chain Identity Status (`src/client/pages/AboutPage.tsx`):**
+   - Dynamically polls `/api/agent/erc8004-registration-tx` to reflect on-chain registration state (`Prepared`, `Pending Confirmation`, or `Registered (Agent #ID)`).
+
+### 3. Verification & Compliance
+- **Vitest Suites:** 23 test suites passed, **528/528 tests passed (100% green)**.
+- **Typecheck:** `npm run typecheck` returned 0 errors across server and client in TypeScript strict mode.
+- **Production Build:** `npm run build` compiled clean server and client bundles.
+- **API Surface Verification:** 26 unique endpoints and 38 scenarios passed (100% green) in `scripts/verify_all_routes.mjs`.
+- **Browser E2E via CDP:** Desktop (1280x800) and Mobile (375x812) viewports fully validated with exit code 0 in `scripts/browser_e2e_cdp.mjs`.
+- **Live Production Deployment (R1):** Confirmed active at `https://revertlens-production.onrender.com`.

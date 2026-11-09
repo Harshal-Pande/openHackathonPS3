@@ -1,0 +1,90 @@
+# RevertLens Render Blueprint Specification
+# Defines isolated multi-service production environments:
+#   - R1: revertlens-production (Primary Celo Mainnet deployment)
+#   - R2: revertlens-r2 (Secondary / Evaluation environment)
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # --------------------------------------------------------------------------
+  # R1: Primary Production Environment
+  # --------------------------------------------------------------------------
+  - type: web
+    name: revertlens-production
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_PATH
+        value: /app/data/revertlens.sqlite
+      - key: PUBLIC_BASE_URL
+        value: https://revertlens-production.onrender.com
+      - key: CORS_ORIGIN
+        value: https://revertlens-production.onrender.com
+      - key: TRUST_PROXY
+        value: "true"
+      - key: CELO_ATTRIBUTION_TAG
+        value: celo_235f6ef56f5b
+      - key: AGENT_WALLET_ADDRESS
+        value: "0x3e1bef07824cd0E076F4907641F0A0EF27898e52"
+      - key: BUY_ENABLED
+        value: "false"
+      - key: CENCORI_ENABLED
+        value: "false"
+      - key: RATE_LIMIT_INVESTIGATIONS_MAX
+        value: "10"
+      - key: RATE_LIMIT_INVESTIGATIONS_WINDOW_MS
+        value: "60000"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: OPERATOR_PASSWORD_HASH
+        sync: false
+      - key: CHAINSTACK_CELO_MAINNET_RPC_URL
+        sync: false
+
+  # --------------------------------------------------------------------------
+  # R2: Isolated Secondary Production Environment
+  # --------------------------------------------------------------------------
+  - type: web
+    name: revertlens-r2
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_PATH
+        value: /app/data/revertlens.sqlite
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: TRUST_PROXY
+        value: "true"
+      - key: CELO_ATTRIBUTION_TAG
+        value: celo_235f6ef56f5b
+      - key: AGENT_WALLET_ADDRESS
+        value: "0x3e1bef07824cd0E076F4907641F0A0EF27898e52"
+      - key: BUY_ENABLED
+        value: "false"
+      - key: CENCORI_ENABLED
+        value: "false"
+      - key: RATE_LIMIT_INVESTIGATIONS_MAX
+        value: "10"
+      - key: RATE_LIMIT_INVESTIGATIONS_WINDOW_MS
+        value: "60000"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: OPERATOR_PASSWORD_HASH
+        sync: false
+      - key: CHAINSTACK_CELO_MAINNET_RPC_URL
+        sync: false

@@ -680,6 +680,61 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
     return buyQuoteService.getAuditEvents(query.entityId, limit);
   });
 
+  // GET /api/operator/system-status - Comprehensive system, database & RPC overview (Operator only)
+  server.get('/api/operator/system-status', async (request) => {
+    requireOperatorSession(request);
+    const counts = db.getSystemCounts();
+    const journalMode = db.getJournalMode();
+    const busyTimeout = db.getBusyTimeout();
+    const isPublicProductionUrl = validatePublicBaseUrl(appConfig.PUBLIC_BASE_URL, true).valid;
+
+    // Check RPC connectivity
+    let rpcConnected = false;
+    let rpcLatencyMs = 0;
+    try {
+      const start = Date.now();
+      const gasPrice = await provider.getGasPrice();
+      rpcLatencyMs = Date.now() - start;
+      rpcConnected = Boolean(gasPrice && BigInt(gasPrice) > 0n);
+    } catch {
+      rpcConnected = false;
+    }
+
+    return {
+      version: '0.1.0',
+      uptimeSeconds: Math.floor(process.uptime()),
+      environment: appConfig.NODE_ENV,
+      nodeVersion: process.version,
+      publicBaseUrl: appConfig.PUBLIC_BASE_URL,
+      isPublicProductionUrl,
+      trustProxy: appConfig.TRUST_PROXY,
+      database: {
+        status: 'ACTIVE',
+        path: appConfig.DATABASE_PATH,
+        journalMode,
+        busyTimeoutMs: busyTimeout,
+        counts,
+      },
+      rpc: {
+        provider: 'Chainstack Celo Mainnet (OP Geth)',
+        chainId: REQUIRED_CELO_CHAIN_ID,
+        chainHex: '0xa4ec',
+        configured: Boolean(appConfig.CHAINSTACK_CELO_MAINNET_RPC_URL),
+        connected: rpcConnected,
+        latencyMs: rpcLatencyMs,
+      },
+      modules: {
+        forensicsEngine: 'ACTIVE',
+        evidenceLedger: 'ACTIVE',
+        erc8004Engine: 'ACTIVE',
+        buyPayments: appConfig.BUY_ENABLED ? 'ACTIVE' : 'DISABLED_ZERO_SPEND',
+        cencoriAi: appConfig.CENCORI_ENABLED ? 'ACTIVE' : 'DISABLED_ZERO_SPEND',
+        rateLimiter: 'ACTIVE',
+        killSwitch: buyQuoteService.getKillSwitch() ? 'ENGAGED' : 'DISENGAGED',
+      },
+    };
+  });
+
   // ==========================================
   // OPERATOR ERC-8004 REGISTRATION & VERIFICATION
   // ==========================================

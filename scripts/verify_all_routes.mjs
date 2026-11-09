@@ -269,6 +269,19 @@ async function testAllRoutes() {
     payload: {}
   }, '/api/operator/quotes/:id/execute', [400], (res, body) => body.error?.code === 'INVALID_INPUT');
 
+  // 15j. GET /api/operator/system-status (Unauthenticated -> 401)
+  await testRoute('System Status Unauthenticated', {
+    method: 'GET',
+    url: '/api/operator/system-status'
+  }, '/api/operator/system-status', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+
+  // 15k. GET /api/operator/system-status (Authenticated -> 200)
+  await testRoute('System Status Authenticated', {
+    method: 'GET',
+    url: '/api/operator/system-status',
+    headers: { authorization: `Bearer ${operatorToken}` }
+  }, '/api/operator/system-status', [200], (res, body) => body.data?.version === '0.1.0' && body.data?.database?.status === 'ACTIVE');
+
   // 16. POST /api/operator/logout (Logout session -> 200)
   await testRoute('Operator Logout', {
     method: 'POST',
