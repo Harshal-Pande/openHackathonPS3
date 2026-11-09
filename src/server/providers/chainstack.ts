@@ -359,4 +359,34 @@ export class ChainstackProvider {
       throw err;
     }
   }
+
+  /**
+   * Retrieve raw transaction record for attribution and receipt verification.
+   */
+  public async getRawTransaction(txHash: string): Promise<Record<string, unknown> | null> {
+    return this.callRpc<Record<string, unknown> | null>('eth_getTransactionByHash', [txHash]);
+  }
+
+  /**
+   * Retrieve raw transaction receipt for ERC-8004 event and status verification.
+   */
+  public async getRawTransactionReceipt(txHash: string): Promise<Record<string, unknown> | null> {
+    return this.callRpc<Record<string, unknown> | null>('eth_getTransactionReceipt', [txHash]);
+  }
+
+  /**
+   * Retrieve account balance in Wei.
+   */
+  public async getBalance(address: string): Promise<string> {
+    const raw = await this.callRpc<string>('eth_getBalance', [address, 'latest']);
+    return raw || '0x0';
+  }
+
+  /**
+   * Retrieve current gas price in Wei.
+   */
+  public async getGasPrice(): Promise<string> {
+    const raw = await this.callRpc<string>('eth_gasPrice', []);
+    return raw || '0x0';
+  }
 }

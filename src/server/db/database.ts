@@ -116,6 +116,24 @@ export interface PaymentAuditEventRow {
   created_at: string;
 }
 
+export interface Erc8004RegistrationRow {
+  id: string;
+  tx_hash: string;
+  status: 'PENDING_CONFIRMATION' | 'CONFIRMED' | 'REVERTED' | 'FAILED';
+  agent_id: string | null;
+  agent_uri: string;
+  registry_address: string;
+  owner_address: string;
+  chain_id: number;
+  block_number: number | null;
+  gas_used: string | null;
+  actual_fee_paid: string | null;
+  attribution_tag: string;
+  has_attribution: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export const VALID_QUOTE_TRANSITIONS: Record<string, string[]> = {
   QUOTE_REQUESTED: ['QUOTE_RECEIVED', 'QUOTE_INVALID'],
   QUOTE_RECEIVED: ['AWAITING_OPERATOR_APPROVAL', 'QUOTE_INVALID'],
@@ -311,6 +329,27 @@ export class Database {
         details TEXT,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS erc8004_registrations (
+        id TEXT PRIMARY KEY,
+        tx_hash TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_id TEXT,
+        agent_uri TEXT NOT NULL,
+        registry_address TEXT NOT NULL,
+        owner_address TEXT NOT NULL,
+        chain_id INTEGER NOT NULL DEFAULT 42220,
+        block_number INTEGER,
+        gas_used TEXT,
+        actual_fee_paid TEXT,
+        attribution_tag TEXT NOT NULL DEFAULT 'celo_235f6ef56f5b',
+        has_attribution INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_erc8004_tx_hash ON erc8004_registrations(tx_hash);
+      CREATE INDEX IF NOT EXISTS idx_erc8004_agent_id ON erc8004_registrations(agent_id);
     `);
 
     // Safe schema migrations for existing SQLite databases
@@ -1246,6 +1285,72 @@ export class Database {
         attempt: attemptRow
       };
     });
+  }
+
+  public saveErc8004Registration(row: Erc8004RegistrationRow): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO erc8004_registrations (
+        id, tx_hash, status, agent_id, agent_uri, registry_address, owner_address,
+        chain_id, block_number, gas_used, actual_fee_paid, attribution_tag,
+        has_attribution, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(tx_hash) DO UPDATE SET
+        status = excluded.status,
+        agent_id = excluded.agent_id,
+        agent_uri = excluded.agent_uri,
+        registry_address = excluded.registry_address,
+        owner_address = excluded.owner_address,
+        block_number = excluded.block_number,
+        gas_used = excluded.gas_used,
+        actual_fee_paid = excluded.actual_fee_paid,
+        attribution_tag = excluded.attribution_tag,
+        has_attribution = excluded.has_attribution,
+        updated_at = excluded.updated_at;
+    `);
+
+    stmt.run(
+      row.id,
+      row.tx_hash.toLowerCase(),
+      row.status,
+      row.agent_id,
+      row.agent_uri,
+      row.registry_address.toLowerCase(),
+      row.owner_address.toLowerCase(),
+      row.chain_id,
+      row.block_number,
+      row.gas_used,
+      row.actual_fee_paid,
+      row.attribution_tag,
+      row.has_attribution,
+      row.created_at,
+      row.updated_at
+    );
+  }
+
+  public getErc8004RegistrationByTxHash(txHash: string): Erc8004RegistrationRow | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM erc8004_registrations WHERE tx_hash = ? LIMIT 1
+    `);
+    const row = stmt.get(txHash.toLowerCase()) as Erc8004RegistrationRow | undefined;
+    return row || null;
+  }
+
+  public getLatestErc8004Registration(): Erc8004RegistrationRow | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM erc8004_registrations
+      ORDER BY CASE WHEN status = 'CONFIRMED' THEN 1 WHEN status = 'PENDING_CONFIRMATION' THEN 2 ELSE 3 END,
+               created_at DESC
+      LIMIT 1
+    `);
+    const row = stmt.get() as Erc8004RegistrationRow | undefined;
+    return row || null;
+  }
+
+  public listErc8004Registrations(): Erc8004RegistrationRow[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM erc8004_registrations ORDER BY created_at DESC
+    `);
+    return (stmt.all() as unknown) as Erc8004RegistrationRow[];
   }
 
   public getJournalMode(): string {

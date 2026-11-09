@@ -14,13 +14,42 @@ import {
   ERC8004_IDENTITY_REGISTRY_ABI
 } from '../src/server/services/celoAttributionService.js';
 import { encodeAbiParameters, decodeFunctionData, pad, toHex, type Hex } from 'viem';
-import { loadConfig } from '../src/server/config.js';
+import { loadConfig, TEST_OPERATOR_PASSWORD, TEST_OPERATOR_HASH } from '../src/server/config.js';
 import { buildApp } from '../src/server/app.js';
+import { Database } from '../src/server/db/database.js';
 
 describe('MOD-05A: ERC-8004 Registration Preparation & Verification Suite', () => {
   const service = new CeloAttributionService();
   const validWallet = OFFICIAL_AGENT_WALLET_ADDRESS;
   const validRegistry = ERC8004_IDENTITY_REGISTRY_CELO_MAINNET;
+
+  // Helper to generate mock Registered event log
+  function makeRegisteredLog(agentId: bigint, uri: string, owner: string) {
+    const uriEncoded = encodeAbiParameters([{ type: 'string' }], [uri]);
+    return {
+      address: validRegistry,
+      topics: [
+        ERC8004_REGISTERED_EVENT_TOPIC,
+        pad(toHex(agentId), { size: 32 }),
+        pad(owner as Hex, { size: 32 })
+      ],
+      data: uriEncoded
+    };
+  }
+
+  // Helper to generate mock Transfer event log
+  function makeTransferLog(from: string, to: string, tokenId: bigint) {
+    return {
+      address: validRegistry,
+      topics: [
+        ERC721_TRANSFER_EVENT_TOPIC,
+        pad(from as Hex, { size: 32 }),
+        pad(to as Hex, { size: 32 }),
+        pad(toHex(tokenId), { size: 32 })
+      ],
+      data: '0x'
+    };
+  }
 
   // =========================================================================
   // 1. Metadata Generation & Strict Schema Validation
@@ -221,34 +250,6 @@ describe('MOD-05A: ERC-8004 Registration Preparation & Verification Suite', () =
   describe('4. Registration Receipt Verification Engine', () => {
     const canonicalUri = 'https://revertlens.example.com/api/agent/metadata';
     const validTxHash = '0x1111111111111111111111111111111111111111111111111111111111111111';
-
-    // Helper to generate mock Registered event log
-    function makeRegisteredLog(agentId: bigint, uri: string, owner: string) {
-      const uriEncoded = encodeAbiParameters([{ type: 'string' }], [uri]);
-      return {
-        address: validRegistry,
-        topics: [
-          ERC8004_REGISTERED_EVENT_TOPIC,
-          pad(toHex(agentId), { size: 32 }),
-          pad(owner as Hex, { size: 32 })
-        ],
-        data: uriEncoded
-      };
-    }
-
-    // Helper to generate mock Transfer event log
-    function makeTransferLog(from: string, to: string, tokenId: bigint) {
-      return {
-        address: validRegistry,
-        topics: [
-          ERC721_TRANSFER_EVENT_TOPIC,
-          pad(from as Hex, { size: 32 }),
-          pad(to as Hex, { size: 32 }),
-          pad(toHex(tokenId), { size: 32 })
-        ],
-        data: '0x'
-      };
-    }
 
     it('verifies valid receipt containing both Registered and Transfer events', () => {
       const agentId = 77n;
@@ -510,6 +511,229 @@ describe('MOD-05A: ERC-8004 Registration Preparation & Verification Suite', () =
       expect(result.verified).toBe(false);
       expect(result.status).toBe('AMBIGUOUS_EVENTS');
       expect(result.reason).toContain('Multiple distinct agent IDs');
+    });
+  });
+
+  // =========================================================================
+  // 5. Operator ERC-8004 Endpoints & Persistence Lifecycle
+  // =========================================================================
+  describe('5. Operator ERC-8004 Endpoints & Persistence Lifecycle', () => {
+    const operatorConfig = loadConfig({
+      NODE_ENV: 'test',
+      DATABASE_PATH: ':memory:',
+      PUBLIC_BASE_URL: 'https://revertlens.example.com',
+      OPERATOR_PASSWORD_HASH: TEST_OPERATOR_HASH,
+      SESSION_SECRET: 'test-session-secret-at-least-32-chars-long'
+    });
+
+    it('enforces operator authentication on GET /api/operator/erc8004/status', async () => {
+      const db = new Database(':memory:');
+      const app = buildApp(operatorConfig, { db });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/operator/erc8004/status'
+      });
+
+      expect(res.statusCode).toBe(401);
+      const json = res.json();
+      expect(json.error.code).toBe('UNAUTHORIZED');
+      await app.close();
+    });
+
+    it('returns full agent identity config and live preflight for authenticated operator', async () => {
+      const db = new Database(':memory:');
+      const app = buildApp(operatorConfig, { db });
+
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/login',
+        payload: { password: TEST_OPERATOR_PASSWORD }
+      });
+      const token = loginRes.json().data.token;
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/operator/erc8004/status',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      expect(res.statusCode).toBe(200);
+      const json = res.json();
+      expect(json.data.agent.name).toBe('RevertLens');
+      expect(json.data.agent.agentWallet).toBe(validWallet);
+      expect(json.data.agent.registryAddress).toBe(validRegistry);
+      expect(json.data.agent.chainId).toBe(REQUIRED_CELO_CHAIN_ID);
+      expect(json.data.livePreflight.isPublicProductionUrl).toBe(true);
+      expect(json.data.latestRegistration).toBeNull();
+      await app.close();
+    });
+
+    it('enforces authentication on POST /api/operator/erc8004/record-pending and validates txHash format', async () => {
+      const db = new Database(':memory:');
+      const app = buildApp(operatorConfig, { db });
+
+      // Unauthenticated
+      const unauthRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/erc8004/record-pending',
+        payload: { txHash: '0x123' }
+      });
+      expect(unauthRes.statusCode).toBe(401);
+
+      // Authenticated with invalid hash
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/login',
+        payload: { password: TEST_OPERATOR_PASSWORD }
+      });
+      const token = loginRes.json().data.token;
+
+      const invalidRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/erc8004/record-pending',
+        headers: { Authorization: `Bearer ${token}` },
+        payload: { txHash: 'not-a-valid-hex-hash' }
+      });
+      expect(invalidRes.statusCode).toBe(400);
+
+      // Valid pending record
+      const validPendingTx = '0x1111111111111111111111111111111111111111111111111111111111111111';
+      const validRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/erc8004/record-pending',
+        headers: { Authorization: `Bearer ${token}` },
+        payload: { txHash: validPendingTx }
+      });
+      expect(validRes.statusCode).toBe(200);
+      expect(validRes.json().data.registration.status).toBe('PENDING_CONFIRMATION');
+
+      // Database persistence check
+      const saved = db.getErc8004RegistrationByTxHash(validPendingTx);
+      expect(saved).not.toBeNull();
+      expect(saved?.status).toBe('PENDING_CONFIRMATION');
+      expect(saved?.owner_address).toBe(validWallet.toLowerCase());
+
+      // Safe preview route reflects pending state
+      const previewRes = await app.inject({
+        method: 'GET',
+        url: '/api/agent/erc8004-registration-tx'
+      });
+      expect(previewRes.json().data.readinessStatus).toBe('PENDING_CONFIRMATION');
+
+      await app.close();
+    });
+
+    it('POST /api/operator/erc8004/verify retrieves receipt, validates events, and persists confirmed Agent ID', async () => {
+      const db = new Database(':memory:');
+
+      const mockProvider: any = {
+        isConfigured: () => true,
+        getRawTransaction: async (hash: string) => ({
+          hash,
+          from: validWallet,
+          to: validRegistry,
+          input: '0xf2c298be0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000003068747470733a2f2f7265766572746c656e732e6578616d706c652e636f6d2f6170692f6167656e742f6d6574616461746100000000000000000000000000000063656c6f5f323335663665663536663562110080218021802180218021802180218021'
+        }),
+        getRawTransactionReceipt: async (hash: string) => ({
+          transactionHash: hash,
+          blockNumber: '0x100',
+          status: 1,
+          gasUsed: '0x2c000',
+          effectiveGasPrice: '0x2e90edd000',
+          logs: [
+            makeRegisteredLog(777n, 'https://revertlens.example.com/api/agent/metadata', validWallet),
+            makeTransferLog('0x0000000000000000000000000000000000000000', validWallet, 777n)
+          ]
+        })
+      };
+
+      const app = buildApp(operatorConfig, { db, provider: mockProvider });
+
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/login',
+        payload: { password: TEST_OPERATOR_PASSWORD }
+      });
+      const token = loginRes.json().data.token;
+
+      const txHash = '0x2222222222222222222222222222222222222222222222222222222222222222';
+      const verifyRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/erc8004/verify',
+        headers: { Authorization: `Bearer ${token}` },
+        payload: { txHash }
+      });
+
+      expect(verifyRes.statusCode).toBe(200);
+      const json = verifyRes.json();
+      expect(json.data.verified).toBe(true);
+      expect(json.data.status).toBe('VERIFIED_REGISTERED');
+      expect(json.data.agentId).toBe('777');
+      expect(json.data.registration.block_number).toBe(256);
+
+      // Verify persistent SQLite record
+      const persisted = db.getErc8004RegistrationByTxHash(txHash);
+      expect(persisted).not.toBeNull();
+      expect(persisted?.status).toBe('CONFIRMED');
+      expect(persisted?.agent_id).toBe('777');
+
+      // Verify safe preview route now reflects ALREADY_REGISTERED
+      const previewRes = await app.inject({
+        method: 'GET',
+        url: '/api/agent/erc8004-registration-tx'
+      });
+      expect(previewRes.json().data.readinessStatus).toBe('ALREADY_REGISTERED');
+      expect(previewRes.json().data.agentId).toBe('777');
+
+      await app.close();
+    });
+
+    it('POST /api/operator/erc8004/verify handles on-chain reverted transaction cleanly', async () => {
+      const db = new Database(':memory:');
+
+      const mockProvider: any = {
+        isConfigured: () => true,
+        getRawTransaction: async (hash: string) => ({
+          hash,
+          from: validWallet,
+          to: validRegistry
+        }),
+        getRawTransactionReceipt: async (hash: string) => ({
+          transactionHash: hash,
+          blockNumber: '0x105',
+          status: 0,
+          gasUsed: '0x15000',
+          logs: []
+        })
+      };
+
+      const app = buildApp(operatorConfig, { db, provider: mockProvider });
+
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/login',
+        payload: { password: TEST_OPERATOR_PASSWORD }
+      });
+      const token = loginRes.json().data.token;
+
+      const txHash = '0x3333333333333333333333333333333333333333333333333333333333333333';
+      const verifyRes = await app.inject({
+        method: 'POST',
+        url: '/api/operator/erc8004/verify',
+        headers: { Authorization: `Bearer ${token}` },
+        payload: { txHash }
+      });
+
+      expect(verifyRes.statusCode).toBe(200);
+      const json = verifyRes.json();
+      expect(json.data.verified).toBe(false);
+      expect(json.data.status).toBe('TRANSACTION_REVERTED');
+
+      const persisted = db.getErc8004RegistrationByTxHash(txHash);
+      expect(persisted?.status).toBe('REVERTED');
+
+      await app.close();
     });
   });
 });

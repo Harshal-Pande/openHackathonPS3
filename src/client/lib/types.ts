@@ -298,3 +298,52 @@ export interface AgentMetadata {
   attributionTag: string;
   endpoints: Record<string, string>;
 }
+
+export interface Erc8004RegistrationRecord {
+  id: string;
+  tx_hash: string;
+  status: 'PENDING_CONFIRMATION' | 'CONFIRMED' | 'REVERTED' | 'FAILED';
+  agent_id: string | null;
+  agent_uri: string;
+  registry_address: string;
+  owner_address: string;
+  chain_id: number;
+  block_number: number | null;
+  gas_used: string | null;
+  actual_fee_paid: string | null;
+  attribution_tag: string;
+  has_attribution: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Erc8004StatusResponse {
+  agent: {
+    name: string;
+    type: string;
+    network: string;
+    chainId: number;
+    chainHex: string;
+    registryAddress: string;
+    agentWallet: string;
+    attributionTag: string;
+    canonicalAgentUri: string;
+  };
+  livePreflight: {
+    isPublicProductionUrl: boolean;
+    balanceWei: string;
+    balanceCelo: string;
+    gasPriceWei: string;
+    gasPriceGwei: string;
+    estimatedGas: string;
+    gasLimit: string;
+    estimatedCostWei: string;
+    estimatedCostCelo: string;
+    hasSufficientBalance: boolean;
+    shortfallWei: string;
+    shortfallCelo: string;
+    lifecycleStatus: string;
+  };
+  latestRegistration: Erc8004RegistrationRecord | null;
+  allRegistrations: Erc8004RegistrationRecord[];
+}

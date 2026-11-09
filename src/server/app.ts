@@ -5,7 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AppConfig, ensureAppConfig, validatePublicBaseUrl } from './config.js';
-import { Database } from './db/database.js';
+import { Database, Erc8004RegistrationRow } from './db/database.js';
 import { ChainstackProvider } from './providers/chainstack.js';
 import { CencoriProvider } from './providers/cencori.js';
 import {
@@ -13,7 +13,8 @@ import {
   ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
   REQUIRED_CELO_CHAIN_ID,
   OFFICIAL_CELO_ATTRIBUTION_TAG,
-  ERC8004_REGISTER_FUNCTION_SELECTOR
+  ERC8004_REGISTER_FUNCTION_SELECTOR,
+  verifyErc8004RegistrationReceipt
 } from './services/celoAttributionService.js';
 import { BuyQuoteService } from './services/buyQuoteService.js';
 import { BuyAdapter } from './adapters/buyAdapter.js';
@@ -55,6 +56,14 @@ const KillSwitchBodySchema = z.object({
   enabled: z.boolean()
 });
 
+const RecordPendingBodySchema = z.object({
+  txHash: z.string().trim().regex(/^0x[a-fA-F0-9]{64}$/, 'Must be a 32-byte hex transaction hash')
+});
+
+const VerifyRegistrationBodySchema = z.object({
+  txHash: z.string().trim().regex(/^0x[a-fA-F0-9]{64}$/, 'Must be a 32-byte hex transaction hash')
+});
+
 function resolveTrustProxy(trustProxyConfig: boolean | string): boolean | string[] {
   if (trustProxyConfig === false) return false;
   if (typeof trustProxyConfig === 'string' && trustProxyConfig.trim() !== '') {
@@ -62,6 +71,85 @@ function resolveTrustProxy(trustProxyConfig: boolean | string): boolean | string
   }
   // When true: trust standard reverse-proxy loopback and private subnets (Render, Railway, Fly.io, Docker)
   return ['127.0.0.1', '::1', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
+}
+
+async function fetchMainnetTxAndReceipt(
+  provider: ChainstackProvider,
+  txHash: string
+): Promise<{ tx: Record<string, unknown> | null; receipt: Record<string, unknown> | null }> {
+  try {
+    if (provider.isConfigured()) {
+      const [tx, receipt] = await Promise.all([
+        provider.getRawTransaction(txHash),
+        provider.getRawTransactionReceipt(txHash)
+      ]);
+      return { tx, receipt };
+    }
+  } catch {
+    // Provider query failed, proceed to fallback
+  }
+
+  // Fallback to public official Celo mainnet node (forno.celo.org) for read-only receipt retrieval
+  try {
+    const fallbackUrl = 'https://forno.celo.org';
+    const [txRes, receiptRes] = await Promise.all([
+      fetch(fallbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionByHash', params: [txHash] })
+      }).then((r) => r.json() as Promise<any>),
+      fetch(fallbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'eth_getTransactionReceipt', params: [txHash] })
+      }).then((r) => r.json() as Promise<any>)
+    ]);
+    return {
+      tx: txRes?.result || null,
+      receipt: receiptRes?.result || null
+    };
+  } catch {
+    return { tx: null, receipt: null };
+  }
+}
+
+async function fetchLiveBalanceAndGasPrice(
+  provider: ChainstackProvider,
+  address: string
+): Promise<{ balanceWei: string; gasPriceWei: string }> {
+  try {
+    if (provider.isConfigured()) {
+      const [balance, gasPrice] = await Promise.all([
+        provider.getBalance(address),
+        provider.getGasPrice()
+      ]);
+      return { balanceWei: balance, gasPriceWei: gasPrice };
+    }
+  } catch {
+    // Provider query failed, proceed to fallback
+  }
+
+  try {
+    const fallbackUrl = 'https://forno.celo.org';
+    const [bRes, gpRes] = await Promise.all([
+      fetch(fallbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBalance', params: [address, 'latest'] })
+      }).then((r) => r.json() as Promise<any>),
+      fetch(fallbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'eth_gasPrice', params: [] })
+      }).then((r) => r.json() as Promise<any>)
+    ]);
+    return {
+      balanceWei: bRes?.result || '0x0',
+      gasPriceWei: gpRes?.result || '0x2e90edd000' // ~200 Gwei fallback
+    };
+  } catch {
+    return { balanceWei: '0x0', gasPriceWei: '0x2e90edd000' };
+  }
 }
 
 export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: AppDependencies = {}): FastifyInstance {
@@ -321,6 +409,22 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       from: appConfig.AGENT_WALLET_ADDRESS as `0x${string}`
     });
 
+    const existingRegistration = db.getLatestErc8004Registration();
+    let readinessStatus = isLocalOrLoopback ? 'BLOCKED_PENDING_PUBLIC_DEPLOYMENT' : 'READY_FOR_OPERATOR_SIGNATURE';
+    let onChainRegistrationStatus = 'PREPARED_NOT_REGISTERED';
+    let agentId: string | null = null;
+
+    if (existingRegistration) {
+      if (existingRegistration.status === 'CONFIRMED') {
+        readinessStatus = 'ALREADY_REGISTERED';
+        onChainRegistrationStatus = 'VERIFIED_REGISTERED';
+        agentId = existingRegistration.agent_id;
+      } else if (existingRegistration.status === 'PENDING_CONFIRMATION') {
+        readinessStatus = 'PENDING_CONFIRMATION';
+        onChainRegistrationStatus = 'PENDING_CONFIRMATION';
+      }
+    }
+
     return {
       network: 'Celo Mainnet',
       chainId: REQUIRED_CELO_CHAIN_ID,
@@ -339,9 +443,10 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
         gasPriceGwei: '~200',
         estimatedCostCelo: '~0.0362 CELO'
       },
-      readinessStatus: isLocalOrLoopback ? 'BLOCKED_PENDING_PUBLIC_DEPLOYMENT' : 'READY_FOR_OPERATOR_SIGNATURE',
-      agentId: null,
-      onChainRegistrationStatus: 'PREPARED_NOT_REGISTERED',
+      readinessStatus,
+      agentId,
+      onChainRegistrationStatus,
+      existingRegistration: existingRegistration || null,
       taggedTransaction: {
         to: tx.to,
         from: tx.from,
@@ -573,6 +678,231 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
     const query = request.query as { entityId?: string; limit?: string };
     const limit = query.limit ? Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 200) : 50;
     return buyQuoteService.getAuditEvents(query.entityId, limit);
+  });
+
+  // ==========================================
+  // OPERATOR ERC-8004 REGISTRATION & VERIFICATION
+  // ==========================================
+
+  // GET /api/operator/erc8004/status - Operator overview of ERC-8004 registration state & live preflight
+  server.get('/api/operator/erc8004/status', async (request) => {
+    requireOperatorSession(request);
+    const canonicalBaseUrl = appConfig.PUBLIC_BASE_URL.replace(/\/+$/, '');
+    const isPublicProductionUrl = validatePublicBaseUrl(canonicalBaseUrl, true).valid;
+    const canonicalAgentUri = `${canonicalBaseUrl}/api/agent/metadata`;
+    const latestRegistration = db.getLatestErc8004Registration();
+    const allRegistrations = db.listErc8004Registrations();
+
+    // Fetch live balance and gas price
+    const { balanceWei, gasPriceWei } = await fetchLiveBalanceAndGasPrice(provider, appConfig.AGENT_WALLET_ADDRESS);
+    const gasLimit = 350000n;
+    const gasPriceBigInt = BigInt(gasPriceWei);
+    const balanceBigInt = BigInt(balanceWei);
+    const estimatedCostWei = gasLimit * (gasPriceBigInt > 0n ? gasPriceBigInt : 200000000000n);
+
+    const balanceCelo = (Number(balanceBigInt) / 1e18).toFixed(6);
+    const estimatedCostCelo = (Number(estimatedCostWei) / 1e18).toFixed(6);
+    const gasPriceGwei = (Number(gasPriceBigInt) / 1e9).toFixed(2);
+    const hasSufficientBalance = balanceBigInt >= estimatedCostWei;
+    const shortfallWei = hasSufficientBalance ? '0' : (estimatedCostWei - balanceBigInt).toString();
+    const shortfallCelo = hasSufficientBalance ? '0' : (Number(estimatedCostWei - balanceBigInt) / 1e18).toFixed(6);
+
+    let lifecycleStatus = 'READY_TO_SIGN';
+    if (latestRegistration?.status === 'CONFIRMED') {
+      lifecycleStatus = 'VERIFIED_REGISTERED';
+    } else if (latestRegistration?.status === 'PENDING_CONFIRMATION') {
+      lifecycleStatus = 'PENDING_CONFIRMATION';
+    } else if (!isPublicProductionUrl) {
+      lifecycleStatus = 'PREFLIGHT_FAILED';
+    } else if (!hasSufficientBalance) {
+      lifecycleStatus = 'INSUFFICIENT_BALANCE';
+    }
+
+    return {
+      agent: {
+        name: 'RevertLens',
+        type: 'ERC-8004 Identity',
+        network: 'Celo Mainnet',
+        chainId: REQUIRED_CELO_CHAIN_ID,
+        chainHex: '0xa4ec',
+        registryAddress: ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
+        agentWallet: appConfig.AGENT_WALLET_ADDRESS,
+        attributionTag: appConfig.CELO_ATTRIBUTION_TAG,
+        canonicalAgentUri
+      },
+      livePreflight: {
+        isPublicProductionUrl,
+        balanceWei: balanceBigInt.toString(),
+        balanceCelo,
+        gasPriceWei: gasPriceBigInt.toString(),
+        gasPriceGwei,
+        estimatedGas: '180953',
+        gasLimit: gasLimit.toString(),
+        estimatedCostWei: estimatedCostWei.toString(),
+        estimatedCostCelo,
+        hasSufficientBalance,
+        shortfallWei,
+        shortfallCelo,
+        lifecycleStatus
+      },
+      latestRegistration,
+      allRegistrations
+    };
+  });
+
+  // POST /api/operator/erc8004/record-pending - Record pending registration broadcast
+  server.post('/api/operator/erc8004/record-pending', async (request) => {
+    requireOperatorSession(request);
+    const parseResult = RecordPendingBodySchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const err: any = new Error(parseResult.error.errors.map((e) => e.message).join(', '));
+      err.statusCode = 400;
+      err.code = 'INVALID_INPUT';
+      throw err;
+    }
+
+    const { txHash } = parseResult.data;
+    const canonicalBaseUrl = appConfig.PUBLIC_BASE_URL.replace(/\/+$/, '');
+    const canonicalAgentUri = `${canonicalBaseUrl}/api/agent/metadata`;
+
+    let registration = db.getErc8004RegistrationByTxHash(txHash);
+    if (!registration) {
+      const now = new Date().toISOString();
+      registration = {
+        id: randomUUID(),
+        tx_hash: txHash.toLowerCase(),
+        status: 'PENDING_CONFIRMATION',
+        agent_id: null,
+        agent_uri: canonicalAgentUri,
+        registry_address: ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
+        owner_address: appConfig.AGENT_WALLET_ADDRESS,
+        chain_id: REQUIRED_CELO_CHAIN_ID,
+        block_number: null,
+        gas_used: null,
+        actual_fee_paid: null,
+        attribution_tag: appConfig.CELO_ATTRIBUTION_TAG,
+        has_attribution: 1,
+        created_at: now,
+        updated_at: now
+      };
+      db.saveErc8004Registration(registration);
+    }
+
+    return { success: true, registration };
+  });
+
+  // POST /api/operator/erc8004/verify - Independently retrieve on-chain receipt and verify registration
+  server.post('/api/operator/erc8004/verify', async (request) => {
+    requireOperatorSession(request);
+    const parseResult = VerifyRegistrationBodySchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const err: any = new Error(parseResult.error.errors.map((e) => e.message).join(', '));
+      err.statusCode = 400;
+      err.code = 'INVALID_INPUT';
+      throw err;
+    }
+
+    const { txHash } = parseResult.data;
+    const canonicalBaseUrl = appConfig.PUBLIC_BASE_URL.replace(/\/+$/, '');
+    const canonicalAgentUri = `${canonicalBaseUrl}/api/agent/metadata`;
+
+    const existing = db.getErc8004RegistrationByTxHash(txHash);
+    if (existing && existing.status === 'CONFIRMED') {
+      return {
+        verified: true,
+        status: 'VERIFIED_REGISTERED',
+        agentId: existing.agent_id,
+        registration: existing
+      };
+    }
+
+    // Retrieve receipt and transaction from Celo Mainnet
+    const { tx, receipt } = await fetchMainnetTxAndReceipt(provider, txHash);
+
+    if (!receipt) {
+      return {
+        verified: false,
+        status: 'PENDING_CONFIRMATION',
+        reason: 'Transaction is not yet mined or receipt is pending on Celo Mainnet.'
+      };
+    }
+
+    // Verify receipt using canonical celoAttributionService
+    const result = celoAttributionService.verifyErc8004RegistrationReceipt({
+      receipt: receipt as any,
+      transaction: (tx as any) || undefined,
+      expectedRegistry: ERC8004_IDENTITY_REGISTRY_CELO_MAINNET,
+      expectedWallet: appConfig.AGENT_WALLET_ADDRESS as `0x${string}`,
+      expectedAttributionTag: appConfig.CELO_ATTRIBUTION_TAG
+    });
+
+    const now = new Date().toISOString();
+    const gasUsedStr = receipt.gasUsed ? String(BigInt(receipt.gasUsed as any)) : null;
+    const actualFeeStr =
+      receipt.gasUsed && receipt.effectiveGasPrice
+        ? (BigInt(receipt.gasUsed as any) * BigInt(receipt.effectiveGasPrice as any)).toString()
+        : null;
+
+    if (result.verified && result.agentId) {
+      const confirmedRow: Erc8004RegistrationRow = {
+        id: existing?.id || randomUUID(),
+        tx_hash: txHash.toLowerCase(),
+        status: 'CONFIRMED',
+        agent_id: result.agentId,
+        agent_uri: result.agentURI || canonicalAgentUri,
+        registry_address: result.registryAddress,
+        owner_address: result.owner || appConfig.AGENT_WALLET_ADDRESS,
+        chain_id: REQUIRED_CELO_CHAIN_ID,
+        block_number: result.blockNumber,
+        gas_used: gasUsedStr,
+        actual_fee_paid: actualFeeStr,
+        attribution_tag: result.attributionTag,
+        has_attribution: result.hasExpectedAttribution ? 1 : 0,
+        created_at: existing?.created_at || now,
+        updated_at: now
+      };
+      db.saveErc8004Registration(confirmedRow);
+
+      return {
+        verified: true,
+        status: 'VERIFIED_REGISTERED',
+        agentId: result.agentId,
+        registration: confirmedRow
+      };
+    }
+
+    if (result.status === 'REVERTED') {
+      const revertedRow: Erc8004RegistrationRow = {
+        id: existing?.id || randomUUID(),
+        tx_hash: txHash.toLowerCase(),
+        status: 'REVERTED',
+        agent_id: null,
+        agent_uri: canonicalAgentUri,
+        registry_address: result.registryAddress,
+        owner_address: appConfig.AGENT_WALLET_ADDRESS,
+        chain_id: REQUIRED_CELO_CHAIN_ID,
+        block_number: result.blockNumber,
+        gas_used: gasUsedStr,
+        actual_fee_paid: actualFeeStr,
+        attribution_tag: result.attributionTag,
+        has_attribution: 0,
+        created_at: existing?.created_at || now,
+        updated_at: now
+      };
+      db.saveErc8004Registration(revertedRow);
+
+      return {
+        verified: false,
+        status: 'TRANSACTION_REVERTED',
+        reason: result.reason || 'Transaction reverted on Celo Mainnet.'
+      };
+    }
+
+    return {
+      verified: false,
+      status: 'REGISTRATION_ERROR',
+      reason: result.reason || 'Transaction does not contain valid ERC-8004 registration events.'
+    };
   });
 
   // ==========================================

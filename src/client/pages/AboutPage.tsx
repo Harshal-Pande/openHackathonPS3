@@ -26,6 +26,7 @@ interface AgentMetadata {
 export const AboutPage: React.FC = () => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [agentMeta, setAgentMeta] = useState<AgentMetadata | null>(null);
+  const [regTxData, setRegTxData] = useState<{ status: string; registeredAgentId?: string | null } | null>(null);
   const [healthError, setHealthError] = useState(false);
 
   useEffect(() => {
@@ -41,6 +42,13 @@ export const AboutPage: React.FC = () => {
       .then(r => r.json())
       .then(j => {
         if (j.data) setAgentMeta(j.data);
+      })
+      .catch(() => {});
+
+    fetch('/api/agent/erc8004-registration-tx')
+      .then(r => r.json())
+      .then(j => {
+        if (j) setRegTxData(j);
       })
       .catch(() => {});
   }, []);
@@ -158,11 +166,29 @@ export const AboutPage: React.FC = () => {
 
             <div className="card" style={{ padding: 'var(--s-3)', marginTop: 'var(--s-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', marginBottom: 'var(--s-1)' }}>
-                <Chip tone="info">Prepared</Chip>
+                <Chip
+                  tone={
+                    regTxData?.status === 'ALREADY_REGISTERED'
+                      ? 'ok'
+                      : regTxData?.status === 'PENDING_CONFIRMATION'
+                        ? 'warn'
+                        : 'info'
+                  }
+                >
+                  {regTxData?.status === 'ALREADY_REGISTERED'
+                    ? `Registered (Agent #${regTxData.registeredAgentId})`
+                    : regTxData?.status === 'PENDING_CONFIRMATION'
+                      ? 'Pending Confirmation'
+                      : 'Prepared'}
+                </Chip>
                 <span className="text-2" style={{ fontSize: '13px', fontWeight: 600 }}>ERC-8004 Registry Status</span>
               </div>
               <p className="text-2" style={{ fontSize: '13px' }}>
-                ERC-8004 registration transaction is prepared. This app does not verify whether it has been broadcast on-chain.
+                {regTxData?.status === 'ALREADY_REGISTERED'
+                  ? `On-chain identity verified on Celo Mainnet. Registered Agent ID is #${regTxData.registeredAgentId}.`
+                  : regTxData?.status === 'PENDING_CONFIRMATION'
+                    ? 'Registration transaction broadcast to Celo Mainnet; awaiting final receipt confirmation.'
+                    : 'ERC-8004 registration transaction is prepared with official attribution tag celo_235f6ef56f5b.'}
               </p>
             </div>
           </div>

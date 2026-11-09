@@ -8,8 +8,26 @@ import { Modal } from '../components/Modal.js';
 import { showToast } from '../components/Toast.js';
 import { quoteStatusTone } from '../lib/status.js';
 import { shortAddr, celoscanAddr, celoscanTx } from '../lib/format.js';
-import type { BuyQuoteSummary, PurchaseAttemptRecord, BuyHealthStatus } from '../lib/types.js';
-import { Lock, Unlock, ShieldAlert, AlertTriangle, RefreshCw, Zap, ExternalLink } from 'lucide-react';
+import type {
+  BuyQuoteSummary,
+  PurchaseAttemptRecord,
+  BuyHealthStatus,
+  Erc8004StatusResponse,
+} from '../lib/types.js';
+import {
+  Lock,
+  Unlock,
+  ShieldAlert,
+  AlertTriangle,
+  RefreshCw,
+  Zap,
+  ExternalLink,
+  Wallet,
+  CheckCircle2,
+  AlertCircle,
+  Radio,
+  Loader2,
+} from 'lucide-react';
 
 export const OperatorPage: React.FC = () => {
   const [token, setToken] = useState<string | null>(null);
@@ -30,7 +48,61 @@ export const OperatorPage: React.FC = () => {
   const [killSwitchTimestamp, setKillSwitchTimestamp] = useState<string | null>(null);
   const [disengageModalOpen, setDisengageModalOpen] = useState(false);
 
-  // Fetch quotes, health and purchases when unlocked
+  // ERC-8004 Registration State
+  const [erc8004Data, setErc8004Data] = useState<Erc8004StatusResponse | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [walletChainId, setWalletChainId] = useState<number | null>(null);
+  const [isConnectingWallet, setIsConnectingWallet] = useState(false);
+  const [isSwitchingChain, setIsSwitchingChain] = useState(false);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [confirmRegistryCheckbox, setConfirmRegistryCheckbox] = useState(false);
+  const [confirmPhraseInput, setConfirmPhraseInput] = useState('');
+  const [registrationBroadcastTx, setRegistrationBroadcastTx] = useState<string | null>(null);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+  const [registrationSuccess, setRegistrationSuccess] = useState<string | null>(null);
+
+  // Detect injected browser wallet
+  useEffect(() => {
+    const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+    if (!eth) return;
+
+    eth
+      .request({ method: 'eth_accounts' })
+      .then((accounts: string[]) => {
+        if (accounts && accounts.length > 0) {
+          setWalletAddress(accounts[0]);
+        }
+      })
+      .catch(() => {});
+
+    eth
+      .request({ method: 'eth_chainId' })
+      .then((chainHex: string) => {
+        if (chainHex) {
+          setWalletChainId(parseInt(chainHex, 16));
+        }
+      })
+      .catch(() => {});
+
+    const handleAccountsChanged = (accounts: string[]) => {
+      setWalletAddress(accounts && accounts.length > 0 ? accounts[0] : null);
+    };
+
+    const handleChainChanged = (chainHex: string) => {
+      setWalletChainId(parseInt(chainHex, 16));
+    };
+
+    eth.on?.('accountsChanged', handleAccountsChanged);
+    eth.on?.('chainChanged', handleChainChanged);
+
+    return () => {
+      eth.removeListener?.('accountsChanged', handleAccountsChanged);
+      eth.removeListener?.('chainChanged', handleChainChanged);
+    };
+  }, []);
+
+  // Fetch quotes, health, purchases and ERC-8004 status when unlocked
   const fetchQuotes = async (authToken: string) => {
     try {
       const res = await fetch('/api/operator/quotes', {
@@ -85,10 +157,27 @@ export const OperatorPage: React.FC = () => {
     }
   };
 
+  const fetchErc8004Status = async (authToken: string) => {
+    try {
+      const res = await fetch('/api/operator/erc8004/status', {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.agent && json.livePreflight) {
+          setErc8004Data(json);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const refreshAll = (authToken: string) => {
     fetchQuotes(authToken);
     fetchPurchases(authToken);
     fetchBuyHealth(authToken);
+    fetchErc8004Status(authToken);
   };
 
   useEffect(() => {
@@ -132,6 +221,225 @@ export const OperatorPage: React.FC = () => {
     setQuotes([]);
     setPassword('');
     showToast('Operator console locked');
+  };
+
+  const handleConnectWallet = async () => {
+    const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+    if (!eth) {
+      showToast('No injected Web3 browser wallet detected (install MetaMask or Rabby)', 'fail');
+      return;
+    }
+    setIsConnectingWallet(true);
+    try {
+      const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
+      if (accounts && accounts.length > 0) {
+        setWalletAddress(accounts[0]);
+        const chainHex: string = await eth.request({ method: 'eth_chainId' });
+        setWalletChainId(parseInt(chainHex, 16));
+        showToast('Browser wallet connected', 'ok');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to connect wallet', 'fail');
+    } finally {
+      setIsConnectingWallet(false);
+    }
+  };
+
+  const handleSwitchNetwork = async () => {
+    const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+    if (!eth) return;
+    setIsSwitchingChain(true);
+    try {
+      await eth.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0xa4ec' }], // Celo Mainnet 42220
+      });
+      setWalletChainId(42220);
+      showToast('Switched to Celo Mainnet', 'ok');
+    } catch (switchError: any) {
+      if (switchError.code === 4902) {
+        try {
+          await eth.request({
+            method: 'wallet_addEthereumChain',
+            params: [
+              {
+                chainId: '0xa4ec',
+                chainName: 'Celo Mainnet',
+                nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
+                rpcUrls: ['https://forno.celo.org'],
+                blockExplorerUrls: ['https://celoscan.io'],
+              },
+            ],
+          });
+          setWalletChainId(42220);
+          showToast('Added and switched to Celo Mainnet', 'ok');
+        } catch (addError: any) {
+          showToast(addError.message || 'Failed to add Celo Mainnet', 'fail');
+        }
+      } else {
+        showToast(switchError.message || 'Failed to switch network', 'fail');
+      }
+    } finally {
+      setIsSwitchingChain(false);
+    }
+  };
+
+  const REQUIRED_REGISTRATION_PHRASE = 'REGISTER REVERTLENS ON CELO MAINNET';
+  const phraseMatches = confirmPhraseInput.trim() === REQUIRED_REGISTRATION_PHRASE;
+
+  const handleBroadcastRegistration = async () => {
+    if (!token || !erc8004Data) return;
+    const eth = typeof window !== 'undefined' ? (window as any).ethereum : null;
+    if (!eth || !walletAddress) {
+      showToast('Wallet not connected', 'fail');
+      return;
+    }
+    if (walletChainId !== 42220) {
+      showToast('Wallet must be on Celo Mainnet (Chain ID 42220)', 'fail');
+      return;
+    }
+    if (!phraseMatches) {
+      setRegistrationError(`You must type "${REQUIRED_REGISTRATION_PHRASE}" exactly.`);
+      return;
+    }
+    if (!confirmRegistryCheckbox) {
+      setRegistrationError('Please verify the destination registry and attribution acknowledgement.');
+      return;
+    }
+
+    setRegistrationError(null);
+    setRegistrationSuccess(null);
+    setIsBroadcasting(true);
+
+    try {
+      // Fetch latest prepared registration transaction payload
+      const txRes = await fetch('/api/agent/erc8004-registration-tx');
+      const txJson = await txRes.json();
+      if (!txJson.transaction || !txJson.transaction.data) {
+        throw new Error(txJson.error?.message || 'Failed to fetch registration payload.');
+      }
+
+      const txTo = txJson.transaction.to;
+      const txData = txJson.transaction.data;
+
+      // Broadcast transaction via injected wallet
+      const txHash: string = await eth.request({
+        method: 'eth_sendTransaction',
+        params: [
+          {
+            from: walletAddress,
+            to: txTo,
+            data: txData,
+            value: '0x0',
+            gas: '0x55730', // 350,000 gas limit in hex
+          },
+        ],
+      });
+
+      if (!txHash || typeof txHash !== 'string' || !txHash.startsWith('0x')) {
+        throw new Error('Wallet did not return a valid transaction hash.');
+      }
+
+      setRegistrationBroadcastTx(txHash);
+      showToast(`Registration broadcast! Hash: ${txHash.slice(0, 10)}...`, 'ok');
+
+      // Record pending broadcast in SQLite database
+      await fetch('/api/operator/erc8004/record-pending', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          txHash,
+          fromAddress: walletAddress,
+        }),
+      });
+
+      // Refresh status immediately
+      fetchErc8004Status(token);
+
+      // Start automatic receipt verification polling
+      pollVerification(txHash, token);
+    } catch (err: any) {
+      const msg = err.message || 'Broadcast rejected or failed.';
+      setRegistrationError(msg);
+      showToast(msg, 'fail');
+    } finally {
+      setIsBroadcasting(false);
+    }
+  };
+
+  const pollVerification = async (txHash: string, authToken: string) => {
+    setIsVerifying(true);
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch('/api/operator/erc8004/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ txHash }),
+        });
+        const json = await res.json();
+
+        if (json.verified && (json.status === 'VERIFIED_REGISTERED' || json.status === 'CONFIRMED')) {
+          clearInterval(interval);
+          setIsVerifying(false);
+          setRegistrationSuccess(`Agent verified on Celo Mainnet! Registered Agent ID: #${json.agentId}`);
+          showToast(`Agent verified on-chain! ID #${json.agentId}`, 'ok');
+          fetchErc8004Status(authToken);
+        } else if (json.status === 'REVERTED') {
+          clearInterval(interval);
+          setIsVerifying(false);
+          setRegistrationError(`Registration transaction reverted on-chain: ${json.reason || 'Reverted'}`);
+          showToast('Registration transaction reverted', 'fail');
+          fetchErc8004Status(authToken);
+        } else if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          setIsVerifying(false);
+          showToast('Transaction is pending mining. You can verify anytime in the table below.', 'neutral');
+          fetchErc8004Status(authToken);
+        }
+      } catch {
+        if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          setIsVerifying(false);
+        }
+      }
+    }, 3500);
+  };
+
+  const handleManualVerify = async (txHash: string) => {
+    if (!token) return;
+    setIsVerifying(true);
+    try {
+      const res = await fetch('/api/operator/erc8004/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ txHash }),
+      });
+      const json = await res.json();
+      if (json.verified) {
+        showToast(`Verified! Agent ID #${json.agentId}`, 'ok');
+        setRegistrationSuccess(`Confirmed on Celo Mainnet! Agent ID #${json.agentId}`);
+      } else {
+        showToast(`Status: ${json.status || 'PENDING'}`, 'neutral');
+      }
+      fetchErc8004Status(token);
+    } catch {
+      showToast('Verification request failed', 'fail');
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   const handleApproveQuote = async () => {
@@ -248,6 +556,7 @@ export const OperatorPage: React.FC = () => {
   const expectedLast6 = selectedQuote ? selectedQuote.bodySha256.slice(-6).toLowerCase() : '';
   const typedLast6 = hashConfirmInput.trim().toLowerCase();
   const hashMatches = Boolean(expectedLast6 && typedLast6 === expectedLast6);
+
   const canApprove = Boolean(
     selectedQuote?.status === 'AWAITING_OPERATOR_APPROVAL' &&
     confirmCheckbox &&
@@ -400,6 +709,470 @@ export const OperatorPage: React.FC = () => {
                   </span>
                 </div>
               )}
+            </div>
+          </Panel>
+
+          {/* ERC-8004 Agent Identity Registration Console */}
+          <Panel title="ERC-8004 Agent Identity Registration" tag="Celo Mainnet Registry">
+            <div className="stack" style={{ gap: 'var(--s-4)' }}>
+              {/* Top Banner / Active Status */}
+              {erc8004Data?.latestRegistration?.status === 'CONFIRMED' ? (
+                <div
+                  className="card"
+                  style={{
+                    padding: 'var(--s-3)',
+                    background: 'rgba(34, 197, 94, 0.08)',
+                    borderColor: 'rgba(34, 197, 94, 0.3)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 'var(--s-2)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--s-2)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                      <CheckCircle2 size={18} className="text-ok" />
+                      <strong style={{ fontSize: '15px' }} className="text-ok">
+                        Agent Identity Confirmed & Verified on Celo Mainnet
+                      </strong>
+                    </div>
+                    <Chip tone="ok">Agent ID #{erc8004Data.latestRegistration.agent_id}</Chip>
+                  </div>
+                  <div className="grid grid--2col" style={{ fontSize: '13px' }}>
+                    <KeyValue label="Registered Agent ID">
+                      <span className="mono" style={{ fontSize: '14px', fontWeight: 700 }}>
+                        #{erc8004Data.latestRegistration.agent_id}
+                      </span>
+                    </KeyValue>
+                    <KeyValue label="Attribution Tag">
+                      <span className="mono text-lens">{erc8004Data.agent.attributionTag}</span>
+                    </KeyValue>
+                    <KeyValue label="Confirmation Block">
+                      <span className="mono">{erc8004Data.latestRegistration.block_number ?? 'Mined'}</span>
+                    </KeyValue>
+                    <KeyValue label="Transaction Hash">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                        <span className="mono">{shortAddr(erc8004Data.latestRegistration.tx_hash)}</span>
+                        <a
+                          href={celoscanTx(erc8004Data.latestRegistration.tx_hash)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn--ghost btn--sm"
+                          style={{ padding: '2px 4px' }}
+                          title="View on CeloScan"
+                        >
+                          <ExternalLink size={12} />
+                        </a>
+                      </div>
+                    </KeyValue>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="card"
+                  style={{
+                    padding: 'var(--s-3)',
+                    background: 'var(--ink-850)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--s-2)', marginBottom: 'var(--s-2)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                      <Radio size={16} className="text-info" />
+                      <span style={{ fontSize: '14px', fontWeight: 600 }}>Celo Mainnet Registration Status</span>
+                    </div>
+                    <Chip
+                      tone={
+                        erc8004Data?.livePreflight?.lifecycleStatus === 'VERIFIED_REGISTERED'
+                          ? 'ok'
+                          : erc8004Data?.livePreflight?.lifecycleStatus === 'PENDING_CONFIRMATION'
+                            ? 'warn'
+                            : erc8004Data?.livePreflight?.lifecycleStatus === 'INSUFFICIENT_BALANCE'
+                              ? 'warn'
+                              : 'info'
+                      }
+                    >
+                      {erc8004Data?.livePreflight?.lifecycleStatus || 'CHECKING'}
+                    </Chip>
+                  </div>
+
+                  <p className="text-2" style={{ fontSize: '13px', lineHeight: 1.5 }}>
+                    Registers RevertLens with the official Celo Mainnet ERC-8004 Identity Registry, binding the canonical metadata URI (<code>/api/agent/metadata</code>) with ERC-8021 attribution tag (<code>{erc8004Data?.agent?.attributionTag || 'celo_235f6ef56f5b'}</code>).
+                  </p>
+                </div>
+              )}
+
+              {/* Identity & Registry Target Specs */}
+              <div className="grid grid--2col">
+                <KeyValue label="Identity Registry Contract">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                    <span className="mono" style={{ fontSize: '13px' }}>
+                      {erc8004Data?.agent?.registryAddress ? shortAddr(erc8004Data.agent.registryAddress) : '0x8004...a432'}
+                    </span>
+                    <CopyButton text={erc8004Data?.agent?.registryAddress || '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'} label="Copy registry" onCopy={() => showToast('Registry copied')} />
+                    <a
+                      href={celoscanAddr(erc8004Data?.agent?.registryAddress || '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432')}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn--ghost btn--sm"
+                      style={{ padding: '2px 4px' }}
+                      title="View on CeloScan"
+                    >
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
+                </KeyValue>
+
+                <KeyValue label="Designated Agent Wallet">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                    <span className="mono" style={{ fontSize: '13px' }}>
+                      {erc8004Data?.agent?.agentWallet ? shortAddr(erc8004Data.agent.agentWallet) : '0x3e1b...8e52'}
+                    </span>
+                    <CopyButton text={erc8004Data?.agent?.agentWallet || '0x3e1bef07824cd0E076F4907641F0A0EF27898e52'} label="Copy wallet" onCopy={() => showToast('Wallet copied')} />
+                    <a
+                      href={celoscanAddr(erc8004Data?.agent?.agentWallet || '0x3e1bef07824cd0E076F4907641F0A0EF27898e52')}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn--ghost btn--sm"
+                      style={{ padding: '2px 4px' }}
+                      title="View on CeloScan"
+                    >
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
+                </KeyValue>
+
+                <KeyValue label="Live Celo Gas Price">
+                  <span className="mono">{erc8004Data?.livePreflight?.gasPriceGwei || '200.00'} Gwei</span>
+                </KeyValue>
+
+                <KeyValue label="Estimated Gas & Cost">
+                  <span className="mono">
+                    350,000 limit (~{erc8004Data?.livePreflight?.estimatedCostCelo || '0.036'} CELO)
+                  </span>
+                </KeyValue>
+              </div>
+
+              {/* Wallet Connection & Preflight Section */}
+              <div
+                className="card stack"
+                style={{
+                  padding: 'var(--s-3)',
+                  gap: 'var(--s-3)',
+                  border: '1px solid var(--border-strong)',
+                  background: 'var(--ink-900)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--s-2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                    <Wallet size={16} className="text-1" />
+                    <span style={{ fontSize: '13px', fontWeight: 600 }}>Browser Wallet Status</span>
+                  </div>
+
+                  <div>
+                    {!walletAddress ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={isConnectingWallet}
+                        onClick={handleConnectWallet}
+                        icon={isConnectingWallet ? <Loader2 size={14} className="spin" /> : <Wallet size={14} />}
+                      >
+                        {isConnectingWallet ? 'Connecting...' : 'Connect Browser Wallet'}
+                      </Button>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                        <span className="chip chip--ok">Connected: {shortAddr(walletAddress)}</span>
+                        {walletChainId === 42220 ? (
+                          <span className="chip chip--neutral">Celo Mainnet (42220)</span>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={isSwitchingChain}
+                            onClick={handleSwitchNetwork}
+                            icon={isSwitchingChain ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                          >
+                            Switch to Celo Mainnet
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {walletAddress && walletChainId !== 42220 && (
+                  <div
+                    className="card"
+                    style={{
+                      padding: 'var(--s-2) var(--s-3)',
+                      background: 'var(--warn-bg)',
+                      borderColor: 'var(--warn-line)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 'var(--s-2)',
+                      fontSize: '12px',
+                      color: 'var(--warn-text)',
+                    }}
+                  >
+                    <AlertTriangle size={16} />
+                    <span>
+                      <strong>Wrong network:</strong> Connected to Chain ID {walletChainId ?? 'unknown'}. Please click <strong>Switch to Celo Mainnet</strong> (Chain ID 42220) above.
+                    </span>
+                  </div>
+                )}
+
+                {walletAddress &&
+                  erc8004Data?.agent?.agentWallet &&
+                  walletAddress.toLowerCase() !== erc8004Data.agent.agentWallet.toLowerCase() && (
+                    <div
+                      className="card"
+                      style={{
+                        padding: 'var(--s-2) var(--s-3)',
+                        background: 'rgba(234, 179, 8, 0.1)',
+                        borderColor: 'rgba(234, 179, 8, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--s-2)',
+                        fontSize: '12px',
+                        color: 'var(--text-1)',
+                      }}
+                    >
+                      <AlertCircle size={16} className="text-warn" />
+                      <span>
+                        <strong>Note:</strong> Connected address (<code>{shortAddr(walletAddress)}</code>) is different from the configured agent wallet (<code>{shortAddr(erc8004Data.agent.agentWallet)}</code>). Ensure you switch accounts in your wallet so the intended address registers and controls this Agent ID.
+                      </span>
+                    </div>
+                  )}
+
+                {/* Preflight Balance Check */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 'var(--s-2) var(--s-3)',
+                    background: 'var(--ink-850)',
+                    borderRadius: 'var(--r-sm)',
+                    fontSize: '13px',
+                  }}
+                >
+                  <span className="text-2">Agent Wallet Celo Balance:</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                    <span className="mono" style={{ fontWeight: 600 }}>
+                      {erc8004Data?.livePreflight?.balanceCelo || '0.000000'} CELO
+                    </span>
+                    <Chip tone={erc8004Data?.livePreflight?.hasSufficientBalance ? 'ok' : 'warn'}>
+                      {erc8004Data?.livePreflight?.hasSufficientBalance ? 'Sufficient for Gas' : 'Zero / Insufficient'}
+                    </Chip>
+                  </div>
+                </div>
+
+                {!erc8004Data?.livePreflight?.hasSufficientBalance && (
+                  <div
+                    className="card"
+                    style={{
+                      padding: 'var(--s-2) var(--s-3)',
+                      background: 'rgba(234, 179, 8, 0.08)',
+                      borderColor: 'rgba(234, 179, 8, 0.25)',
+                      fontSize: '12px',
+                      color: 'var(--text-2)',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <p style={{ margin: 0 }}>
+                      <strong>Gas Funding Required:</strong> To broadcast on Celo Mainnet, the signing wallet needs approximately ~{erc8004Data?.livePreflight?.estimatedCostCelo || '0.036'} CELO for gas.
+                      Deposit ~0.05 CELO to <code className="mono">{erc8004Data?.agent?.agentWallet || '0x3e1bef07824cd0E076F4907641F0A0EF27898e52'}</code>.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Operator Confirmation & Broadcast Gate */}
+              {erc8004Data?.latestRegistration?.status !== 'CONFIRMED' && (
+                <div
+                  className="card stack"
+                  style={{
+                    padding: 'var(--s-3)',
+                    gap: 'var(--s-3)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--ink-850)',
+                  }}
+                >
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-1)' }}>
+                    Operator Broadcast Confirmation Gate
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={confirmRegistryCheckbox}
+                      onChange={e => setConfirmRegistryCheckbox(e.target.checked)}
+                    />
+                    <span>
+                      I verify the target registry (<code>0x8004A169FB4a3325136EB29fA0ceB6D2e539a432</code>), chain ID 42220, and attribution tag (<code>celo_235f6ef56f5b</code>).
+                    </span>
+                  </label>
+
+                  <div>
+                    <label htmlFor="confirmRegPhrase" style={{ display: 'block', fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }}>
+                      Type <code>{REQUIRED_REGISTRATION_PHRASE}</code> to unlock signing:
+                    </label>
+                    <input
+                      id="confirmRegPhrase"
+                      type="text"
+                      value={confirmPhraseInput}
+                      onChange={e => setConfirmPhraseInput(e.target.value)}
+                      placeholder={REQUIRED_REGISTRATION_PHRASE}
+                      style={{
+                        width: '100%',
+                        height: '36px',
+                        fontFamily: 'var(--font-mono)',
+                        padding: '0 var(--s-3)',
+                        background: 'var(--ink-900)',
+                        border: '1px solid var(--border-strong)',
+                        borderRadius: 'var(--r-sm)',
+                        color: 'var(--text-1)',
+                        fontSize: '13px',
+                      }}
+                    />
+                  </div>
+
+                  {registrationError && (
+                    <p className="text-fail" role="alert" style={{ fontSize: '12px', margin: 0 }}>
+                      {registrationError}
+                    </p>
+                  )}
+
+                  {registrationSuccess && (
+                    <p className="text-ok" role="status" style={{ fontSize: '12px', margin: 0 }}>
+                      {registrationSuccess}
+                    </p>
+                  )}
+
+                  {registrationBroadcastTx && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-2)' }}>
+                      Broadcast transaction:{' '}
+                      <a
+                        href={celoscanTx(registrationBroadcastTx)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-link mono"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                      >
+                        {registrationBroadcastTx.slice(0, 14)}... <ExternalLink size={10} />
+                      </a>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--s-2)', marginTop: 'var(--s-1)' }}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={
+                        !walletAddress ||
+                        walletChainId !== 42220 ||
+                        !confirmRegistryCheckbox ||
+                        !phraseMatches ||
+                        isBroadcasting ||
+                        isVerifying
+                      }
+                      onClick={handleBroadcastRegistration}
+                      icon={
+                        isBroadcasting || isVerifying ? (
+                          <Loader2 size={14} className="spin" />
+                        ) : (
+                          <Zap size={14} />
+                        )
+                      }
+                    >
+                      {isBroadcasting
+                        ? 'Broadcasting via Wallet...'
+                        : isVerifying
+                          ? 'Verifying On-Chain Receipt...'
+                          : 'Sign & Broadcast with Wallet'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Registration History / Audit Ledger */}
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: 'var(--s-2)' }}>
+                  On-Chain Registration Records
+                </div>
+
+                {(!erc8004Data?.allRegistrations || erc8004Data.allRegistrations.length === 0) ? (
+                  <p className="text-3" style={{ fontSize: '13px', padding: 'var(--s-2) 0' }}>
+                    No registration transactions recorded in local database yet.
+                  </p>
+                ) : (
+                  <div className="table-container">
+                    <table className="quotes-table">
+                      <thead>
+                        <tr>
+                          <th>Tx Hash</th>
+                          <th>Status</th>
+                          <th>Agent ID</th>
+                          <th>Block</th>
+                          <th>Fee Paid</th>
+                          <th>Timestamp</th>
+                          <th style={{ textAlign: 'right' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {erc8004Data.allRegistrations.map(reg => (
+                          <tr key={reg.id}>
+                            <td className="mono text-2">
+                              <a
+                                href={celoscanTx(reg.tx_hash)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-link"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                              >
+                                {reg.tx_hash.slice(0, 10)}... <ExternalLink size={10} />
+                              </a>
+                            </td>
+                            <td>
+                              <Chip
+                                tone={
+                                  reg.status === 'CONFIRMED'
+                                    ? 'ok'
+                                    : reg.status === 'PENDING_CONFIRMATION'
+                                      ? 'warn'
+                                      : 'fail'
+                                }
+                              >
+                                {reg.status}
+                              </Chip>
+                            </td>
+                            <td className="mono text-1">{reg.agent_id ? `#${reg.agent_id}` : '—'}</td>
+                            <td className="mono text-2">{reg.block_number ?? '—'}</td>
+                            <td className="mono text-2" style={{ fontSize: '12px' }}>
+                              {reg.actual_fee_paid ? `${(Number(reg.actual_fee_paid) / 1e18).toFixed(6)} CELO` : '—'}
+                            </td>
+                            <td className="text-2" style={{ fontSize: '12px' }}>
+                              {new Date(reg.created_at).toLocaleTimeString()}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              {reg.status === 'PENDING_CONFIRMATION' && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={isVerifying}
+                                  onClick={() => handleManualVerify(reg.tx_hash)}
+                                >
+                                  Verify Receipt
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </Panel>
 
