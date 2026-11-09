@@ -27,10 +27,10 @@ describe('Environment Config Validation', () => {
     expect(config.REPORT_TTL_DAYS).toBe(14);
   });
 
-  it('defaults to npx @celo/buy@latest as the Buy CLI mechanism', () => {
+  it('defaults to empty string for BUY_CLI_EXECUTABLE to prefer local pinned @celo/buy entrypoint without runtime npx', () => {
     const config = loadConfig({ NODE_ENV: 'test' });
-    expect(config.BUY_CLI_EXECUTABLE).toBe('npx');
-    expect(config.BUY_CLI_ARGS_PREFIX).toBe('@celo/buy@latest');
+    expect(config.BUY_CLI_EXECUTABLE).toBe('');
+    expect(config.BUY_CLI_ARGS_PREFIX).toBe('');
   });
 
   it('correctly parses boolean flag transforms', () => {
@@ -219,6 +219,34 @@ describe('Production Security Invariants', () => {
         BUY_PER_CALL_CAP_ATOMIC: '0'
       });
     }).toThrowError(/BUY_PER_CALL_CAP_ATOMIC is 0/);
+  });
+
+  it('rejects production with BUY_ENABLED=true and unpinned @latest fallback in BUY_CLI_ARGS_PREFIX', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
+        BUY_ENABLED: 'true',
+        BUY_DAILY_BUDGET_ATOMIC: '100000',
+        BUY_PER_CALL_CAP_ATOMIC: '10000',
+        BUY_CLI_ARGS_PREFIX: '@celo/buy@latest'
+      });
+    }).toThrowError(/BUY_CLI_ARGS_PREFIX in production must not use unpinned @latest fallback/);
+  });
+
+  it('rejects production with BUY_ENABLED=true and BUY_CLI_EXECUTABLE=npx', () => {
+    expect(() => {
+      loadConfig({
+        NODE_ENV: 'production',
+        SESSION_SECRET: 'a-sufficiently-long-session-secret-for-testing',
+        OPERATOR_PASSWORD_HASH: VALID_SCRYPT_HASH,
+        BUY_ENABLED: 'true',
+        BUY_DAILY_BUDGET_ATOMIC: '100000',
+        BUY_PER_CALL_CAP_ATOMIC: '10000',
+        BUY_CLI_EXECUTABLE: 'npx'
+      });
+    }).toThrowError(/BUY_CLI_EXECUTABLE in production must not rely on runtime npx download/);
   });
 
   it('rejects in-memory DATABASE_PATH in production', () => {

@@ -1515,3 +1515,49 @@ Following the independent security review of MOD-04.1 by ChatGPT, 4 findings wer
 - **Code Cleanliness:** `git diff --check` returned 0 whitespace or formatting errors.
 - **Zero-Spend Invariant Enforced:** Total project expenditure across all phases remains strictly **$0.00**. No cloud services or on-chain payments provisioned.
 - **Release Posture:** Codebase is hardened, verified, and release-ready. Next safe action is public cloud deployment (MOD-06.2) upon human authorization.
+
+---
+
+## Phase 27.1 — MASTER-AUDIT-CLOSURE-01: Buy Production Dependency Resolution, Gitingest Governance Verification & Final Evidence Harmonization
+**Date:** 2026-11-09<br/>
+**Execution ID:** MASTER-AUDIT-CLOSURE-01 (Priority: P0)<br/>
+**Baseline Commit:** `623c6808fe0195bbb7fbf61e15c7a19adc4eb146`<br/>
+**Scope:** Resolution of npm audit exit code 1 advisory analysis, `@celo/buy` production dependency migration to eliminate runtime npx downloads, Gitingest 10-document mandatory inclusion enforcement, focused whole-file source review across 12 critical subsystems, defect ledger expansion (DEF-60..DEF-62), and 520/520 automated test verification.
+
+### 1. npm audit Advisory Analysis & Dependency Resolution
+- Analyzed complete machine-readable `npm audit --json`:
+  - Total advisories: 4 (1 moderate, 1 high, 2 critical).
+  - Dev-only dependencies: `@vitest/mocker` (moderate), `tinypool` (critical), `vitest` (critical). These are devDependencies used exclusively in local test runners; completely excluded from the production container (`npm ci --omit=dev`).
+  - Production dependency: `zod` (<4.6.6, GHSA-mrhx-c7xc-m3w5). Classified as `False positive / not applicable in production deployment context` because Fastify enforces a global 1 MiB body limit (`bodyLimit: 1048576`), input schemas are strictly bounded (e.g. 66-character hex hash), and no unbounded or combinatorial collections are accepted from untrusted callers.
+  - Zero exploitable runtime vulnerabilities in production environment.
+
+### 2. Buy Production Dependency Migration (DEF-60 & DEF-61)
+- Moved `@celo/buy: 0.8.5` from `devDependencies` to production `dependencies` in `package.json` and `package-lock.json`. This guarantees that `npm ci --omit=dev` in production container images installs the local pinned entrypoint (`node_modules/@celo/buy/dist/main.js`).
+- Refactored `src/server/adapters/buyAdapter.ts` to strictly fail closed if the local entrypoint is absent from disk, eliminating all silent runtime `npx` code downloads and unpinned `@latest` invocations.
+- Updated `src/server/config.ts` defaults to prefer the local pinned entrypoint, and added production invariants rejecting `@latest` prefixes or `npx` executables when Buy is enabled.
+- Added regression tests in `tests/config.test.ts` and `tests/buyAdapter.test.ts` (suite total expanded to 520 tests).
+
+### 3. Gitingest Independent Verifier Hardening (DEF-62)
+- Added explicit assertions in both `scripts/generate_gitingest.mjs` and `scripts/verify_gitingest.mjs` requiring all 10 canonical governance documents to be present on disk, in manifest, in directory tree, and in content sections:
+  1. `MASTER_CHANGELOG.md`
+  2. `MASTER_PROJECT_AUDIT.md`
+  3. `MASTER_DEFECT_REGISTER.md`
+  4. `MASTER_EXECUTION_ROADMAP.md`
+  5. `MASTER_REQUIREMENTS_TRACEABILITY.md`
+  6. `MASTER_RELEASE_GATE.md`
+  7. `SECURITY.md`
+  8. `TEST_RESULTS.md`
+  9. `PROOF.md`
+  10. `README.md`
+- Confirmed all 17 independent snapshot verification checks pass cleanly with bit-for-bit path equality.
+
+### 4. Focused Whole-File Source Review
+- Performed whole-file source review across 12 critical subsystems: `classifier.ts`, `evidenceBuilder.ts`, `explanationEngine.ts`, `aiExplanationService.ts`, `cencori.ts`, `buyQuoteService.ts`, `capabilityRegistry.ts`, `investigationService.ts`, Fastify route registration in `app.ts`, frontend report components, `OperatorPage.tsx`, and `ReportPage.tsx`.
+- Confirmed zero instances of `dangerouslySetInnerHTML`, secure `rel="noopener noreferrer"` on all external links, constant-time authentication, fail-closed rate limiters, BigInt monetary precision, and zero-spend integrity.
+
+### 5. Final Metrics & Status
+- **Test Suite:** **23 test suites, 520/520 tests passed (100% green)** in 11.81s.
+- **Static Typing & Build:** `npm run typecheck` returned 0 errors; `npm run build` cleanly compiled production bundles in 4.13s with zero warnings.
+- **Route Injection Matrix:** 36/36 scenarios passed across 25 Fastify endpoints.
+- **Browser CDP Automation:** 100% passed on Desktop (1280x800) and Mobile (375x812) viewports.
+- **Zero-Spend Invariant Enforced:** Spend remains strictly **$0.00**.

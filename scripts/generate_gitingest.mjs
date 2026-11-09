@@ -176,6 +176,27 @@ async function main() {
     process.exit(1);
   }
 
+  // Mandatory governance documents that must be included
+  const MANDATORY_DOCUMENTS = [
+    'MASTER_CHANGELOG.md',
+    'MASTER_PROJECT_AUDIT.md',
+    'MASTER_DEFECT_REGISTER.md',
+    'MASTER_EXECUTION_ROADMAP.md',
+    'MASTER_REQUIREMENTS_TRACEABILITY.md',
+    'MASTER_RELEASE_GATE.md',
+    'SECURITY.md',
+    'TEST_RESULTS.md',
+    'PROOF.md',
+    'README.md'
+  ];
+
+  for (const doc of MANDATORY_DOCUMENTS) {
+    if (!filesData.some((f) => f.relPath === doc)) {
+      console.error(`FATAL: Mandatory governance document missing from snapshot: ${doc}`);
+      process.exit(1);
+    }
+  }
+
   // 2. Generate Snapshot
   const outputStream = fs.createWriteStream(OUTPUT_SNAPSHOT, { encoding: 'utf8' });
 

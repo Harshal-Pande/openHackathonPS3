@@ -275,12 +275,11 @@ const envSchema = z.object({
   // Kept server-side only; never leaked to frontend or logs
   CHAINSTACK_CELO_MAINNET_RPC_URL: z.string().url().optional().or(z.literal('')),
 
-  // Buy CLI integration: official @celo/buy package, invoked via npx or installed globally.
-  // Backend spawns: npx @celo/buy@latest --json curl --max-amount <cap> ...
-  // Wallet management is handled by the Buy CLI OS keychain (run `buy setup` once per machine).
-  // No private keys or seed phrases are accepted or stored by this application.
-  BUY_CLI_EXECUTABLE: z.string().default('npx'),
-  BUY_CLI_ARGS_PREFIX: z.string().default('@celo/buy@latest'),
+  // Buy CLI integration: official @celo/buy package pinned dependency executed directly via Node.
+  // Defaults to empty string to prefer local pinned package entrypoint (node_modules/@celo/buy/dist/main.js).
+  // Silent runtime npx downloads and unpinned @latest fallbacks are strictly prohibited.
+  BUY_CLI_EXECUTABLE: z.string().default(''),
+  BUY_CLI_ARGS_PREFIX: z.string().default(''),
   BUY_ENABLED: booleanField,
   BUY_DAILY_BUDGET_ATOMIC: z.string().regex(/^\d+$/).default('0'),
   BUY_PER_INVESTIGATION_BUDGET_ATOMIC: z.string().regex(/^\d+$/).default('0'),
@@ -350,6 +349,12 @@ function enforceProductionInvariants(config: AppConfig): void {
   }
   if (config.BUY_ENABLED && config.BUY_PER_CALL_CAP_ATOMIC === '0') {
     errors.push('BUY_ENABLED is true but BUY_PER_CALL_CAP_ATOMIC is 0 — no per-call cap configured.');
+  }
+  if (config.BUY_ENABLED && config.BUY_CLI_ARGS_PREFIX.includes('@latest')) {
+    errors.push('BUY_CLI_ARGS_PREFIX in production must not use unpinned @latest fallback.');
+  }
+  if (config.BUY_ENABLED && (config.BUY_CLI_EXECUTABLE === 'npx' || config.BUY_CLI_EXECUTABLE === 'npx.cmd')) {
+    errors.push('BUY_CLI_EXECUTABLE in production must not rely on runtime npx download; install @celo/buy as a local dependency.');
   }
 
   if (config.CELO_ATTRIBUTION_TAG !== OFFICIAL_CELO_ATTRIBUTION_TAG) {

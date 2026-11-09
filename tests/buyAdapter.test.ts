@@ -336,5 +336,45 @@ describe('BuyAdapter — Security, Execution & Settlement Verification', () => {
       const budgetRow = db.getBudgetReservation(quote.quoteId);
       expect(budgetRow?.status).toBe('RESERVED');
     });
+
+    it('fails closed when Buy CLI executable is unavailable, reporting ready: false without runtime npx', async () => {
+      const unavailableAdapter = new BuyAdapter({ executable: '' }, db, config);
+      const health = await unavailableAdapter.getHealth();
+
+      expect(health.ready).toBe(false);
+      expect(health.account).toBe('UNAVAILABLE');
+      expect(health.cliVersion).toBe('unavailable');
+    });
+
+    it('rejects execution and releases budget when Buy CLI executable is unavailable', async () => {
+      const unavailableAdapter = new BuyAdapter({ executable: '' }, db, config);
+      const svc = new BuyQuoteService(db, config, unavailableAdapter);
+
+      const quote = await svc.createQuote(quoteParams);
+      const approval = await svc.approveQuote({
+        quoteId: quote.quoteId,
+        expectedBodySha256: quote.bodySha256,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      const execResult = await svc.executeQuote({
+        quoteId: quote.quoteId,
+        approvalId: approval.approvalId,
+        operatorUsername: 'operator_admin',
+        isOperatorAuthenticated: true
+      });
+
+      expect(execResult.isSettled).toBe(false);
+      expect(execResult.status).toBe('FAILED');
+      expect(execResult.errorMessage).toContain('Buy CLI is unavailable');
+
+      const updatedQuote = svc.getQuote(quote.quoteId);
+      expect(updatedQuote?.status).toBe('FAILED');
+
+      // Budget was never reserved because execution failed closed before attempt creation
+      const budgetRow = db.getBudgetReservation(quote.quoteId);
+      expect(budgetRow).toBeNull();
+    });
   });
 });

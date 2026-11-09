@@ -333,9 +333,12 @@ export class BuyAdapter {
     } else {
       this.payingAddress = '';
     }
-    if (config.executable) {
+    if (config.executable !== undefined) {
       this.executable = config.executable;
       this.argsPrefix = config.argsPrefix || [];
+    } else if (appConfig.BUY_CLI_EXECUTABLE) {
+      this.executable = appConfig.BUY_CLI_EXECUTABLE;
+      this.argsPrefix = appConfig.BUY_CLI_ARGS_PREFIX ? [appConfig.BUY_CLI_ARGS_PREFIX] : [];
     } else {
       // Prefer pinned local package entrypoint executed directly via Node.js
       const localBuyPath = path.resolve(process.cwd(), 'node_modules/@celo/buy/dist/main.js');
@@ -343,11 +346,10 @@ export class BuyAdapter {
         this.executable = process.execPath;
         this.argsPrefix = [localBuyPath];
       } else {
-        const defaultNpx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-        this.executable = appConfig.BUY_CLI_EXECUTABLE || defaultNpx;
-        this.argsPrefix = appConfig.BUY_CLI_ARGS_PREFIX
-          ? [appConfig.BUY_CLI_ARGS_PREFIX]
-          : ['@celo/buy@0.8.5'];
+        // DEFECT REMEDIATION (Area 2): Never silently download executable code using npx at runtime.
+        // If local pinned entrypoint is not on disk and no explicit executable was configured, fail closed.
+        this.executable = '';
+        this.argsPrefix = [];
       }
     }
 
@@ -360,6 +362,14 @@ export class BuyAdapter {
    * Spawns Buy CLI safely using fixed executable and argument array (shell: false).
    */
   private async runCli(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    if (!this.executable && !this.cliRunner) {
+      return {
+        stdout: '',
+        stderr: 'Buy CLI is unavailable: local pinned @celo/buy entrypoint not found on disk, and runtime npx download is prohibited.',
+        exitCode: 127
+      };
+    }
+
     const fullArgs = [...this.argsPrefix, ...args];
     const timeout = this.timeoutMs;
     const maxBuffer = this.maxOutputBufferBytes;
@@ -432,6 +442,21 @@ export class BuyAdapter {
       this.payingAddress && /^0x[0-9a-fA-F]{40}$/.test(this.payingAddress)
     );
     const configuredPayer = hasValidConfiguredPayer ? this.payingAddress : 'UNCONFIGURED';
+
+    if (!this.executable && !this.cliRunner) {
+      return {
+        ready: false,
+        cliVersion: 'unavailable',
+        account: 'UNAVAILABLE',
+        network: 'celo',
+        funded: false,
+        balances: {},
+        killSwitchActive,
+        timestamp: now,
+        configuredPayer,
+        payerMismatch: false
+      };
+    }
 
     try {
       // Check version
@@ -573,6 +598,19 @@ export class BuyAdapter {
         quoteId: quote.id,
         status: 'FAILED',
         errorMessage: 'Execution rejected: Agent payer wallet address is not configured or invalid.',
+        isSettled: false
+      };
+    }
+
+    // DEFECT REMEDIATION (Area 2): Mandatory Buy CLI executable verification before dispatch
+    if (!this.executable && !this.cliRunner) {
+      this.db.releaseBudgetReservation(quote.id, 'Buy CLI is unavailable: local pinned @celo/buy entrypoint not found on disk.');
+      this.db.updateQuoteStatus(quote.id, 'FAILED');
+      return {
+        purchaseAttemptId: '',
+        quoteId: quote.id,
+        status: 'FAILED',
+        errorMessage: 'Execution rejected: Buy CLI is unavailable (local pinned @celo/buy entrypoint not found, runtime npx prohibited).',
         isSettled: false
       };
     }

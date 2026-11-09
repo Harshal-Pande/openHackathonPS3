@@ -68,6 +68,6 @@
 | | Non-root container execution | `VERIFIED_COMPLETE` | Confirmed container user `node` (UID 1000) with `Privileged=false`. |
 | | Named-Volume Persistence Across Recreation | `VERIFIED_COMPLETE` | Verified proof marker file and SQLite database survival across complete container destruction. |
 | | Graceful Shutdown Signal Handling | `VERIFIED_COMPLETE` | Clean exit with code 0 in 378ms; Fastify `onClose` database flush executed. |
-| **Buy Integration & Payments** | Official `@celo/buy` CLI integration | `LOCAL_TESTED` | Tested in `tests/buyAdapter.test.ts` (9 tests), `tests/paymentLifecycle.test.ts` (10 tests), and `tests/buySecurity.test.ts` (147 tests). |
+| **Buy Integration & Payments** | Official `@celo/buy` CLI integration | `LOCAL_TESTED` | Tested in `tests/buyAdapter.test.ts` (11 tests), `tests/paymentLifecycle.test.ts` (10 tests), and `tests/buySecurity.test.ts` (147 tests). |
 | | 11-State Buy Quote Lifecycle | `VERIFIED_COMPLETE` | Cryptographic quote-to-body SHA-256 binding, budget caps, and emergency kill switch verified. |
 | | Zero Personal Spend Invariant | `VERIFIED_COMPLETE` | $0.00 spent. All software verified without personal funds expenditure. |

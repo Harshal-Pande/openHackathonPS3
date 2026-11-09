@@ -38,7 +38,7 @@ GATE E: Actual Build with Buy Payment Evidence   ===>  NOT_MET — NO VERIFIED P
 ### Gate B: Technical Release Readiness — `PASS`
 - **Assessment:** The software is stable, hardened, and free of blocking code defects.
 - **Evidence:**
-  - Automated Tests: 516/516 tests passing across 23 test suites in < 15s (100% pass rate).
+  - Automated Tests: 520/520 tests passing across 23 test suites in < 15s (100% pass rate).
   - TypeScript: `npm run typecheck` exits with 0 errors across server and client.
   - Build: `npm run build` cleanly compiles Fastify server and Vite React SPA (vendor chunking cleanly separated into `vendor-react` 430 kB, `vendor-icons` 15.7 kB, `index` 189.6 kB with zero warnings).
   - Real Browser E2E: Headless Google Chrome (via native CDP WebSocket `scripts/browser_e2e_cdp.mjs`) executed full interactive journey on desktop (1280x800) and mobile (375x812); hard assertions verified on all elements, live report render, JSON export blob, and SQLite reload.

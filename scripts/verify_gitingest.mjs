@@ -178,15 +178,38 @@ async function verify() {
   }
   pass('13. Per-file hashes match source disk files bit-for-bit', `${manifest.files.length} files checked`);
 
-  // 14. MASTER_CHANGELOG.md is complete and matches source hash
-  const changelogEntry = manifest.files.find((f) => f.path === 'MASTER_CHANGELOG.md');
-  if (!changelogEntry) {
-    fail('MASTER_CHANGELOG.md entry not found in manifest');
+  // 14. Mandatory governance documents (10 documents) verified
+  const MANDATORY_DOCUMENTS = [
+    'MASTER_CHANGELOG.md',
+    'MASTER_PROJECT_AUDIT.md',
+    'MASTER_DEFECT_REGISTER.md',
+    'MASTER_EXECUTION_ROADMAP.md',
+    'MASTER_REQUIREMENTS_TRACEABILITY.md',
+    'MASTER_RELEASE_GATE.md',
+    'SECURITY.md',
+    'TEST_RESULTS.md',
+    'PROOF.md',
+    'README.md'
+  ];
+
+  for (const doc of MANDATORY_DOCUMENTS) {
+    const diskPath = path.join(REPO_ROOT, doc);
+    if (!fs.existsSync(diskPath)) {
+      fail(`Mandatory governance document missing on disk: ${doc}`);
+    }
+    const entry = manifest.files.find((f) => f.path === doc);
+    if (!entry) {
+      fail(`Mandatory governance document missing from manifest: ${doc}`);
+    }
+    if (!treePaths.includes(doc)) {
+      fail(`Mandatory governance document missing from snapshot directory tree: ${doc}`);
+    }
+    if (!sectionMatches.includes(doc)) {
+      fail(`Mandatory governance document missing from snapshot content sections: ${doc}`);
+    }
   }
-  if (!manifest.changelog.included) {
-    fail('manifest.changelog.included is false');
-  }
-  pass('14. MASTER_CHANGELOG.md is fully included and matches source hash');
+  pass('14. All 10 mandatory governance documents verified in disk, manifest, tree, and content sections');
+
 
   // 15. Phase 25.4 is present in changelog content
   const changelogDiskContent = fs.readFileSync(path.join(REPO_ROOT, 'MASTER_CHANGELOG.md'), 'utf8');

@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@celo/attribution-tags": "^0.5.0",
+    "@celo/buy": "0.8.5",
     "@fastify/cors": "^10.0.2",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
@@ -35,7 +36,6 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@celo/buy": "^0.8.5",
     "@types/node": "^22.13.9",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
