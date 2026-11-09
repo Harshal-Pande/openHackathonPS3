@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import { buildApp } from '../dist/server/app.js';
 import { Database } from '../dist/server/db/database.js';
@@ -281,6 +282,31 @@ async function testAllRoutes() {
     url: '/api/operator/system-status',
     headers: { authorization: `Bearer ${operatorToken}` }
   }, '/api/operator/system-status', [200], (res, body) => body.data?.version === '0.1.0' && body.data?.database?.status === 'ACTIVE');
+
+  // 15l. POST /api/webhooks/buy-settlement (Missing signature -> 401)
+  await testRoute('Buy Settlement Webhook Missing Signature', {
+    method: 'POST',
+    url: '/api/webhooks/buy-settlement',
+    payload: { eventType: 'SETTLED', purchaseAttemptId: 'attempt-1' }
+  }, '/api/webhooks/buy-settlement', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+
+  // 15m. POST /api/webhooks/buy-settlement (Invalid signature -> 401)
+  await testRoute('Buy Settlement Webhook Invalid Signature', {
+    method: 'POST',
+    url: '/api/webhooks/buy-settlement',
+    headers: { 'x-buy-signature': '0000000000000000000000000000000000000000000000000000000000000000' },
+    payload: { eventType: 'SETTLED', purchaseAttemptId: 'attempt-1' }
+  }, '/api/webhooks/buy-settlement', [401], (res, body) => body.error?.code === 'UNAUTHORIZED');
+
+  // 15n. POST /api/webhooks/buy-settlement (Valid signature, Attempt Not Found -> 404)
+  const webhookBody = { eventType: 'SETTLED', purchaseAttemptId: 'nonexistent-attempt-id' };
+  const validSig = crypto.createHmac('sha256', sessionSecret).update(JSON.stringify(webhookBody)).digest('hex');
+  await testRoute('Buy Settlement Webhook Valid Signature 404', {
+    method: 'POST',
+    url: '/api/webhooks/buy-settlement',
+    headers: { 'x-buy-signature': validSig },
+    payload: webhookBody
+  }, '/api/webhooks/buy-settlement', [404], (res, body) => body.error?.code === 'PURCHASE_NOT_FOUND');
 
   // 16. POST /api/operator/logout (Logout session -> 200)
   await testRoute('Operator Logout', {

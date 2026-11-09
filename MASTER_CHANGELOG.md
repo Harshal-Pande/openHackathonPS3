@@ -1663,3 +1663,43 @@ Activated every intended capability of RevertLens, resolved all integration gaps
 - **API Surface Verification:** 26 unique endpoints and 38 scenarios passed (100% green) in `scripts/verify_all_routes.mjs`.
 - **Browser E2E via CDP:** Desktop (1280x800) and Mobile (375x812) viewports fully validated with exit code 0 in `scripts/browser_e2e_cdp.mjs`.
 - **Live Production Deployment (R1):** Confirmed active at `https://revertlens-production.onrender.com`.
+
+---
+
+## [Phase 26] Zero-Funding Architecture, Settlement Webhook & Dual Production Verification
+**Date:** 2026-11-09<br/>
+**Execution ID:** `REVERTLENS-ZERO-FUNDING-ACTIVATION-01`<br/>
+**Milestone:** Zero-Funding Architecture, Buy Settlement Webhook with HMAC/Deduplication, 9-Row Production Health Matrix & Dual Production Verification (R1 & R2)<br/>
+**Status:** COMPLETED — PRODUCTION READY & VERIFIED<br/>
+
+### 1. Scope and Objective
+Adopted intentional zero-funding architecture across all agent and operator surfaces, implemented secure Buy settlement webhook with HMAC verification and idempotency deduplication, expanded system status and operator console with an authoritative 9-row Production Integration Matrix, verified dual live deployments on Render (R1 & R2), and added comprehensive automated test coverage.
+
+### 2. Implemented Capabilities & Deliverables
+1. **Zero-Funding Architecture Adoption (`src/server/app.ts`, `src/client/pages/OperatorPage.tsx`):**
+   - Designated agent wallet (`0x3e1bef07824cd0E076F4907641F0A0EF27898e52`) holding 0 CELO is treated as normal intentional posture (`PREPARED_NOT_REGISTERED`).
+   - Replaced deposit demands with neutral informative banner explaining that calldata, gas estimate (~0.0362 CELO), and metadata endpoints are operational.
+   - Allowed wallet connection and registration preparation without hindrance.
+2. **Buy Settlement Webhook (`POST /api/webhooks/buy-settlement`):**
+   - HMAC-SHA256 signature verification via `x-buy-signature` header using `crypto.timingSafeEqual`.
+   - Idempotency guard checking SQLite `settlement_records` and returning `ALREADY_SETTLED` or `ALREADY_FAILED` with `idempotent: true`.
+   - Emits immutable payment audit events to `payment_audit_events` and records settlement proof.
+3. **Cencori AI Provider Connectivity (`src/server/providers/cencori.ts`):**
+   - Added `testConnectivity()` verifying reachability of `cencori.v1.chat.completions` gateway with safe timeout handling.
+   - Added configuration getters (`getModel()`, `getApiUrl()`).
+4. **Master Production Integration & Health Matrix (`src/client/pages/OperatorPage.tsx`):**
+   - Added dedicated 9-row status table displaying Core Application, Celo Mainnet RPC, Agent Wallet, ERC-8004 Identity Registry, Build with Buy, Cencori AI, SQLite Database, R1 Service, and R2 Service with live health badges and direct links.
+5. **Comprehensive Test Suite (`tests/zeroFundingAndWebhook.test.ts`):**
+   - 10 automated unit and integration tests covering zero-balance lifecycle semantics, webhook HMAC security, deduplication idempotency, Cencori connectivity, system status reporting, and R1/R2 separation.
+6. **Dual Live Production Verification (R1 & R2):**
+   - Verified live responsiveness of both independently deployed Render services:
+     - R1: `https://revertlens-production.onrender.com` (Health HTTP 200, Metadata HTTP 200, Registration Tx HTTP 200)
+     - R2: `https://revertlens-r2.onrender.com` (Health HTTP 200, Metadata HTTP 200, Registration Tx HTTP 200)
+
+### 3. Verification & Compliance
+- **Vitest Suites:** 24 test suites passed, **538/538 tests passed (100% green)**.
+- **Typecheck:** `npm run typecheck` returned 0 errors across server and client in TypeScript strict mode.
+- **Production Build:** `npm run build` compiled clean server and client bundles.
+- **API Surface Verification:** 27 unique endpoints and 41 scenarios passed (100% green) in `scripts/verify_all_routes.mjs`.
+- **Browser E2E via CDP:** Desktop (1280x800) and Mobile (375x812) viewports fully validated with exit code 0 in `scripts/browser_e2e_cdp.mjs`.
+- **Authoritative Status Report:** Created `FINAL_PRODUCTION_STATUS.md`.

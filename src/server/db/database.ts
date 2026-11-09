@@ -762,6 +762,12 @@ export class Database {
     return row ? (row as unknown as SettlementProofRow) : null;
   }
 
+  public getSettlementProofByTxHash(txHash: string): SettlementProofRow | null {
+    const stmt = this.db.prepare(`SELECT * FROM settlement_records WHERE lower(tx_hash) = lower(?)`);
+    const row = stmt.get(txHash);
+    return row ? (row as unknown as SettlementProofRow) : null;
+  }
+
   // --- Budget Reservations & Limits ---
 
   public getBudgetReservation(quoteId: string): BudgetReservationRow | null {
@@ -1358,18 +1364,21 @@ export class Database {
     evidenceItems: number;
     quotes: number;
     purchases: number;
+    settlements: number;
     registrations: number;
   } {
     const invCount = (this.db.prepare('SELECT COUNT(*) as count FROM investigations').get() as any)?.count ?? 0;
     const evCount = (this.db.prepare('SELECT COUNT(*) as count FROM evidence_items').get() as any)?.count ?? 0;
     const qCount = (this.db.prepare('SELECT COUNT(*) as count FROM quote_records').get() as any)?.count ?? 0;
     const pCount = (this.db.prepare('SELECT COUNT(*) as count FROM purchase_attempts').get() as any)?.count ?? 0;
+    const sCount = (this.db.prepare('SELECT COUNT(*) as count FROM settlement_records').get() as any)?.count ?? 0;
     const regCount = (this.db.prepare('SELECT COUNT(*) as count FROM erc8004_registrations').get() as any)?.count ?? 0;
     return {
       investigations: Number(invCount),
       evidenceItems: Number(evCount),
       quotes: Number(qCount),
       purchases: Number(pCount),
+      settlements: Number(sCount),
       registrations: Number(regCount),
     };
   }

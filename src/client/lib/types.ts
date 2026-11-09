@@ -366,8 +366,23 @@ export interface SystemStatusResponse {
       evidenceItems: number;
       quotes: number;
       purchases: number;
+      settlements?: number;
       registrations: number;
     };
+  };
+  buyIntegration?: {
+    status: string;
+    configured: boolean;
+    cliReady: boolean;
+    account: string;
+    killSwitch: string;
+  };
+  cencoriIntegration?: {
+    enabled: boolean;
+    status: string;
+    model: string;
+    endpoint: string;
+    reachable: boolean;
   };
   rpc: {
     provider: string;

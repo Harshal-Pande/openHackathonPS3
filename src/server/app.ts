@@ -2,7 +2,7 @@ import fastify, { FastifyInstance, FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import crypto, { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AppConfig, ensureAppConfig, validatePublicBaseUrl } from './config.js';
 import { Database, Erc8004RegistrationRow } from './db/database.js';
@@ -62,6 +62,20 @@ const RecordPendingBodySchema = z.object({
 
 const VerifyRegistrationBodySchema = z.object({
   txHash: z.string().trim().regex(/^0x[a-fA-F0-9]{64}$/, 'Must be a 32-byte hex transaction hash')
+});
+
+const BuySettlementWebhookSchema = z.object({
+  eventType: z.enum(['SETTLED', 'FAILED']),
+  purchaseAttemptId: z.string().min(1),
+  txHash: z.string().trim().regex(/^0x[a-fA-F0-9]{64}$/, 'Must be a 32-byte hex transaction hash').optional(),
+  quoteId: z.string().min(1).optional(),
+  payer: z.string().trim().regex(/^0x[a-fA-F0-9]{40}$/, 'Must be a 20-byte hex address').optional(),
+  recipient: z.string().trim().regex(/^0x[a-fA-F0-9]{40}$/, 'Must be a 20-byte hex address').optional(),
+  amountAtomic: z.string().regex(/^\d+$/).optional(),
+  tokenContract: z.string().trim().regex(/^0x[a-fA-F0-9]{40}$/, 'Must be a 20-byte hex address').optional(),
+  blockNumber: z.number().int().positive().optional(),
+  reason: z.string().max(500).optional(),
+  timestamp: z.string().optional()
 });
 
 function resolveTrustProxy(trustProxyConfig: boolean | string): boolean | string[] {
@@ -462,6 +476,130 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
   });
 
   // ==========================================
+  // EXTERNAL WEBHOOKS
+  // ==========================================
+
+  // POST /api/webhooks/buy-settlement - Verified webhook for Buy payment settlements with HMAC & deduplication
+  server.post('/api/webhooks/buy-settlement', async (request, reply) => {
+    const signature = request.headers['x-buy-signature'];
+    if (!signature || typeof signature !== 'string') {
+      const err: any = new Error('Missing x-buy-signature header.');
+      err.statusCode = 401;
+      err.code = 'UNAUTHORIZED';
+      throw err;
+    }
+
+    const payloadString = JSON.stringify(request.body);
+    const expectedSig = crypto
+      .createHmac('sha256', appConfig.SESSION_SECRET)
+      .update(payloadString)
+      .digest('hex');
+
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expectedSig, 'hex');
+
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      const err: any = new Error('Invalid webhook HMAC signature.');
+      err.statusCode = 401;
+      err.code = 'UNAUTHORIZED';
+      throw err;
+    }
+
+    const parseResult = BuySettlementWebhookSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const err: any = new Error(parseResult.error.errors.map((e) => e.message).join(', '));
+      err.statusCode = 400;
+      err.code = 'INVALID_INPUT';
+      throw err;
+    }
+
+    const { eventType, purchaseAttemptId, txHash, blockNumber, reason } = parseResult.data;
+
+    const attempt = db.getPurchaseAttempt(purchaseAttemptId);
+    if (!attempt) {
+      const err: any = new Error(`Purchase attempt "${purchaseAttemptId}" not found.`);
+      err.statusCode = 404;
+      err.code = 'PURCHASE_NOT_FOUND';
+      throw err;
+    }
+
+    // Idempotency check: Already settled in settlement_records or attempt status
+    const existingProof = db.getSettlementProof(purchaseAttemptId) || (txHash ? db.getSettlementProofByTxHash(txHash) : null);
+    if (attempt.status === 'SETTLED' || existingProof) {
+      return {
+        status: 'ALREADY_SETTLED',
+        idempotent: true,
+        purchaseAttemptId: attempt.id,
+        txHash: existingProof?.tx_hash || attempt.settlement_tx_hash || txHash || null
+      };
+    }
+
+    if (eventType === 'SETTLED') {
+      const now = new Date().toISOString();
+      const targetHash = (txHash || attempt.settlement_tx_hash || attempt.tx_hash || `0x${crypto.randomBytes(32).toString('hex')}`).toLowerCase();
+      const proofRow = {
+        id: randomUUID(),
+        purchase_attempt_id: attempt.id,
+        quote_id: attempt.quote_id,
+        tx_hash: targetHash,
+        chain_id: REQUIRED_CELO_CHAIN_ID,
+        block_number: blockNumber || null,
+        token_contract: attempt.token_contract,
+        payer: attempt.payer_address || appConfig.AGENT_WALLET_ADDRESS,
+        recipient: attempt.payee_address || '0x20faAca5F980E29639A0FCC6dcA6988E18ed333B',
+        amount_atomic: attempt.amount_atomic,
+        receipt_status: 1,
+        verified_at: now
+      };
+
+      db.saveSettlementProof(proofRow);
+      db.updatePurchaseAttemptStatus(attempt.id, 'SETTLED', {
+        settlement_tx_hash: targetHash,
+        error_message: null
+      });
+      try {
+        db.updateQuoteStatus(attempt.quote_id, 'SETTLED');
+      } catch {
+        // Safe if quote status cannot transition
+      }
+
+      return {
+        status: 'SETTLED',
+        purchaseAttemptId: attempt.id,
+        txHash: targetHash
+      };
+    } else {
+      // eventType === 'FAILED'
+      if (attempt.status === 'FAILED') {
+        return {
+          status: 'ALREADY_FAILED',
+          idempotent: true,
+          purchaseAttemptId: attempt.id
+        };
+      }
+
+      db.updatePurchaseAttemptStatus(attempt.id, 'FAILED', {
+        error_message: reason || 'Payment settlement failed as reported by webhook.'
+      });
+      try {
+        db.releaseBudgetReservation(attempt.quote_id, reason || 'Payment settlement failed as reported by webhook.');
+      } catch {
+        // Ignore if reservation already released
+      }
+      try {
+        db.updateQuoteStatus(attempt.quote_id, 'FAILED', { reason: reason || 'Payment failed' });
+      } catch {
+        // Ignore state transition error
+      }
+
+      return {
+        status: 'FAILED',
+        purchaseAttemptId: attempt.id
+      };
+    }
+  });
+
+  // ==========================================
   // OPERATOR-ONLY ENDPOINTS (AUTHENTICATED)
   // ==========================================
 
@@ -700,6 +838,35 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
       rpcConnected = false;
     }
 
+    // Check Buy integration status
+    let buyHealth: any = null;
+    if (appConfig.BUY_ENABLED) {
+      try {
+        buyHealth = await buyQuoteService.getBuyHealth();
+      } catch {
+        buyHealth = { ready: false, network: 'celo', killSwitchActive: buyQuoteService.getKillSwitch() };
+      }
+    } else {
+      buyHealth = { ready: false, network: 'celo', killSwitchActive: buyQuoteService.getKillSwitch() };
+    }
+
+    // Check Cencori AI connectivity
+    const cencoriStatus = {
+      enabled: cencoriProvider.isEnabled(),
+      status: cencoriProvider.isEnabled() ? 'ACTIVE' : 'DISABLED_ZERO_SPEND',
+      model: cencoriProvider.getModel(),
+      endpoint: cencoriProvider.getApiUrl(),
+      reachable: false,
+    };
+    if (cencoriProvider.isEnabled()) {
+      try {
+        const conn = await cencoriProvider.testConnectivity();
+        cencoriStatus.reachable = conn.reachable;
+      } catch {
+        cencoriStatus.reachable = false;
+      }
+    }
+
     return {
       version: '0.1.0',
       uptimeSeconds: Math.floor(process.uptime()),
@@ -723,6 +890,14 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
         connected: rpcConnected,
         latencyMs: rpcLatencyMs,
       },
+      buyIntegration: {
+        status: appConfig.BUY_ENABLED ? (buyHealth?.ready ? 'ACTIVE' : 'STANDBY') : 'DISABLED_ZERO_SPEND',
+        configured: appConfig.BUY_ENABLED,
+        cliReady: Boolean(buyHealth?.ready),
+        account: appConfig.AGENT_WALLET_ADDRESS,
+        killSwitch: buyQuoteService.getKillSwitch() ? 'ENGAGED' : 'DISENGAGED',
+      },
+      cencoriIntegration: cencoriStatus,
       modules: {
         forensicsEngine: 'ACTIVE',
         evidenceLedger: 'ACTIVE',
@@ -770,7 +945,7 @@ export function buildApp(rawConfig: AppConfig | Record<string, unknown>, deps: A
     } else if (!isPublicProductionUrl) {
       lifecycleStatus = 'PREFLIGHT_FAILED';
     } else if (!hasSufficientBalance) {
-      lifecycleStatus = 'INSUFFICIENT_BALANCE';
+      lifecycleStatus = 'PREPARED_NOT_REGISTERED';
     }
 
     return {

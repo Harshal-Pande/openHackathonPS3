@@ -52,6 +52,58 @@ export class CencoriProvider {
     return this.enabled;
   }
 
+  public getModel(): string {
+    return this.model;
+  }
+
+  public getApiUrl(): string {
+    return this.apiUrl;
+  }
+
+  /**
+   * Tests connectivity to the Cencori AI gateway via read-only preflight.
+   */
+  public async testConnectivity(): Promise<{
+    reachable: boolean;
+    status: number;
+    latencyMs: number;
+    model: string;
+    endpoint: string;
+    challengeReceived: boolean;
+  }> {
+    const start = Date.now();
+    try {
+      const response = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.model,
+          max_tokens: 16,
+          messages: [{ role: 'user', content: 'ping' }]
+        }),
+        signal: AbortSignal.timeout(4000)
+      });
+      const latencyMs = Date.now() - start;
+      return {
+        reachable: true,
+        status: response.status,
+        latencyMs,
+        model: this.model,
+        endpoint: this.apiUrl,
+        challengeReceived: response.status === 402
+      };
+    } catch {
+      return {
+        reachable: false,
+        status: 0,
+        latencyMs: Date.now() - start,
+        model: this.model,
+        endpoint: this.apiUrl,
+        challengeReceived: false
+      };
+    }
+  }
+
   /**
    * Constructs the strict, bounded AI prompt input from verified forensic evidence.
    * Strips all internal environment variables, RPC URLs, and wallet credentials.
