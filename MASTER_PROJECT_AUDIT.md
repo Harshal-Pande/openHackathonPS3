@@ -1,13 +1,13 @@
 # RevertLens — Definitive Master Project Audit & Technical Evaluation
-**Document Version:** 2.0.0 (Comprehensive Master Audit)  
-**Date:** 2026-11-08  
-**Project:** RevertLens — "Your Celo transaction failed. Find out why."  
-**Hackathon:** Agents on Open Rails 2026 | Loops House × Celo  
-**Track:** PS3 — Build with Buy  
-**Target Network:** Celo Mainnet (`eip155:42220`), Chain ID: `42220`  
-**Official Assigned Attribution Tag:** `celo_235f6ef56f5b`  
-**Intended Agent Wallet:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`  
-**GitHub Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`  
+**Document Version:** 2.1.0 (Comprehensive Master Audit & Technical Evaluation)<br/>
+**Date:** 2026-11-09<br/>
+**Project:** RevertLens — "Your Celo transaction failed. Find out why."<br/>
+**Hackathon:** Agents on Open Rails 2026 | Loops House × Celo<br/>
+**Track:** PS3 — Build with Buy<br/>
+**Target Network:** Celo Mainnet (`eip155:42220`), Chain ID: `42220`<br/>
+**Official Assigned Attribution Tag:** `celo_235f6ef56f5b`<br/>
+**Intended Agent Wallet:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`<br/>
+**GitHub Repository:** `https://github.com/Harshal-Pande/openHackathonPS3.git`<br/>
 **Auditor Roles:** Lead Principal Engineer, Security Architect, Blockchain Integration Engineer, Product Architect, QA Lead  
 
 ---
@@ -20,15 +20,13 @@ When complex transactions revert on EVM chains, public block explorers routinely
 
 ### Core Audited Findings:
 1. **Core Forensic Engine is Genuine and Proven:** Direct live queries to an operator-provisioned Chainstack Celo Mainnet OP Geth node (`eth_getTransactionByHash`, `eth_getTransactionReceipt`, and `debug_traceTransaction` via `callTracer`) successfully reconstruct complex call trees, identify deepest failing frames, decode revert reasons, and compute verifiable SHA-256 evidence ledgers. 14/14 live mainnet verification assertions pass.
-2. **Deterministic Quality Gates Passing:** TypeScript strict mode typecheck passes with 0 errors across server and client. Vitest suite passes 130/130 tests across 15 test files in 4.25s. All 21 API route scenarios pass. Real Chrome DevTools Protocol (CDP) automated browser tests pass across desktop (1280x800) and mobile (375x812) viewports.
+2. **Deterministic Quality Gates Passing:** TypeScript strict mode typecheck passes with 0 errors across server and client. Vitest suite passes 516/516 tests across 23 test files in 13.37s (100% green). All 36 API route scenarios pass across 25 unique Fastify endpoints. Real Chrome DevTools Protocol (CDP) automated browser tests pass across desktop (1280x800) and mobile (375x812) viewports with zero horizontal overflow and flawless report reload rehydration.
 3. **Architecture Decision AD-008 Validated:** Direct high-throughput RPC requests retrieve archive-grade transaction and trace data with zero marginal cost, while reserving `@celo/buy` for paid Cencori AI inference (`cencori.v1.chat.completions`), keeping user costs zero for forensic investigations.
 4. **Attribution Tag & ERC-8004 Prepared:** Assigned attribution tag `celo_235f6ef56f5b` is strictly enforced via `@celo/attribution-tags` ERC-8021 suffix appending and decoding. The ERC-8004 registration transaction calldata is generated and verified. Read-only RPC calls are isolated from tagging.
-5. **Remaining Work Identified & Documented:**
-   - **DEF-14 (High):** Operator auth currently compares against `SESSION_SECRET` rather than `OPERATOR_PASSWORD_HASH`.
-   - **DEF-15 (Medium):** SQLite connection lacks Write-Ahead Logging (`PRAGMA journal_mode = WAL;`) and busy timeout.
-   - **DEF-16 (Medium):** Fastify server lacks SPA fallback handler for deep URLs on browser refresh.
-   - **DEF-17 (Medium):** Revert decoder string length prefix lacks explicit sanity clamping.
-   - **Live Mainnet Actions Pending Human Authorization:** Live paid Buy settlement has not been executed on-chain (wallet balance is 0 CELO; quote and challenge parsing verified); ERC-8004 registration transaction has not been broadcast on Celo Mainnet; cloud deployment to Render/Railway is pending operator account setup.
+5. **Remediated Defects & Real Docker Runtime Verified:**
+   - **DEF-01 through DEF-59 (Confirmed Resolved):** Full regression coverage across all 59 tracked defect items.
+   - **MOD-06.1 Real Docker Verification Complete:** Real Linux AMD64 Docker container built and executed under Docker Desktop 4.98.0 / Engine 29.9.2. Verified non-root execution (UID 1000 node), HTTP health checks, SQLite database creation in `/app/data`, named-volume data persistence across container deletion/recreation, and graceful SIGTERM shutdown (exit code 0, 378ms).
+   - **Live Mainnet Actions Pending Human Authorization:** Live paid Buy settlement has not been executed on-chain ($0.00 spent; wallet balance 0 CELO; quote, challenge parsing, and payment state machines fully verified); ERC-8004 registration transaction calldata is generated and verified, ready for on-chain broadcast following cloud deployment.
 
 ---
 
@@ -37,18 +35,18 @@ When complex transactions revert on EVM chains, public block explorers routinely
 | Subsystem / Dimension | Status | Key Evidence & Justification |
 |:---|:---:|:---|
 | **Frontend & UI (The Evidence Bench)** | `VERIFIED` | React 19 + Vite modular architecture; Geist typography; Lucide icons; zero horizontal overflow; full CDP browser test pass; WCAG AAA contrast. |
-| **Backend & Fastify API** | `PARTIALLY_VERIFIED` | Fastify 5 server with Zod validation, error redaction, CORS, and health endpoints. 21/21 route scenarios pass. Needs SPA fallback handler (DEF-16). |
+| **Backend & Fastify API** | `VERIFIED` | Fastify 5 server with Zod validation, error redaction, CORS, SPA fallback handling, and health endpoints. 36/36 route scenarios pass across 25 endpoints. |
 | **Forensic Engine & Trace Parser** | `VERIFIED` | 5-tier causality classifier; caught vs. propagated revert separation; bounds on depth (100) & frames (1000); 100% SHA-256 evidence verification. |
-| **Database & Persistence Layer** | `PARTIALLY_VERIFIED` | Node 22 native `DatabaseSync` SQLite with automated migrations and cross-process recovery verified. Needs WAL mode & busy timeout (DEF-15). |
-| **AI Inference & Cencori Integration** | `PARTIALLY_VERIFIED` | Evidence-bound prompt construction; HTTP 402 challenge parsing; Zod schema validation; fallback safety. Live settlement not executed. |
-| **Build with Buy Integration** | `PARTIALLY_VERIFIED` | Quote generation, body SHA-256 binding, spending caps, and operator approval verified. Live payment settlement awaiting funding & execution. |
+| **Database & Persistence Layer** | `VERIFIED` | Node 22 native `DatabaseSync` SQLite with WAL mode (`PRAGMA journal_mode = WAL`), busy timeout (5000ms), automated migrations, cross-process recovery, and named-volume persistence verified. |
+| **AI Inference & Cencori Integration** | `PARTIALLY_VERIFIED` | Evidence-bound prompt construction; HTTP 402 challenge parsing; Zod schema validation; fallback safety. Live settlement not executed ($0 spend preserved). |
+| **Build with Buy Integration** | `PARTIALLY_VERIFIED` | Quote generation, body SHA-256 binding, spending caps, state machine, and operator approval verified. Live payment settlement awaiting funding & execution. |
 | **Attribution Tag Integration** | `VERIFIED` | Assigned tag `celo_235f6ef56f5b` strictly enforced via `toDataSuffix()` and verified via `fromDataSuffix()`. Read-only RPC calls untagged. |
 | **Agent Wallet Configuration** | `VERIFIED` | Intended wallet `0x3e1bef07824cd0E076F4907641F0A0EF27898e52` verified. On-chain balance confirmed 0 CELO via read-only RPC. |
 | **ERC-8004 Agent Identity** | `PREPARED_NOT_EXECUTED` | Tagged registration calldata generated; registry address `0x8004A169...` confirmed; public metadata schema validated; broadcast pending deployment. |
-| **Security & Authorization** | `VERIFIED` | Salted scrypt password hashing, independent HMAC-signed sessions, rate limiting on login and public ingestion, URL secret redaction, path traversal guards. DEF-14 resolved in MOD-02. |
-| **Automated Testing Suite** | `VERIFIED` | 166/166 unit & integration tests pass (18 files); 28 route scenarios pass; 14 live investigation checks pass; CDP browser E2E passes. |
-| **Container & Deployment Setup** | `PARTIALLY_VERIFIED` | Multi-stage Dockerfile validated statically. Local Docker daemon offline; cloud hosting pending operator setup. |
-| **Documentation & Provenance** | `VERIFIED` | All 62 historical documents archived into `docs/archive/`; unified `MASTER_CHANGELOG.md`; clean active workspace root. |
+| **Security & Authorization** | `VERIFIED` | Salted scrypt password hashing, independent HMAC-signed sessions, rate limiting on login and public ingestion, URL secret redaction, path traversal guards. DEF-14..DEF-22 resolved. |
+| **Automated Testing Suite** | `VERIFIED` | 516/516 unit & integration tests pass (23 files); 36 route scenarios pass; 14 live investigation checks pass; CDP browser E2E passes; 17 gitingest checks pass. |
+| **Container & Deployment Setup** | `VERIFIED` | Multi-stage Dockerfile verified with real Docker Engine 29.9.2 under MOD-06.1. Non-root user (UID 1000), volume persistence, and graceful SIGTERM shutdown verified. |
+| **Documentation & Provenance** | `VERIFIED` | All historical documents archived into `docs/archive/`; unified `MASTER_CHANGELOG.md`; clean active workspace root. |
 | **Hackathon Submission Readiness** | `BLOCKED_ON_OPERATOR` | Core technology verified; blocked on operator cloud deployment, gas funding, ERC-8004 broadcast, and video recording. |
 
 ---
@@ -106,8 +104,8 @@ Every backend endpoint defined in `src/server/app.ts` was audited against `docs/
 13. `GET /` — **VERIFIED (200)**: Serves SPA `index.html`.
 14. `GET /assets/*` — **VERIFIED (200 / 403 / 404)**: Serves static JS, CSS, and fonts with path-traversal prevention.
 
-#### Backend Defect Identified:
-- **DEF-16 (Medium):** No fallback handler for non-API deep routes (e.g. `GET /investigation/uuid` directly in browser bar).
+#### Backend Defect Remediated:
+- **DEF-16 (Medium):** SPA fallback handling added for non-API deep routes (`/history`, `/about`, `/operator`, `/investigation/:id`) with clean redirects and 404 envelope; verified across 36 route scenarios.
 
 ---
 
@@ -126,7 +124,7 @@ The forensic engine in `src/server/forensics/` represents the core value proposi
 - Standard `Error(string)` (`0x08c379a0`): Decodes ABI string offset, length, and ASCII reason.
 - Standard `Panic(uint256)` (`0x4e487b71`): Maps 10 standard Solidity panic codes (e.g., `0x11` = overflow, `0x12` = divide by zero, `0x32` = array out of bounds).
 - Custom Errors: Extracts 4-byte selector and retains raw calldata for contract ABI lookup.
-- **Defect Identified (DEF-17):** Length prefix parsing lacks explicit sanity clamping (`0 <= strLen <= 4096`).
+- **Remediated Defect (DEF-17):** Clamped length prefix parsing (`0 <= strLen <= 4096`) and safe offset validation implemented in `revertDecoder.ts`.
 
 #### Forensic Golden Cases Evaluation:
 - **GC-01 (Explicit Revert):** PASSED. Decodes exact revert string.
@@ -158,7 +156,7 @@ The frontend was redesigned in Phase 12 into "The Evidence Bench", an institutio
 - **Engine:** Node.js 22 built-in `DatabaseSync` (`node:sqlite`).
 - **Persistence Verification:** Verified across genuine operating system process boundaries via `fork()` in `scripts/verify_live_investigation.mjs`. Child process opens the SQLite file, retrieves the investigation by ID, and verifies all 5 SHA-256 evidence hashes.
 - **Indexes:** Primary indexes on `investigations(tx_hash)` and `investigations(created_at DESC)`; foreign key indexes on `evidence_items(investigation_id)`.
-- **Defect Identified (DEF-15):** SQLite connection runs in default `DELETE` journal mode. Requires `PRAGMA journal_mode = WAL;` and `PRAGMA busy_timeout = 5000;` to prevent write contention in production.
+- **Remediated Defect (DEF-15):** SQLite connection configured with `PRAGMA journal_mode = WAL;` and `PRAGMA busy_timeout = 5000;` on initialization, verified in `databaseReliability.test.ts`.
 
 ---
 
@@ -264,7 +262,7 @@ Antigravity re-executed all verification commands in the workspace:
    - Result: **0 errors** across server and client codebases.
 2. **Vitest Automated Suites (`npm test`):**
    - Command: `vitest run`
-   - Result: **22 test files passed, 498/498 tests passed** (100% green; including 24 in `erc8004Registration.test.ts`, 104 in `erc8021.test.ts`, 11 in `chainstackProvider.test.ts`, 30 in `config.test.ts`, 11 in `attribution.test.ts`, and 147 in `buySecurity.test.ts`).
+   - Result: **23 test files passed, 516/516 tests passed** (100% green, 13.37s duration; including 17 in `dockerRuntime.test.ts`, 24 in `erc8004Registration.test.ts`, 104 in `erc8021.test.ts`, 11 in `chainstackProvider.test.ts`, 31 in `config.test.ts`, 11 in `attribution.test.ts`, and 147 in `buySecurity.test.ts`).
 3. **Production Build (`npm run build`):**
    - Command: `npm run build:server && npm run build:client`
    - Result: **Clean build**. Compiled server to `dist/server/`, client to `dist/client/`. 0 warnings.
@@ -281,9 +279,9 @@ Antigravity re-executed all verification commands in the workspace:
 ---
 
 ### 3.12 Deployment & Submission Audit
-- **Containerization:** Multi-stage `Dockerfile` (Node 22 Alpine builder + runner) builds the server and client cleanly. Persistent mount at `/app/data` is configured.
+- **Containerization:** Multi-stage `Dockerfile` (Node 22 Alpine builder + runner) builds the server and client cleanly. Persistent mount at `/app/data` is configured. Real Docker Engine 29.9.2 runtime verified under MOD-06.1 (non-root UID 1000, volume recreation persistence, and graceful SIGTERM teardown in 378ms).
 - **Hosting Compatibility:** Compatible with Render, Railway, or Fly.io Docker web services with persistent disk attachment.
 - **Production Start Command:** `CMD ["node", "dist/server/index.js"]`.
 - **Health Check Endpoint:** `GET /api/health` returns `200 OK`.
 - **ERC-8004 Registration Status:** MOD-05A Preparation & Audit complete (contract verified, proxy verified, metadata schema strictly validated, preview endpoint and receipt verifier implemented). On-chain mint scheduled for Module 5B post-MOD-06 deployment.
-- **Submission Blockers Remaining:** Cloud deployment (MOD-06), wallet gas funding (~0.1 CELO), on-chain ERC-8004 broadcast (MOD-05B), live Buy settlement, 3-minute video recording.
+- **Submission Blockers Remaining:** Cloud deployment (MOD-06.2), wallet gas funding (~0.1 CELO), on-chain ERC-8004 broadcast (MOD-05B), live Buy settlement, 3-minute video recording.

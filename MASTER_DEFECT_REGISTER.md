@@ -1,6 +1,6 @@
 # RevertLens — Master Defect Register
-**Document Version:** 2.0.0 (Master Audit & Reconciled)  
-**Last Updated:** 2026-11-08  
+**Document Version:** 2.1.0 (Master Audit & Reconciled)<br/>
+**Last Updated:** 2026-11-09<br/>
 **Audit Standard:** Comprehensive defect discovery, root cause analysis, classification, and remediation planning  
 
 ---
@@ -104,5 +104,7 @@
 7. **Module 4.1:** COMPLETED (DEF-49 through DEF-55 remediations, 458 passing tests across 21 suites).
 8. **Module 4.2:** COMPLETED (DEF-56 through DEF-59 remediations, 474 passing tests across 21 suites).
 9. **Module 5A:** COMPLETED (ERC-8004 Registration Preparation, Implementation Audit & Readiness, 498 passing tests across 22 suites, 24/24 tests in erc8004Registration.test.ts).
-10. **Module 6:** Full-stack deployment on public cloud (Render / Railway) to obtain live verified HTTPS URL.
-11. **Module 5B:** Authorize and broadcast ERC-8004 registration transaction with live verified public metadata URL (OP-02).
+10. **Module 6.1:** COMPLETED (Real Docker runtime verification, non-root execution, named-volume persistence, and graceful SIGTERM shutdown verified under Docker Desktop 4.98.0 / Engine 29.9.2, 516 passing tests across 23 suites).
+11. **Module 6.2:** Public Cloud Deployment (Render / Railway) pending operator hosting credentials.
+12. **Module 5B:** Authorize and broadcast ERC-8004 registration transaction with live verified public metadata URL (OP-02).
+13. **Master Project Audit (MASTER-AUDIT-2026-01):** COMPLETED (Full historical phase review, source code security audit, defect discovery, repairs, and release reconciliation).

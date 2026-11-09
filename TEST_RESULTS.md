@@ -1,8 +1,8 @@
 # RevertLens — Automated Test & Verification Results
 
-**Date/time:** 2026-11-08 20:15:00 UTC
-**Phase:** Module 5A: ERC-8004 Registration Preparation, Implementation Audit & Readiness (MOD-05A)
-**Node:** v22.14.0
+**Date/time:** 2026-11-09 10:10:00 UTC
+**Phase:** Master Project Audit and Remediation (MASTER-AUDIT-2026-01)
+**Node:** v22.17.0
 **npm:** 11.6.1
 **Target Network:** Celo Mainnet (`eip155:42220`)
 **Paying Wallet Address:** `0x3e1bef07824cd0E076F4907641F0A0EF27898e52`
@@ -14,28 +14,30 @@
 
 | Command | Exit Code | Result | Key Output & Notes |
 |:---|:---:|:---:|:---|
+| `npx vitest run tests/dockerRuntime.test.ts` | **0** | **`PASS`** | **17/17 tests passed** (100% green; Docker runtime environment, healthcheck parity, non-root user verification, volume persistence paths, graceful shutdown handlers). |
 | `npx vitest run tests/erc8004Registration.test.ts` | **0** | **`PASS`** | **24/24 tests passed** (100% green; strict EIP-8004 metadata schema, calldata builder, safe preview endpoint, and forensic receipt verification). |
 | `npx vitest run tests/erc8021.test.ts` | **0** | **`PASS`** | **104/104 tests passed** (100% green; attribution tagging, SDK integration, schema validation, classification). |
-| `npx vitest run tests/config.test.ts` | **0** | **`PASS`** | **30/30 tests passed** (100% green; IP validation, URL protocol, agent wallet invariant). |
+| `npx vitest run tests/config.test.ts` | **0** | **`PASS`** | **31/31 tests passed** (100% green; IP validation, URL protocol, agent wallet invariant, production path validations). |
 | `npx vitest run tests/attribution.test.ts` | **0** | **`PASS`** | **11/11 tests passed** (100% green). |
 | `npx vitest run tests/chainstackProvider.test.ts` | **0** | **`PASS`** | **11/11 tests passed** (100% green; strict read-only RPC method allowlist). |
 | `npx vitest run tests/buySecurity.test.ts` | **0** | **`PASS`** | **147/147 tests passed** (100% green). |
 | `npm run typecheck` | **0** | **`PASS`** | Server (`tsconfig.server.json`) & client (`tsconfig.client.json`) strict mode; **0 errors**. |
-| `npm test` | **0** | **`PASS`** | **22 test files passed, 498/498 tests passed** (100% green). |
+| `npm test` | **0** | **`PASS`** | **23 test files passed, 516/516 tests passed** (100% green, 13.37s duration). |
 | `npm run build` | **0** | **`PASS`** | Clean build: `dist/server/` compiled; `dist/client/` bundle split into `vendor-react` (430.4 kB), `vendor-icons` (15.7 kB), `index` (189.6 kB). **0 warnings**. |
 | `node scripts/verify_all_routes.mjs` | **0** | **`PASS`** | **36/36 test scenarios passed** across 25 unique Fastify endpoints (including agent metadata and canonical tagged ERC-8004 preparation). |
 | `node scripts/browser_e2e_cdp.mjs` | **0** | **`PASS`** | Real Chrome DevTools Protocol automated testing: Desktop (1280x800) and Mobile (375x812) viewports fully validated with exit code 0. |
+| `npm run gitingest:check` | **0** | **`PASS`** | All 17 automated checks passed; snapshot and digest manifest verified intact. |
 | `git diff --check` | **0** | **`PASS`** | Clean whitespace across all files; zero trailing whitespaces or conflict markers. |
 
 ---
 
-## 2. Test Breakdown by File (22 Suites, 498 Tests)
+## 2. Test Breakdown by File (23 Suites, 516 Tests)
 
 | # | Test File | Test Count | Classification | Result |
 |:---:|:---|:---:|:---|:---:|
 | 1 | `tests/operatorAuth.test.ts` | **40** | `LOCAL_INTEGRATION` | **PASS** |
 | 2 | `tests/rateLimiter.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| 3 | `tests/config.test.ts` | **30** | `LOCAL` | **PASS** |
+| 3 | `tests/config.test.ts` | **31** | `LOCAL` | **PASS** |
 | 4 | `tests/databaseReliability.test.ts` | **4** | `LOCAL_INTEGRATION` | **PASS** |
 | 5 | `tests/revertDecoder.test.ts` | **12** | `LOCAL` | **PASS** |
 | 6 | `tests/chainstackProvider.test.ts` | **11** | `LOCAL` | **PASS** |
@@ -55,7 +57,8 @@
 | 20 | `tests/investigations.test.ts` | **6** | `LOCAL_INTEGRATION` | **PASS** |
 | 21 | `tests/buyAdapter.test.ts` | **9** | `LOCAL_INTEGRATION` | **PASS** |
 | 22 | `tests/paymentLifecycle.test.ts` | **10** | `LOCAL_INTEGRATION` | **PASS** |
-| **Total** | **22 Test Suites** | **498 Tests** | **100% Automated** | **498 PASS** |
+| 23 | `tests/dockerRuntime.test.ts` | **17** | `LOCAL_INTEGRATION` | **PASS** |
+| **Total** | **23 Test Suites** | **516 Tests** | **100% Automated** | **516 PASS** |
 
 ---
 
